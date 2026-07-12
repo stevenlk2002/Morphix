@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# WorkBuddy internal
+.workbuddy/
+
+# Large reference files
+*.docx
+*.pdf
+12TUI*
+
+# System artifacts
+--width
+eval.err
+*.log
+
+# Node / Python (NoCodeFlow)
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
