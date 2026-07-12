@@ -1,0 +1,3111 @@
+openapi: 3.1.0
+info:
+  title: Morphix API 统一契约
+  version: 0.1.0-draft
+  summary: 总控编排、会话运行时与设备接入的统一 OpenAPI 契约
+  description: |
+    本文件是 Morphix 的统一 API 契约，由以下两份初稿合并而成：
+    - openapi-总控编排与会话运行时.yaml
+    - openapi-设备接入补充接口.yaml
+
+    合并后覆盖范围：
+    - 入站消息与事件接入（Runtime Inbound / Device Inbound）
+    - 会话查询、运行态观察与人工接管（Control Conversations）
+    - 工作流运行控制与运行轨迹（Control Workflow Runs）
+    - 设备命令创建与回执闭环（Runtime Device Commands / Device Callback）
+    - 策略决策与 Agent 调用审计（Audit）
+    - 内部编排协作（Internal Orchestration）
+    - 设备注册绑定、心跳在线、联系人/群同步、诊断上报
+      （Device Provisioning / Device Presence / Device Sync / Device Diagnostics）
+
+    设计原则：
+    - 控制面、执行面、设备面、内部编排分层清晰
+    - 高风险写操作默认要求幂等
+    - 返回体统一为 requestId/success/data/error 包裹结构
+    - Supervisor Agent 仅作为复杂场景辅助，不直接越权改写主状态
+    - 设备端是边缘执行站点，不承担工作流主决策
+    - 服务端保留暂停拉命令、冻结设备、限制速率等反向控制能力
+servers:
+  - url: https://api.morphix.local
+    description: 默认联调环境
+  - url: http://localhost:8000
+    description: 本地开发环境
+tags:
+  - name: Runtime Inbound
+    description: 渠道接入层/网关上报入站消息与事件接入
+  - name: Control Conversations
+    description: 会话查询、运行态观察与人工接管
+  - name: Control Workflow Runs
+    description: 工作流运行控制与运行轨迹查询
+  - name: Runtime Device Commands
+    description: 设备命令创建
+  - name: Device Callback
+    description: 设备拉取命令与执行回执
+  - name: Audit
+    description: 策略决策与 Agent 调用审计
+  - name: Internal Orchestration
+    description: Orchestrator、Policy Router、Agent Executor 内部协作
+  - name: Device Provisioning
+    description: 设备注册、绑定与令牌初始化
+  - name: Device Presence
+    description: 设备在线状态、心跳与账号状态同步
+  - name: Device Inbound
+    description: 设备直接上报入站消息与会话事实
+  - name: Device Sync
+    description: 联系人、群聊及基础目录同步
+  - name: Device Diagnostics
+    description: 诊断日志、运行快照与排障资料上报
+security:
+  - ControlAuth: []
+paths:
+  /api/runtime/inbound-events/messages:
+    post:
+      tags:
+        - Runtime Inbound
+      operationId: createInboundMessageEvent
+      summary: 上报入站消息
+      description: 渠道接入层或设备网关把标准化后的客户消息事件上报给总控编排层。
+      security:
+        - RuntimeAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundMessageEventRequest'
+            examples:
+              directText:
+                value:
+                  projectId: 01JPROJECT
+                  channelAccountId: 01JACCOUNT
+                  deviceId: 01JDEVICE
+                  conversationType: direct
+                  sourceConversationId: wx_conv_9981
+                  sourceMessageId: wx_msg_abc_001
+                  contact:
+                    externalUid: wx_user_7788
+                    displayName: 张三
+                  message:
+                    messageType: text
+                    contentText: 我想了解下报价
+                    sentAt: '2026-07-12T16:30:00+08:00'
+                  metadata:
+                    channelType: wechat
+                    roomTopic: null
+                    rawPayloadDigest: sha256:xxxx
+      responses:
+        '202':
+          description: 已接收入站事件并进入编排链路
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundMessageEventAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 幂等冲突或消息重复
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/runtime/inbound-events/{requestId}:
+    get:
+      tags:
+        - Runtime Inbound
+      operationId: getInboundEventStatus
+      summary: 查询入站事件处理结果
+      security:
+        - RuntimeAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdPath'
+      responses:
+        '200':
+          description: 返回入站事件当前处理状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundEventStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/control/conversations:
+    get:
+      tags:
+        - Control Conversations
+      operationId: listConversations
+      summary: 查询会话列表
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdQueryRequired'
+        - $ref: '#/components/parameters/ChannelAccountIdQuery'
+        - $ref: '#/components/parameters/BotIdQuery'
+        - $ref: '#/components/parameters/SessionStateQuery'
+        - $ref: '#/components/parameters/HandoffStatusQuery'
+        - $ref: '#/components/parameters/KeywordQuery'
+        - $ref: '#/components/parameters/UpdatedAfterQuery'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
+      responses:
+        '200':
+          description: 会话分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/control/conversations/{conversationId}:
+    get:
+      tags:
+        - Control Conversations
+      operationId: getConversation
+      summary: 查询会话详情
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+      responses:
+        '200':
+          description: 会话详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/control/conversations/{conversationId}/messages:
+    get:
+      tags:
+        - Control Conversations
+      operationId: listConversationMessages
+      summary: 查询会话消息流水
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/BeforeSeqQuery'
+        - $ref: '#/components/parameters/AfterSeqQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: 消息分页结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationMessageListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/control/conversations/{conversationId}/runtime:
+    get:
+      tags:
+        - Control Conversations
+      operationId: getConversationRuntime
+      summary: 查询当前运行态
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+      responses:
+        '200':
+          description: 当前会话运行态快照
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationRuntimeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/control/conversations/{conversationId}/handoff:
+    post:
+      tags:
+        - Control Conversations
+      operationId: handoffConversationToHuman
+      summary: 发起人工接管
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HandoffRequest'
+      responses:
+        '200':
+          description: 接管成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/control/conversations/{conversationId}/handoff/return:
+    post:
+      tags:
+        - Control Conversations
+      operationId: returnConversationToAi
+      summary: 交还托管
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HandoffReturnRequest'
+      responses:
+        '200':
+          description: 交还成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/control/conversations/{conversationId}/policy-decisions:
+    get:
+      tags:
+        - Audit
+      operationId: listConversationPolicyDecisions
+      summary: 查询会话决策日志
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/DecisionTypeQuery'
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
+      responses:
+        '200':
+          description: 决策日志分页结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyDecisionListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/control/workflow-runs:
+    post:
+      tags:
+        - Control Workflow Runs
+      operationId: createWorkflowRun
+      summary: 手动启动工作流运行
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRunRequest'
+      responses:
+        '201':
+          description: 已创建运行实例
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWorkflowRunResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/control/workflow-runs/{runId}:
+    get:
+      tags:
+        - Control Workflow Runs
+      operationId: getWorkflowRun
+      summary: 查询运行实例详情
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+      responses:
+        '200':
+          description: 运行实例详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/control/workflow-runs/{runId}/node-executions:
+    get:
+      tags:
+        - Control Workflow Runs
+      operationId: listNodeExecutions
+      summary: 查询运行实例节点轨迹
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+      responses:
+        '200':
+          description: 节点执行轨迹
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeExecutionListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/control/workflow-runs/{runId}/interrupt:
+    post:
+      tags:
+        - Control Workflow Runs
+      operationId: interruptWorkflowRun
+      summary: 中断运行实例
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterruptWorkflowRunRequest'
+      responses:
+        '200':
+          description: 已中断运行实例
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunStateMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/control/workflow-runs/{runId}/resume:
+    post:
+      tags:
+        - Control Workflow Runs
+      operationId: resumeWorkflowRun
+      summary: 恢复运行实例
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeWorkflowRunRequest'
+      responses:
+        '200':
+          description: 已发起恢复
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunStateMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/control/workflow-runs/{runId}/cancel:
+    post:
+      tags:
+        - Control Workflow Runs
+      operationId: cancelWorkflowRun
+      summary: 取消运行实例
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelWorkflowRunRequest'
+      responses:
+        '200':
+          description: 已取消运行实例
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunStateMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/control/workflow-runs/{runId}/policy-decisions:
+    get:
+      tags:
+        - Audit
+      operationId: listWorkflowRunPolicyDecisions
+      summary: 查询单次运行的策略决策
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+      responses:
+        '200':
+          description: 单次运行的决策日志
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyDecisionListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/control/workflow-runs/{runId}/agent-invocations:
+    get:
+      tags:
+        - Audit
+      operationId: listAgentInvocations
+      summary: 查询 Agent 调用记录
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+      responses:
+        '200':
+          description: Agent 调用记录列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentInvocationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/runtime/device-commands:
+    post:
+      tags:
+        - Runtime Device Commands
+      operationId: createDeviceCommand
+      summary: 创建设备命令
+      security:
+        - RuntimeAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceCommandRequest'
+      responses:
+        '201':
+          description: 已创建设备命令
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateDeviceCommandResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/commands/pending:
+    get:
+      tags:
+        - Device Callback
+      operationId: listPendingDeviceCommands
+      summary: 设备拉取待执行命令
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdQueryRequired'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: 待执行命令列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingDeviceCommandListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/device/commands/{commandId}/ack:
+    post:
+      tags:
+        - Device Callback
+      operationId: ackDeviceCommand
+      summary: 上报设备命令 ACK
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommandIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCommandAckRequest'
+      responses:
+        '200':
+          description: ACK 已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCommandMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/device/commands/{commandId}/complete:
+    post:
+      tags:
+        - Device Callback
+      operationId: completeDeviceCommand
+      summary: 上报设备命令完成回执
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommandIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCommandCompleteRequest'
+      responses:
+        '200':
+          description: 完成回执已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCommandMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/device/commands/{commandId}/fail:
+    post:
+      tags:
+        - Device Callback
+      operationId: failDeviceCommand
+      summary: 上报设备命令失败回执
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommandIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCommandFailRequest'
+      responses:
+        '200':
+          description: 失败回执已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCommandMutationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /internal/policy-router/evaluate:
+    post:
+      tags:
+        - Internal Orchestration
+      operationId: evaluatePolicyRoute
+      summary: Orchestrator 请求策略路由
+      security:
+        - InternalServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalPolicyEvaluateRequest'
+      responses:
+        '200':
+          description: 返回结构化路由决策
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalPolicyEvaluateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /internal/agent-executor/invoke:
+    post:
+      tags:
+        - Internal Orchestration
+      operationId: invokeAgentExecutor
+      summary: Runtime 请求 Agent 执行
+      security:
+        - InternalServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalAgentInvokeRequest'
+      responses:
+        '200':
+          description: 返回结构化执行结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalAgentInvokeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /internal/agent-executor/supervisor:
+    post:
+      tags:
+        - Internal Orchestration
+      operationId: invokeSupervisorAgent
+      summary: Runtime 请求 Supervisor Agent 辅助决策
+      description: 仅用于复杂场景辅助，不允许直接改写会话主状态或绕开 Policy Router。
+      security:
+        - InternalServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalSupervisorRequest'
+      responses:
+        '200':
+          description: 返回结构化建议
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalSupervisorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/registrations:
+    post:
+      tags:
+        - Device Provisioning
+      operationId: registerDevice
+      summary: 注册并绑定设备
+      description: |
+        设备首次安装或重置后，通过绑定码完成项目、渠道账号与设备身份的建立。
+        成功后返回 deviceToken，供后续心跳、拉命令、回执和同步接口使用。
+      security:
+        - DeviceProvisioningAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRegistrationRequest'
+            examples:
+              androidWechat:
+                value:
+                  bindCode: BIND-20260712-8F2KQ
+                  projectId: 01JPROJECT
+                  channelType: wechat
+                  accountType: personal
+                  installFingerprint: android-14:pixel7:abc123
+                  deviceMeta:
+                    brand: Google
+                    model: Pixel 7
+                    osVersion: Android 14
+                    appVersion: 0.1.0
+                    locale: zh-CN
+                    timezone: Asia/Shanghai
+                    networkType: wifi
+      responses:
+        '201':
+          description: 设备已注册并完成绑定
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 绑定码失效、已被使用或设备已绑定到其他项目
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/device/registrations/{deviceId}/refresh-token:
+    post:
+      tags:
+        - Device Provisioning
+      operationId: refreshDeviceToken
+      summary: 刷新设备令牌
+      description: 当设备令牌即将过期或服务端要求轮换时调用。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenRefreshRequest'
+      responses:
+        '200':
+          description: 已签发新令牌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceTokenRefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/device/heartbeats:
+    post:
+      tags:
+        - Device Presence
+      operationId: reportDeviceHeartbeat
+      summary: 上报设备心跳
+      description: |
+        设备定时上报在线状态、队列长度、账号状态、最近命令执行进度等信息。
+        服务端可在响应中返回暂停拉取、冻结、强制诊断等控制指令。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceHeartbeatRequest'
+      responses:
+        '200':
+          description: 心跳已接收并返回设备侧控制信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceHeartbeatResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/inbound-messages:
+    post:
+      tags:
+        - Device Inbound
+      operationId: reportDeviceInboundMessage
+      summary: 设备直接上报入站消息
+      description: |
+        当设备端直接感知到来自微信、企微等渠道的入站消息时，向平台上报标准化事件。
+        该接口通常由设备接入层调用，也允许 Device Agent 直接调用。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInboundMessageRequest'
+            examples:
+              directText:
+                value:
+                  deviceId: 01JDEVICE
+                  channelAccountId: 01JACCOUNT
+                  channelType: wechat
+                  sourceConversationId: wx_conv_9981
+                  sourceMessageId: wx_msg_abc_001
+                  conversationType: direct
+                  contact:
+                    externalUid: wx_user_7788
+                    displayName: 张三
+                  message:
+                    messageType: text
+                    contentText: 我想了解下报价
+                    sentAt: '2026-07-12T16:30:00+08:00'
+                  rawContext:
+                    appName: WeChat
+                    roomTopic: null
+                    clientSeq: 983472
+      responses:
+        '202':
+          description: 已接收入站消息并转入编排链路
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceInboundMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 重复消息或幂等冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/contact-sync/batches:
+    post:
+      tags:
+        - Device Sync
+      operationId: uploadContactSyncBatch
+      summary: 上报联系人同步批次
+      description: |
+        设备按批次上传联系人快照或增量变更。
+        首次全量同步建议拆分为多批次，每批都带上 syncSessionId 与批次序号。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactSyncBatchRequest'
+      responses:
+        '202':
+          description: 联系人批次已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncBatchAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/group-sync/batches:
+    post:
+      tags:
+        - Device Sync
+      operationId: uploadGroupSyncBatch
+      summary: 上报群聊同步批次
+      description: |
+        设备按批次上传群聊基础信息、成员摘要与变更事实。
+        MVP 先关注群基础元数据与成员数，不强求完整群关系图一次性建完。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupSyncBatchRequest'
+      responses:
+        '202':
+          description: 群聊批次已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncBatchAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/diagnostics/log-batches:
+    post:
+      tags:
+        - Device Diagnostics
+      operationId: uploadDeviceDiagnosticLogs
+      summary: 上报诊断日志批次
+      description: |
+        设备在异常回放、联调排障或灰度观察期间上报结构化日志。
+        推荐仅上传必要字段和摘要，不直接上传原始敏感内容。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDiagnosticLogBatchRequest'
+      responses:
+        '202':
+          description: 日志批次已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticUploadAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/diagnostics/snapshots:
+    post:
+      tags:
+        - Device Diagnostics
+      operationId: uploadDeviceDiagnosticSnapshot
+      summary: 上报设备运行快照
+      description: |
+        用于人工排障或冻结前取证，上传最近命令、线程状态、存储水位、最近崩溃摘要等结构化快照。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDiagnosticSnapshotRequest'
+      responses:
+        '202':
+          description: 运行快照已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticUploadAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+components:
+  securitySchemes:
+    ControlAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 控制面 JWT 登录态
+    RuntimeAuth:
+      type: apiKey
+      in: header
+      name: X-Runtime-Token
+      description: 执行面服务令牌或签名结果
+    DeviceAuth:
+      type: apiKey
+      in: header
+      name: X-Device-Token
+      description: 设备侧令牌或签名结果
+    InternalServiceAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Service-Token
+      description: 内部服务鉴权令牌
+    DeviceProvisioningAuth:
+      type: apiKey
+      in: header
+      name: X-Device-Provisioning-Key
+      description: 首次注册与绑定使用的一次性预配置密钥或安装凭证
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 幂等键，建议用于入站消息、命令创建、命令回执、接管、运行控制，以及设备注册、心跳、消息上报、同步批次与诊断上传等写操作
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    RequestIdPath:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+    ConversationIdPath:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+    RunIdPath:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+    CommandIdPath:
+      name: commandId
+      in: path
+      required: true
+      schema:
+        type: string
+    DeviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+    ProjectIdQueryRequired:
+      name: projectId
+      in: query
+      required: true
+      schema:
+        type: string
+    ChannelAccountIdQuery:
+      name: channelAccountId
+      in: query
+      required: false
+      schema:
+        type: string
+    BotIdQuery:
+      name: botId
+      in: query
+      required: false
+      schema:
+        type: string
+    SessionStateQuery:
+      name: sessionState
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/SessionState'
+    HandoffStatusQuery:
+      name: handoffStatus
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/HandoffStatus'
+    KeywordQuery:
+      name: keyword
+      in: query
+      required: false
+      schema:
+        type: string
+    UpdatedAfterQuery:
+      name: updatedAfter
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    PageQuery:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeQuery:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
+    BeforeSeqQuery:
+      name: beforeSeq
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+    AfterSeqQuery:
+      name: afterSeq
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+    LimitQuery:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    DeviceIdQueryRequired:
+      name: deviceId
+      in: query
+      required: true
+      schema:
+        type: string
+    DecisionTypeQuery:
+      name: decisionType
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/DecisionType'
+
+  responses:
+    BadRequest:
+      description: 请求格式错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: 未通过鉴权
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: 资源状态冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnprocessableEntity:
+      description: 业务校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required:
+        - requestId
+        - success
+        - data
+        - error
+      properties:
+        requestId:
+          type: string
+        success:
+          type: boolean
+          const: true
+        data: {}
+        error:
+          type: 'null'
+    ErrorEnvelope:
+      type: object
+      required:
+        - requestId
+        - success
+        - data
+        - error
+      properties:
+        requestId:
+          type: string
+        success:
+          type: boolean
+          const: false
+        data:
+          type: 'null'
+        error:
+          $ref: '#/components/schemas/ErrorObject'
+    ErrorObject:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_REQUEST
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - CONFLICT
+            - IDEMPOTENCY_CONFLICT
+            - SESSION_RUNTIME_LOCKED
+            - RUN_STATE_INVALID
+            - RUN_ALREADY_COMPLETED
+            - RUN_INTERRUPT_NOT_ALLOWED
+            - HANDOFF_STATE_INVALID
+            - DEVICE_OFFLINE
+            - DEVICE_UNAUTHORIZED
+            - COMMAND_ALREADY_ACKED
+            - COMMAND_ALREADY_DONE
+            - COMMAND_STATUS_INVALID
+            - RISK_POLICY_BLOCKED
+            - MODEL_PROFILE_NOT_ALLOWED
+            - SUPERVISOR_NOT_ALLOWED
+            - BOT_SELECTION_FAILED
+            - DUPLICATE_MESSAGE
+            - CONVERSATION_NOT_FOUND
+            - WORKFLOW_VERSION_NOT_FOUND
+            - PAYLOAD_INVALID
+            - DEVICE_ALREADY_BOUND
+            - DEVICE_FROZEN
+            - DEVICE_TOKEN_EXPIRED
+            - DEVICE_BIND_CODE_INVALID
+            - DEVICE_HEARTBEAT_STALE
+            - SYNC_BATCH_INVALID
+            - CONTACT_SYNC_CURSOR_INVALID
+            - GROUP_SYNC_CURSOR_INVALID
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+        reason:
+          type: string
+
+    ConversationType:
+      type: string
+      enum:
+        - direct
+        - group
+    MessageType:
+      type: string
+      enum:
+        - text
+        - image
+        - file
+        - voice
+        - video
+        - card
+        - system
+    ChannelType:
+      type: string
+      enum:
+        - wechat
+        - wecom
+        - qq
+        - unknown
+    DispatchMode:
+      type: string
+      enum:
+        - sync_orchestrate
+        - async_queue
+    HostingStatus:
+      type: string
+      enum:
+        - enabled
+        - paused
+        - disabled
+    SessionState:
+      type: string
+      enum:
+        - IDLE
+        - AUTO_HOSTING
+        - WAITING_USER
+        - WAITING_TIMER
+        - WAITING_DEVICE_ACK
+        - HUMAN_HANDOFF
+        - PAUSED_BY_POLICY
+        - ERROR_REVIEW
+        - CLOSED
+    HandoffStatus:
+      type: string
+      enum:
+        - none
+        - requested
+        - active
+        - returning
+    InterruptPolicy:
+      type: string
+      enum:
+        - DROP_NEW
+        - INTERRUPT_AND_REPLAN
+        - MERGE_WINDOW
+    WorkflowRunStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - waiting
+        - interrupted
+        - failed
+        - cancelled
+        - completed
+    ResumeMode:
+      type: string
+      enum:
+        - idle
+        - continue
+        - replan
+        - restart_from_node
+    DeviceCommandStatus:
+      type: string
+      enum:
+        - pending
+        - sent
+        - acked
+        - done
+        - failed
+        - expired
+        - cancelled
+    CommandType:
+      type: string
+      enum:
+        - send_message
+        - send_media
+        - sync_contacts
+        - sync_groups
+        - noop
+    DecisionType:
+      type: string
+      enum:
+        - bot_selection
+        - workflow_selection
+        - interrupt
+        - handoff
+        - model_profile
+        - risk_block
+        - supervisor_gate
+    EventType:
+      type: string
+      enum:
+        - inbound_message
+        - timer_trigger
+        - operator_action
+        - campaign_trigger
+    AgentType:
+      type: string
+      enum:
+        - qa
+        - sales_progress
+        - expression_control
+        - risk_guard
+        - supervisor
+        - summarizer
+
+    ContactRef:
+      type: object
+      required:
+        - externalUid
+      properties:
+        externalUid:
+          type: string
+        displayName:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    InboundMessage:
+      type: object
+      required:
+        - messageType
+        - sentAt
+      properties:
+        messageType:
+          $ref: '#/components/schemas/MessageType'
+        contentText:
+          type: string
+        mediaUrl:
+          type: string
+          format: uri
+        sentAt:
+          type: string
+          format: date-time
+    EventMetadata:
+      type: object
+      properties:
+        channelType:
+          $ref: '#/components/schemas/ChannelType'
+        roomTopic:
+          type:
+            - string
+            - 'null'
+        rawPayloadDigest:
+          type: string
+
+    InboundMessageEventRequest:
+      type: object
+      required:
+        - projectId
+        - channelAccountId
+        - deviceId
+        - conversationType
+        - sourceConversationId
+        - sourceMessageId
+        - contact
+        - message
+      properties:
+        projectId:
+          type: string
+        channelAccountId:
+          type: string
+        deviceId:
+          type: string
+        conversationType:
+          $ref: '#/components/schemas/ConversationType'
+        sourceConversationId:
+          type: string
+        sourceMessageId:
+          type: string
+        contact:
+          $ref: '#/components/schemas/ContactRef'
+        message:
+          $ref: '#/components/schemas/InboundMessage'
+        metadata:
+          $ref: '#/components/schemas/EventMetadata'
+    InboundMessageEventAcceptedData:
+      type: object
+      required:
+        - conversationId
+        - messageId
+        - sessionRuntimeId
+        - accepted
+        - dispatchMode
+      properties:
+        conversationId:
+          type: string
+        messageId:
+          type: string
+        sessionRuntimeId:
+          type: string
+        accepted:
+          type: boolean
+        dispatchMode:
+          $ref: '#/components/schemas/DispatchMode'
+    InboundMessageEventAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InboundMessageEventAcceptedData'
+    InboundEventStatusData:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - accepted
+            - queued
+            - processing
+            - processed
+            - failed
+        conversationId:
+          type: string
+        runId:
+          type: string
+        dispatchResult:
+          type: string
+          enum:
+            - workflow_started
+            - merged_into_existing_run
+            - dropped_by_policy
+            - handed_to_human
+            - failed
+    InboundEventStatusResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InboundEventStatusData'
+
+    ConversationListItem:
+      type: object
+      required:
+        - conversationId
+        - channelAccountId
+        - conversationType
+        - subject
+        - sessionState
+        - handoffStatus
+        - lastMessageAt
+      properties:
+        conversationId:
+          type: string
+        channelAccountId:
+          type: string
+        conversationType:
+          $ref: '#/components/schemas/ConversationType'
+        subject:
+          type: string
+        sessionState:
+          $ref: '#/components/schemas/SessionState'
+        handoffStatus:
+          $ref: '#/components/schemas/HandoffStatus'
+        currentBot:
+          $ref: '#/components/schemas/BotSummary'
+        lastMessageAt:
+          type: string
+          format: date-time
+        lastMessagePreview:
+          type: string
+    BotSummary:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    ConversationListData:
+      type: object
+      required:
+        - items
+        - page
+        - pageSize
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationListItem'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+    ConversationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ConversationListData'
+    ConversationDetail:
+      type: object
+      required:
+        - conversationId
+        - projectId
+        - channelAccountId
+        - conversationType
+        - subject
+        - ownerType
+        - handoffStatus
+      properties:
+        conversationId:
+          type: string
+        projectId:
+          type: string
+        channelAccountId:
+          type: string
+        conversationType:
+          $ref: '#/components/schemas/ConversationType'
+        subject:
+          type: string
+        ownerType:
+          type: string
+          enum:
+            - ai
+            - human
+        handoffStatus:
+          $ref: '#/components/schemas/HandoffStatus'
+        currentBot:
+          $ref: '#/components/schemas/BotSummary'
+        currentWorkflowVersionId:
+          type: string
+        latestHandoff:
+          $ref: '#/components/schemas/HandoffSnapshot'
+        contact:
+          $ref: '#/components/schemas/ContactRef'
+    HandoffSnapshot:
+      type: object
+      properties:
+        operatorId:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        activatedAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+    ConversationDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ConversationDetail'
+    ConversationMessage:
+      type: object
+      required:
+        - messageId
+        - seqNo
+        - senderType
+        - messageType
+        - sentAt
+      properties:
+        messageId:
+          type: string
+        seqNo:
+          type: integer
+        senderType:
+          type: string
+          enum:
+            - customer
+            - ai
+            - human
+            - system
+            - device
+        messageType:
+          $ref: '#/components/schemas/MessageType'
+        contentText:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+        sourceMessageId:
+          type: string
+    ConversationMessageListData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationMessage'
+        hasMore:
+          type: boolean
+        nextBeforeSeq:
+          type: integer
+    ConversationMessageListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ConversationMessageListData'
+    ConversationRuntime:
+      type: object
+      required:
+        - sessionRuntimeId
+        - hostingStatus
+        - sessionState
+        - handoffStatus
+        - interruptPolicy
+        - updatedAt
+      properties:
+        sessionRuntimeId:
+          type: string
+        hostingStatus:
+          $ref: '#/components/schemas/HostingStatus'
+        sessionState:
+          $ref: '#/components/schemas/SessionState'
+        handoffStatus:
+          $ref: '#/components/schemas/HandoffStatus'
+        interruptPolicy:
+          $ref: '#/components/schemas/InterruptPolicy'
+        currentBotId:
+          type: string
+        currentWorkflowVersionId:
+          type: string
+        activeRunId:
+          type:
+            - string
+            - 'null'
+        waitingNodeId:
+          type:
+            - string
+            - 'null'
+        lockedUntil:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        lastPolicyDecisionId:
+          type:
+            - string
+            - 'null'
+        updatedAt:
+          type: string
+          format: date-time
+    ConversationRuntimeResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ConversationRuntime'
+
+    HandoffRequest:
+      type: object
+      required:
+        - projectId
+        - operatorId
+        - reason
+      properties:
+        projectId:
+          type: string
+        operatorId:
+          type: string
+        reason:
+          type: string
+    HandoffReturnRequest:
+      type: object
+      required:
+        - projectId
+        - operatorId
+        - resumeMode
+      properties:
+        projectId:
+          type: string
+        operatorId:
+          type: string
+        resumeMode:
+          $ref: '#/components/schemas/ResumeMode'
+    HandoffResponseData:
+      type: object
+      required:
+        - handoffStatus
+        - sessionState
+      properties:
+        handoffStatus:
+          $ref: '#/components/schemas/HandoffStatus'
+        sessionState:
+          $ref: '#/components/schemas/SessionState'
+        affectedRunId:
+          type:
+            - string
+            - 'null'
+    HandoffResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/HandoffResponseData'
+
+    CreateWorkflowRunRequest:
+      type: object
+      required:
+        - projectId
+        - conversationId
+        - workflowVersionId
+        - triggerType
+      properties:
+        projectId:
+          type: string
+        conversationId:
+          type: string
+        workflowVersionId:
+          type: string
+        triggerType:
+          type: string
+          enum:
+            - manual
+            - inbound_message
+            - retry
+            - campaign
+        inputContext:
+          type: object
+          additionalProperties: true
+    CreateWorkflowRunResponseData:
+      type: object
+      required:
+        - runId
+        - status
+      properties:
+        runId:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkflowRunStatus'
+    CreateWorkflowRunResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CreateWorkflowRunResponseData'
+    WorkflowRunDetail:
+      type: object
+      required:
+        - runId
+        - status
+        - triggerType
+        - startedAt
+      properties:
+        runId:
+          type: string
+        projectId:
+          type: string
+        conversationId:
+          type: string
+        workflowVersionId:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkflowRunStatus'
+        triggerType:
+          type: string
+        currentNodeId:
+          type:
+            - string
+            - 'null'
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        errorCode:
+          type:
+            - string
+            - 'null'
+        errorMessage:
+          type:
+            - string
+            - 'null'
+        resultSummary:
+          type: string
+        parentRunId:
+          type:
+            - string
+            - 'null'
+        rootRunId:
+          type:
+            - string
+            - 'null'
+    WorkflowRunDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/WorkflowRunDetail'
+    NodeExecution:
+      type: object
+      required:
+        - nodeExecutionId
+        - nodeId
+        - nodeType
+        - status
+        - attemptNo
+      properties:
+        nodeExecutionId:
+          type: string
+        nodeId:
+          type: string
+        nodeType:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - waiting
+            - failed
+            - completed
+            - skipped
+        attemptNo:
+          type: integer
+        durationMs:
+          type: integer
+        errorCode:
+          type:
+            - string
+            - 'null'
+        executorType:
+          type: string
+    NodeExecutionListData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeExecution'
+    NodeExecutionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/NodeExecutionListData'
+    InterruptWorkflowRunRequest:
+      type: object
+      required:
+        - reason
+        - operatorId
+      properties:
+        reason:
+          type: string
+        operatorId:
+          type: string
+    ResumeWorkflowRunRequest:
+      type: object
+      required:
+        - resumeMode
+        - operatorId
+      properties:
+        resumeMode:
+          $ref: '#/components/schemas/ResumeMode'
+        operatorId:
+          type: string
+        restartFromNodeId:
+          type: string
+    CancelWorkflowRunRequest:
+      type: object
+      required:
+        - reason
+        - operatorId
+      properties:
+        reason:
+          type: string
+        operatorId:
+          type: string
+    WorkflowRunStateMutationData:
+      type: object
+      required:
+        - runId
+        - status
+      properties:
+        runId:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkflowRunStatus'
+    WorkflowRunStateMutationResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/WorkflowRunStateMutationData'
+
+    DeviceCommandPayload:
+      type: object
+      properties:
+        messageType:
+          $ref: '#/components/schemas/MessageType'
+        contentText:
+          type: string
+        mediaUrl:
+          type: string
+          format: uri
+        extra:
+          type: object
+          additionalProperties: true
+    CreateDeviceCommandRequest:
+      type: object
+      required:
+        - projectId
+        - deviceId
+        - channelAccountId
+        - conversationId
+        - runId
+        - commandType
+        - payload
+      properties:
+        projectId:
+          type: string
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        conversationId:
+          type: string
+        runId:
+          type: string
+        commandType:
+          $ref: '#/components/schemas/CommandType'
+        payload:
+          $ref: '#/components/schemas/DeviceCommandPayload'
+        policyDecisionId:
+          type: string
+    CreateDeviceCommandResponseData:
+      type: object
+      required:
+        - commandId
+        - status
+      properties:
+        commandId:
+          type: string
+        status:
+          $ref: '#/components/schemas/DeviceCommandStatus'
+    CreateDeviceCommandResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CreateDeviceCommandResponseData'
+    PendingDeviceCommand:
+      type: object
+      required:
+        - commandId
+        - commandType
+        - payload
+        - issuedAt
+      properties:
+        commandId:
+          type: string
+        commandType:
+          $ref: '#/components/schemas/CommandType'
+        payload:
+          $ref: '#/components/schemas/DeviceCommandPayload'
+        issuedAt:
+          type: string
+          format: date-time
+        idempotencyKey:
+          type: string
+    PendingDeviceCommandListData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingDeviceCommand'
+    PendingDeviceCommandListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PendingDeviceCommandListData'
+    DeviceCommandAckRequest:
+      type: object
+      required:
+        - deviceId
+        - ackedAt
+      properties:
+        deviceId:
+          type: string
+        ackedAt:
+          type: string
+          format: date-time
+    DeviceCommandCompleteRequest:
+      type: object
+      required:
+        - deviceId
+        - doneAt
+      properties:
+        deviceId:
+          type: string
+        doneAt:
+          type: string
+          format: date-time
+        result:
+          type: object
+          additionalProperties: true
+    DeviceCommandFailRequest:
+      type: object
+      required:
+        - deviceId
+        - failedAt
+        - failureReason
+        - retryable
+      properties:
+        deviceId:
+          type: string
+        failedAt:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+        retryable:
+          type: boolean
+    DeviceCommandMutationData:
+      type: object
+      required:
+        - commandId
+        - status
+      properties:
+        commandId:
+          type: string
+        status:
+          $ref: '#/components/schemas/DeviceCommandStatus'
+    DeviceCommandMutationResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceCommandMutationData'
+
+    PolicyDecision:
+      type: object
+      required:
+        - policyDecisionId
+        - decisionType
+        - decision
+        - decidedAt
+      properties:
+        policyDecisionId:
+          type: string
+        decisionType:
+          $ref: '#/components/schemas/DecisionType'
+        decision:
+          type: string
+        reasonCodes:
+          type: array
+          items:
+            type: string
+        decidedAt:
+          type: string
+          format: date-time
+        modelProfile:
+          type: string
+    PolicyDecisionListData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyDecision'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+    PolicyDecisionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PolicyDecisionListData'
+    AgentInvocation:
+      type: object
+      required:
+        - agentInvocationId
+        - agentType
+        - modelName
+        - latencyMs
+        - estimatedCost
+        - status
+      properties:
+        agentInvocationId:
+          type: string
+        agentType:
+          $ref: '#/components/schemas/AgentType'
+        modelName:
+          type: string
+        latencyMs:
+          type: integer
+        estimatedCost:
+          type: number
+        status:
+          type: string
+          enum:
+            - pending
+            - succeeded
+            - failed
+            - blocked
+        confidence:
+          type: number
+    AgentInvocationListData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentInvocation'
+    AgentInvocationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AgentInvocationListData'
+
+    InternalPolicyEvaluateRequest:
+      type: object
+      required:
+        - projectId
+        - conversationId
+        - sessionRuntimeId
+        - eventType
+        - eventPayload
+        - context
+      properties:
+        projectId:
+          type: string
+        conversationId:
+          type: string
+        sessionRuntimeId:
+          type: string
+        eventType:
+          $ref: '#/components/schemas/EventType'
+        eventPayload:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+    InternalPolicyEvaluateData:
+      type: object
+      required:
+        - botSelection
+        - workflowVersionSelection
+        - allowedAgentSet
+        - modelProfile
+        - interruptDecision
+        - handoffDecision
+        - supervisorNeeded
+      properties:
+        botSelection:
+          type: string
+        workflowVersionSelection:
+          type: string
+        allowedAgentSet:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentType'
+        modelProfile:
+          type: string
+        interruptDecision:
+          $ref: '#/components/schemas/InterruptPolicy'
+        handoffDecision:
+          type: string
+          enum:
+            - stay_ai
+            - suggest_human
+            - force_human
+        supervisorNeeded:
+          type: boolean
+        reasonCodes:
+          type: array
+          items:
+            type: string
+    InternalPolicyEvaluateResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InternalPolicyEvaluateData'
+    InternalAgentInvokeRequest:
+      type: object
+      required:
+        - runId
+        - nodeExecutionId
+        - agentType
+        - modelProfile
+        - structuredInput
+      properties:
+        runId:
+          type: string
+        nodeExecutionId:
+          type: string
+        agentType:
+          $ref: '#/components/schemas/AgentType'
+        modelProfile:
+          type: string
+        structuredInput:
+          type: object
+          additionalProperties: true
+        knowledgeContext:
+          type: object
+          additionalProperties: true
+        toolScope:
+          type: array
+          items:
+            type: string
+    InternalAgentInvokeData:
+      type: object
+      required:
+        - structuredOutput
+        - summary
+        - confidence
+        - latencyMs
+        - estimatedCost
+      properties:
+        structuredOutput:
+          type: object
+          additionalProperties: true
+        summary:
+          type: string
+        confidence:
+          type: number
+        latencyMs:
+          type: integer
+        estimatedCost:
+          type: number
+    InternalAgentInvokeResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InternalAgentInvokeData'
+    InternalSupervisorRequest:
+      type: object
+      required:
+        - runId
+        - conversationId
+        - triggerReason
+        - structuredContext
+        - candidatePlans
+      properties:
+        runId:
+          type: string
+        conversationId:
+          type: string
+        triggerReason:
+          type: string
+        structuredContext:
+          type: object
+          additionalProperties: true
+        candidatePlans:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    InternalSupervisorData:
+      type: object
+      required:
+        - recommendation
+        - confidence
+        - constraints
+      properties:
+        recommendation:
+          type: object
+          additionalProperties: true
+        confidence:
+          type: number
+        constraints:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+    InternalSupervisorResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InternalSupervisorData'
+
+    DeviceRegistrationRequest:
+      type: object
+      required:
+        - bindCode
+        - projectId
+        - channelType
+        - accountType
+        - installFingerprint
+        - deviceMeta
+      properties:
+        bindCode:
+          type: string
+        projectId:
+          type: string
+        channelType:
+          $ref: '#/components/schemas/ChannelType'
+        accountType:
+          type: string
+          enum:
+            - personal
+            - enterprise
+        installFingerprint:
+          type: string
+        deviceMeta:
+          $ref: '#/components/schemas/DeviceMeta'
+    DeviceRegistrationResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - deviceId
+                - projectId
+                - channelAccountId
+                - channelType
+                - deviceToken
+                - tokenExpiresAt
+                - heartbeatIntervalSec
+                - commandPollIntervalSec
+              properties:
+                deviceId:
+                  type: string
+                projectId:
+                  type: string
+                channelAccountId:
+                  type: string
+                channelType:
+                  $ref: '#/components/schemas/ChannelType'
+                deviceToken:
+                  type: string
+                tokenExpiresAt:
+                  type: string
+                  format: date-time
+                heartbeatIntervalSec:
+                  type: integer
+                  minimum: 10
+                commandPollIntervalSec:
+                  type: integer
+                  minimum: 3
+                controlFlags:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/DeviceControlFlag'
+    DeviceTokenRefreshRequest:
+      type: object
+      required:
+        - refreshReason
+      properties:
+        refreshReason:
+          type: string
+          enum:
+            - expiring
+            - rotated_by_server
+            - app_reinstall_recovery
+            - suspected_leakage
+        currentTokenDigest:
+          type: string
+    DeviceTokenRefreshResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - deviceId
+                - deviceToken
+                - tokenExpiresAt
+              properties:
+                deviceId:
+                  type: string
+                deviceToken:
+                  type: string
+                tokenExpiresAt:
+                  type: string
+                  format: date-time
+
+    DeviceHeartbeatRequest:
+      type: object
+      required:
+        - deviceId
+        - reportedAt
+        - deviceStatus
+        - accountStatus
+        - commandQueue
+      properties:
+        deviceId:
+          type: string
+        reportedAt:
+          type: string
+          format: date-time
+        deviceStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+        accountStatus:
+          $ref: '#/components/schemas/ChannelAccountStatus'
+        commandQueue:
+          $ref: '#/components/schemas/DeviceCommandQueueStatus'
+        network:
+          $ref: '#/components/schemas/DeviceNetworkStatus'
+        battery:
+          $ref: '#/components/schemas/DeviceBatteryStatus'
+        appRuntime:
+          $ref: '#/components/schemas/DeviceAppRuntimeStatus'
+        lastSeenMessageAt:
+          type: string
+          format: date-time
+        lastAckedCommandId:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    DeviceHeartbeatResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - serverTime
+                - nextHeartbeatInSec
+                - commandPollIntervalSec
+                - controlDirective
+              properties:
+                serverTime:
+                  type: string
+                  format: date-time
+                nextHeartbeatInSec:
+                  type: integer
+                commandPollIntervalSec:
+                  type: integer
+                controlDirective:
+                  $ref: '#/components/schemas/DeviceControlDirective'
+                warnings:
+                  type: array
+                  items:
+                    type: string
+
+    DeviceInboundMessageRequest:
+      type: object
+      required:
+        - deviceId
+        - channelAccountId
+        - channelType
+        - sourceConversationId
+        - sourceMessageId
+        - conversationType
+        - contact
+        - message
+      properties:
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        channelType:
+          $ref: '#/components/schemas/ChannelType'
+        sourceConversationId:
+          type: string
+        sourceMessageId:
+          type: string
+        conversationType:
+          $ref: '#/components/schemas/ConversationType'
+        contact:
+          $ref: '#/components/schemas/ContactIdentity'
+        group:
+          $ref: '#/components/schemas/GroupIdentity'
+        message:
+          $ref: '#/components/schemas/InboundMessagePayload'
+        rawContext:
+          type: object
+          additionalProperties: true
+    DeviceInboundMessageResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - accepted
+                - eventId
+                - orchestrationRequestId
+              properties:
+                accepted:
+                  type: boolean
+                  const: true
+                eventId:
+                  type: string
+                orchestrationRequestId:
+                  type: string
+                conversationId:
+                  type: string
+                deduplicated:
+                  type: boolean
+
+    ContactSyncBatchRequest:
+      type: object
+      required:
+        - deviceId
+        - channelAccountId
+        - syncSessionId
+        - syncMode
+        - batchNo
+        - finished
+        - contacts
+      properties:
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        syncSessionId:
+          type: string
+        syncMode:
+          $ref: '#/components/schemas/SyncMode'
+        cursor:
+          type: string
+        batchNo:
+          type: integer
+          minimum: 1
+        finished:
+          type: boolean
+        contacts:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/ContactSyncItem'
+    GroupSyncBatchRequest:
+      type: object
+      required:
+        - deviceId
+        - channelAccountId
+        - syncSessionId
+        - syncMode
+        - batchNo
+        - finished
+        - groups
+      properties:
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        syncSessionId:
+          type: string
+        syncMode:
+          $ref: '#/components/schemas/SyncMode'
+        cursor:
+          type: string
+        batchNo:
+          type: integer
+          minimum: 1
+        finished:
+          type: boolean
+        groups:
+          type: array
+          minItems: 1
+          maxItems: 300
+          items:
+            $ref: '#/components/schemas/GroupSyncItem'
+    SyncBatchAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - syncSessionId
+                - batchNo
+                - acceptedCount
+                - finished
+              properties:
+                syncSessionId:
+                  type: string
+                batchNo:
+                  type: integer
+                acceptedCount:
+                  type: integer
+                finished:
+                  type: boolean
+                nextCursor:
+                  type: string
+                ingestJobId:
+                  type: string
+
+    DeviceDiagnosticLogBatchRequest:
+      type: object
+      required:
+        - deviceId
+        - reportedAt
+        - logs
+      properties:
+        deviceId:
+          type: string
+        reportedAt:
+          type: string
+          format: date-time
+        incidentId:
+          type: string
+        logs:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/DeviceDiagnosticLogEntry'
+    DeviceDiagnosticSnapshotRequest:
+      type: object
+      required:
+        - deviceId
+        - capturedAt
+        - snapshotType
+      properties:
+        deviceId:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+        snapshotType:
+          type: string
+          enum:
+            - runtime_state
+            - crash_recovery
+            - command_stall
+            - manual_support
+        summary:
+          type: string
+        lastCommands:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceCommandSnapshotItem'
+        metrics:
+          type: object
+          additionalProperties: true
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagnosticAttachment'
+    DiagnosticUploadAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - accepted
+                - receivedAt
+              properties:
+                accepted:
+                  type: boolean
+                  const: true
+                receivedAt:
+                  type: string
+                  format: date-time
+                incidentId:
+                  type: string
+                supportTicketHint:
+                  type: string
+
+    DeviceMeta:
+      type: object
+      required:
+        - brand
+        - model
+        - osVersion
+        - appVersion
+      properties:
+        brand:
+          type: string
+        model:
+          type: string
+        osVersion:
+          type: string
+        appVersion:
+          type: string
+        locale:
+          type: string
+        timezone:
+          type: string
+        networkType:
+          type: string
+          enum:
+            - wifi
+            - cellular
+            - offline
+            - unknown
+    DeviceStatus:
+      type: string
+      enum:
+        - online
+        - degraded
+        - paused
+        - frozen
+        - offline
+    ChannelAccountStatus:
+      type: string
+      enum:
+        - online
+        - reconnecting
+        - logged_out
+        - restricted
+        - suspended
+    SyncMode:
+      type: string
+      enum:
+        - full
+        - incremental
+    DeviceControlFlag:
+      type: string
+      enum:
+        - pause_command_pull
+        - freeze_device
+        - require_snapshot_upload
+        - downgrade_polling
+    DeviceControlDirective:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - noop
+            - pause_command_pull
+            - resume_command_pull
+            - freeze_device
+            - upload_snapshot
+            - force_token_refresh
+        reason:
+          type: string
+        until:
+          type: string
+          format: date-time
+        params:
+          type: object
+          additionalProperties: true
+    DeviceCommandQueueStatus:
+      type: object
+      required:
+        - pendingCount
+        - runningCount
+        - retryCount
+      properties:
+        pendingCount:
+          type: integer
+          minimum: 0
+        runningCount:
+          type: integer
+          minimum: 0
+        retryCount:
+          type: integer
+          minimum: 0
+        oldestPendingAt:
+          type: string
+          format: date-time
+    DeviceNetworkStatus:
+      type: object
+      properties:
+        networkType:
+          type: string
+          enum:
+            - wifi
+            - cellular
+            - offline
+            - unknown
+        signalLevel:
+          type: integer
+          minimum: 0
+          maximum: 5
+        ipAddress:
+          type: string
+    DeviceBatteryStatus:
+      type: object
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        charging:
+          type: boolean
+        powerSaveMode:
+          type: boolean
+    DeviceAppRuntimeStatus:
+      type: object
+      properties:
+        processState:
+          type: string
+          enum:
+            - foreground
+            - background
+            - restarting
+            - unknown
+        uptimeSec:
+          type: integer
+          minimum: 0
+        lastCrashAt:
+          type: string
+          format: date-time
+        storageUsedMb:
+          type: integer
+          minimum: 0
+    ContactIdentity:
+      type: object
+      required:
+        - externalUid
+      properties:
+        externalUid:
+          type: string
+        displayName:
+          type: string
+        remarkName:
+          type: string
+    GroupIdentity:
+      type: object
+      required:
+        - externalGroupId
+      properties:
+        externalGroupId:
+          type: string
+        groupName:
+          type: string
+    InboundMessagePayload:
+      type: object
+      required:
+        - messageType
+        - sentAt
+      properties:
+        messageType:
+          type: string
+          enum:
+            - text
+            - image
+            - video
+            - voice
+            - file
+            - card
+            - event
+        contentText:
+          type: string
+        mediaUrl:
+          type: string
+          format: uri
+        mediaDigest:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+    ContactSyncItem:
+      type: object
+      required:
+        - externalUid
+        - syncAction
+      properties:
+        externalUid:
+          type: string
+        displayName:
+          type: string
+        remarkName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+        phone:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        syncAction:
+          type: string
+          enum:
+            - upsert
+            - delete
+        updatedAt:
+          type: string
+          format: date-time
+    GroupSyncItem:
+      type: object
+      required:
+        - externalGroupId
+        - syncAction
+      properties:
+        externalGroupId:
+          type: string
+        groupName:
+          type: string
+        memberCount:
+          type: integer
+          minimum: 0
+        ownerExternalUid:
+          type: string
+        noticeDigest:
+          type: string
+        syncAction:
+          type: string
+          enum:
+            - upsert
+            - delete
+        updatedAt:
+          type: string
+          format: date-time
+    DeviceDiagnosticLogEntry:
+      type: object
+      required:
+        - level
+        - occurredAt
+        - category
+        - message
+      properties:
+        level:
+          type: string
+          enum:
+            - debug
+            - info
+            - warn
+            - error
+        occurredAt:
+          type: string
+          format: date-time
+        category:
+          type: string
+          enum:
+            - bootstrap
+            - auth
+            - heartbeat
+            - command_pull
+            - command_exec
+            - inbound_message
+            - sync_contacts
+            - sync_groups
+            - handoff
+            - storage
+        message:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+    DeviceCommandSnapshotItem:
+      type: object
+      properties:
+        commandId:
+          type: string
+        commandType:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - acked
+            - completed
+            - failed
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+    DiagnosticAttachment:
+      type: object
+      properties:
+        name:
+          type: string
+        contentType:
+          type: string
+        url:
+          type: string
+          format: uri
+        digest:
+          type: string

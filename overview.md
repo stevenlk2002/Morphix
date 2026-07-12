@@ -84,3 +84,14 @@
 - 2026-07-12：将原型相关设计文档提交并推送到 GitHub `https://github.com/stevenlk2002/Morphix.git` 的 `main` 分支（commit `8be4fc8`）。
 - 本次提交包含 15 个文件、约 11,936 行新增，覆盖需求理解报告、总控编排设计、核心数据模型、数据库表结构、接口设计、两份 OpenAPI 初稿、三端 backlog、MVP 实施路线图与里程碑门禁，以及 `overview.md` 更新。
 - 说明：`NoCodeFlow/` 为独立的实现工程（6311 个文件），未纳入本次提交，避免污染以“原型 + 设计文档”为定位的仓库；如需纳入，后续可单独提交。
+
+## 本次继续推进（十三）
+- 新增《`plan-联调测试用例清单.md`》：把前面收敛出的架构、两份 OpenAPI、三端 backlog 与里程碑门禁进一步落成可执行的联调测试基线。
+- 清单覆盖 7 大分组、约 45 个用例：主链路 E2E（A）、控制面（B）、设备接入（C）、人工接管与交还（D）、异常与边界（E）、安全与鉴权（F）、里程碑验收（G），并给出用例总览表、接口索引、联调顺序、缺陷定级红线与用例模板。
+- 用例全部锚定真实接口与 M1~M5 / 联调1~5 门禁，重点把 P0 阻塞项映射到具体反例：重复消息幂等、回执 no-op、设备离线重投、断网补传、接管后停发、可回放审计。
+
+## 本次继续推进（十四）
+- 新增《`openapi-morphix-unified.yaml`》：将《`openapi-总控编排与会话运行时.yaml`》与《`openapi-设备接入补充接口.yaml`》合并为统一总契约。
+- 合并后共 33 个 path / 33 个 operation，含 5 个 securityScheme（ControlAuth / RuntimeAuth / DeviceAuth / InternalServiceAuth / DeviceProvisioningAuth）、12 个 tag、115 个 schema。
+- 去重与合并处理：DeviceAuth 合并为一份；`IdempotencyKey` 描述合并覆盖控制面与设备侧写操作；`responses` 5 个统一；`SuccessEnvelope/ErrorEnvelope/ConversationType` 去重；`ChannelType` 取超集（wechat/wecom/qq/unknown）；`ErrorObject.code` 枚举合并两边全部错误码，`details` 采用结构化 `ErrorDetail[]`。
+- 已用 Python 脚本做语法校验与引用完整性检查：33 path 无重复、140 个 `$ref` 全部命中、securityScheme 与 tag 无悬空引用，校验通过。
