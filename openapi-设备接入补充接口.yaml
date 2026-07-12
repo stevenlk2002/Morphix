@@ -1,0 +1,1170 @@
+openapi: 3.1.0
+info:
+  title: Morphix 设备接入补充 API
+  version: 0.1.0-draft
+  summary: 面向设备执行端 App / Device Agent 的补充契约
+  description: |
+    本文件用于补齐现有《openapi-总控编排与会话运行时.yaml》中尚未正式定义的设备接入接口。
+
+    当前补充范围：
+    - 设备注册与绑定
+    - 设备在线心跳与控制指令回传
+    - 设备直接上报入站消息
+    - 联系人增量/全量同步
+    - 群聊增量/全量同步
+    - 诊断日志与快照上报
+
+    设计原则：
+    - 设备端是边缘执行站点，不承担工作流主决策
+    - 设备写操作默认要求幂等
+    - 服务端保留暂停拉命令、冻结设备、限制速率等反向控制能力
+    - 本文件与《openapi-总控编排与会话运行时.yaml》共同构成设备侧联调基线
+servers:
+  - url: https://api.morphix.local
+    description: 默认联调环境
+  - url: http://localhost:8000
+    description: 本地开发环境
+tags:
+  - name: Device Provisioning
+    description: 设备注册、绑定与令牌初始化
+  - name: Device Presence
+    description: 设备在线状态、心跳与账号状态同步
+  - name: Device Inbound
+    description: 设备直接上报入站消息与会话事实
+  - name: Device Sync
+    description: 联系人、群聊及基础目录同步
+  - name: Device Diagnostics
+    description: 诊断日志、运行快照与排障资料上报
+security:
+  - DeviceAuth: []
+paths:
+  /api/device/registrations:
+    post:
+      tags:
+        - Device Provisioning
+      operationId: registerDevice
+      summary: 注册并绑定设备
+      description: |
+        设备首次安装或重置后，通过绑定码完成项目、渠道账号与设备身份的建立。
+        成功后返回 deviceToken，供后续心跳、拉命令、回执和同步接口使用。
+      security:
+        - DeviceProvisioningAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRegistrationRequest'
+            examples:
+              androidWechat:
+                value:
+                  bindCode: BIND-20260712-8F2KQ
+                  projectId: 01JPROJECT
+                  channelType: wechat
+                  accountType: personal
+                  installFingerprint: android-14:pixel7:abc123
+                  deviceMeta:
+                    brand: Google
+                    model: Pixel 7
+                    osVersion: Android 14
+                    appVersion: 0.1.0
+                    locale: zh-CN
+                    timezone: Asia/Shanghai
+                    networkType: wifi
+      responses:
+        '201':
+          description: 设备已注册并完成绑定
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 绑定码失效、已被使用或设备已绑定到其他项目
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/device/registrations/{deviceId}/refresh-token:
+    post:
+      tags:
+        - Device Provisioning
+      operationId: refreshDeviceToken
+      summary: 刷新设备令牌
+      description: 当设备令牌即将过期或服务端要求轮换时调用。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdPath'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenRefreshRequest'
+      responses:
+        '200':
+          description: 已签发新令牌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceTokenRefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/device/heartbeats:
+    post:
+      tags:
+        - Device Presence
+      operationId: reportDeviceHeartbeat
+      summary: 上报设备心跳
+      description: |
+        设备定时上报在线状态、队列长度、账号状态、最近命令执行进度等信息。
+        服务端可在响应中返回暂停拉取、冻结、强制诊断等控制指令。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceHeartbeatRequest'
+      responses:
+        '200':
+          description: 心跳已接收并返回设备侧控制信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceHeartbeatResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/inbound-messages:
+    post:
+      tags:
+        - Device Inbound
+      operationId: reportDeviceInboundMessage
+      summary: 设备直接上报入站消息
+      description: |
+        当设备端直接感知到来自微信、企微等渠道的入站消息时，向平台上报标准化事件。
+        该接口通常由设备接入层调用，也允许 Device Agent 直接调用。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInboundMessageRequest'
+            examples:
+              directText:
+                value:
+                  deviceId: 01JDEVICE
+                  channelAccountId: 01JACCOUNT
+                  channelType: wechat
+                  sourceConversationId: wx_conv_9981
+                  sourceMessageId: wx_msg_abc_001
+                  conversationType: direct
+                  contact:
+                    externalUid: wx_user_7788
+                    displayName: 张三
+                  message:
+                    messageType: text
+                    contentText: 我想了解下报价
+                    sentAt: '2026-07-12T16:30:00+08:00'
+                  rawContext:
+                    appName: WeChat
+                    roomTopic: null
+                    clientSeq: 983472
+      responses:
+        '202':
+          description: 已接收入站消息并转入编排链路
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceInboundMessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 重复消息或幂等冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/contact-sync/batches:
+    post:
+      tags:
+        - Device Sync
+      operationId: uploadContactSyncBatch
+      summary: 上报联系人同步批次
+      description: |
+        设备按批次上传联系人快照或增量变更。
+        首次全量同步建议拆分为多批次，每批都带上 syncSessionId 与批次序号。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactSyncBatchRequest'
+      responses:
+        '202':
+          description: 联系人批次已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncBatchAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/group-sync/batches:
+    post:
+      tags:
+        - Device Sync
+      operationId: uploadGroupSyncBatch
+      summary: 上报群聊同步批次
+      description: |
+        设备按批次上传群聊基础信息、成员摘要与变更事实。
+        MVP 先关注群基础元数据与成员数，不强求完整群关系图一次性建完。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupSyncBatchRequest'
+      responses:
+        '202':
+          description: 群聊批次已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncBatchAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/diagnostics/log-batches:
+    post:
+      tags:
+        - Device Diagnostics
+      operationId: uploadDeviceDiagnosticLogs
+      summary: 上报诊断日志批次
+      description: |
+        设备在异常回放、联调排障或灰度观察期间上报结构化日志。
+        推荐仅上传必要字段和摘要，不直接上传原始敏感内容。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDiagnosticLogBatchRequest'
+      responses:
+        '202':
+          description: 日志批次已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticUploadAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/device/diagnostics/snapshots:
+    post:
+      tags:
+        - Device Diagnostics
+      operationId: uploadDeviceDiagnosticSnapshot
+      summary: 上报设备运行快照
+      description: |
+        用于人工排障或冻结前取证，上传最近命令、线程状态、存储水位、最近崩溃摘要等结构化快照。
+      security:
+        - DeviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceDiagnosticSnapshotRequest'
+      responses:
+        '202':
+          description: 运行快照已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticUploadAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+components:
+  securitySchemes:
+    DeviceAuth:
+      type: apiKey
+      in: header
+      name: X-Device-Token
+      description: 设备侧令牌或签名结果
+    DeviceProvisioningAuth:
+      type: apiKey
+      in: header
+      name: X-Device-Provisioning-Key
+      description: 首次注册与绑定使用的一次性预配置密钥或安装凭证
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 幂等键，建议用于设备注册、心跳、消息上报、同步批次与诊断上传
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    DeviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: 请求格式错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: 未通过鉴权
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: 资源状态冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnprocessableEntity:
+      description: 业务校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required:
+        - requestId
+        - success
+        - data
+        - error
+      properties:
+        requestId:
+          type: string
+        success:
+          type: boolean
+          const: true
+        data: {}
+        error:
+          type: 'null'
+    ErrorEnvelope:
+      type: object
+      required:
+        - requestId
+        - success
+        - data
+        - error
+      properties:
+        requestId:
+          type: string
+        success:
+          type: boolean
+          const: false
+        data:
+          type: 'null'
+        error:
+          $ref: '#/components/schemas/ErrorObject'
+    ErrorObject:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_REQUEST
+            - UNAUTHORIZED
+            - NOT_FOUND
+            - CONFLICT
+            - IDEMPOTENCY_CONFLICT
+            - DEVICE_ALREADY_BOUND
+            - DEVICE_FROZEN
+            - DEVICE_TOKEN_EXPIRED
+            - DEVICE_BIND_CODE_INVALID
+            - DEVICE_HEARTBEAT_STALE
+            - SYNC_BATCH_INVALID
+            - CONTACT_SYNC_CURSOR_INVALID
+            - GROUP_SYNC_CURSOR_INVALID
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    DeviceRegistrationRequest:
+      type: object
+      required:
+        - bindCode
+        - projectId
+        - channelType
+        - accountType
+        - installFingerprint
+        - deviceMeta
+      properties:
+        bindCode:
+          type: string
+        projectId:
+          type: string
+        channelType:
+          $ref: '#/components/schemas/ChannelType'
+        accountType:
+          type: string
+          enum:
+            - personal
+            - enterprise
+        installFingerprint:
+          type: string
+        deviceMeta:
+          $ref: '#/components/schemas/DeviceMeta'
+    DeviceRegistrationResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - deviceId
+                - projectId
+                - channelAccountId
+                - channelType
+                - deviceToken
+                - tokenExpiresAt
+                - heartbeatIntervalSec
+                - commandPollIntervalSec
+              properties:
+                deviceId:
+                  type: string
+                projectId:
+                  type: string
+                channelAccountId:
+                  type: string
+                channelType:
+                  $ref: '#/components/schemas/ChannelType'
+                deviceToken:
+                  type: string
+                tokenExpiresAt:
+                  type: string
+                  format: date-time
+                heartbeatIntervalSec:
+                  type: integer
+                  minimum: 10
+                commandPollIntervalSec:
+                  type: integer
+                  minimum: 3
+                controlFlags:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/DeviceControlFlag'
+    DeviceTokenRefreshRequest:
+      type: object
+      required:
+        - refreshReason
+      properties:
+        refreshReason:
+          type: string
+          enum:
+            - expiring
+            - rotated_by_server
+            - app_reinstall_recovery
+            - suspected_leakage
+        currentTokenDigest:
+          type: string
+    DeviceTokenRefreshResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - deviceId
+                - deviceToken
+                - tokenExpiresAt
+              properties:
+                deviceId:
+                  type: string
+                deviceToken:
+                  type: string
+                tokenExpiresAt:
+                  type: string
+                  format: date-time
+
+    DeviceHeartbeatRequest:
+      type: object
+      required:
+        - deviceId
+        - reportedAt
+        - deviceStatus
+        - accountStatus
+        - commandQueue
+      properties:
+        deviceId:
+          type: string
+        reportedAt:
+          type: string
+          format: date-time
+        deviceStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+        accountStatus:
+          $ref: '#/components/schemas/ChannelAccountStatus'
+        commandQueue:
+          $ref: '#/components/schemas/DeviceCommandQueueStatus'
+        network:
+          $ref: '#/components/schemas/DeviceNetworkStatus'
+        battery:
+          $ref: '#/components/schemas/DeviceBatteryStatus'
+        appRuntime:
+          $ref: '#/components/schemas/DeviceAppRuntimeStatus'
+        lastSeenMessageAt:
+          type: string
+          format: date-time
+        lastAckedCommandId:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    DeviceHeartbeatResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - serverTime
+                - nextHeartbeatInSec
+                - commandPollIntervalSec
+                - controlDirective
+              properties:
+                serverTime:
+                  type: string
+                  format: date-time
+                nextHeartbeatInSec:
+                  type: integer
+                commandPollIntervalSec:
+                  type: integer
+                controlDirective:
+                  $ref: '#/components/schemas/DeviceControlDirective'
+                warnings:
+                  type: array
+                  items:
+                    type: string
+
+    DeviceInboundMessageRequest:
+      type: object
+      required:
+        - deviceId
+        - channelAccountId
+        - channelType
+        - sourceConversationId
+        - sourceMessageId
+        - conversationType
+        - contact
+        - message
+      properties:
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        channelType:
+          $ref: '#/components/schemas/ChannelType'
+        sourceConversationId:
+          type: string
+        sourceMessageId:
+          type: string
+        conversationType:
+          $ref: '#/components/schemas/ConversationType'
+        contact:
+          $ref: '#/components/schemas/ContactIdentity'
+        group:
+          $ref: '#/components/schemas/GroupIdentity'
+        message:
+          $ref: '#/components/schemas/InboundMessagePayload'
+        rawContext:
+          type: object
+          additionalProperties: true
+    DeviceInboundMessageResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - accepted
+                - eventId
+                - orchestrationRequestId
+              properties:
+                accepted:
+                  type: boolean
+                  const: true
+                eventId:
+                  type: string
+                orchestrationRequestId:
+                  type: string
+                conversationId:
+                  type: string
+                deduplicated:
+                  type: boolean
+
+    ContactSyncBatchRequest:
+      type: object
+      required:
+        - deviceId
+        - channelAccountId
+        - syncSessionId
+        - syncMode
+        - batchNo
+        - finished
+        - contacts
+      properties:
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        syncSessionId:
+          type: string
+        syncMode:
+          $ref: '#/components/schemas/SyncMode'
+        cursor:
+          type: string
+        batchNo:
+          type: integer
+          minimum: 1
+        finished:
+          type: boolean
+        contacts:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/ContactSyncItem'
+    GroupSyncBatchRequest:
+      type: object
+      required:
+        - deviceId
+        - channelAccountId
+        - syncSessionId
+        - syncMode
+        - batchNo
+        - finished
+        - groups
+      properties:
+        deviceId:
+          type: string
+        channelAccountId:
+          type: string
+        syncSessionId:
+          type: string
+        syncMode:
+          $ref: '#/components/schemas/SyncMode'
+        cursor:
+          type: string
+        batchNo:
+          type: integer
+          minimum: 1
+        finished:
+          type: boolean
+        groups:
+          type: array
+          minItems: 1
+          maxItems: 300
+          items:
+            $ref: '#/components/schemas/GroupSyncItem'
+    SyncBatchAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - syncSessionId
+                - batchNo
+                - acceptedCount
+                - finished
+              properties:
+                syncSessionId:
+                  type: string
+                batchNo:
+                  type: integer
+                acceptedCount:
+                  type: integer
+                finished:
+                  type: boolean
+                nextCursor:
+                  type: string
+                ingestJobId:
+                  type: string
+
+    DeviceDiagnosticLogBatchRequest:
+      type: object
+      required:
+        - deviceId
+        - reportedAt
+        - logs
+      properties:
+        deviceId:
+          type: string
+        reportedAt:
+          type: string
+          format: date-time
+        incidentId:
+          type: string
+        logs:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/DeviceDiagnosticLogEntry'
+    DeviceDiagnosticSnapshotRequest:
+      type: object
+      required:
+        - deviceId
+        - capturedAt
+        - snapshotType
+      properties:
+        deviceId:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+        snapshotType:
+          type: string
+          enum:
+            - runtime_state
+            - crash_recovery
+            - command_stall
+            - manual_support
+        summary:
+          type: string
+        lastCommands:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceCommandSnapshotItem'
+        metrics:
+          type: object
+          additionalProperties: true
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagnosticAttachment'
+    DiagnosticUploadAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required:
+                - accepted
+                - receivedAt
+              properties:
+                accepted:
+                  type: boolean
+                  const: true
+                receivedAt:
+                  type: string
+                  format: date-time
+                incidentId:
+                  type: string
+                supportTicketHint:
+                  type: string
+
+    DeviceMeta:
+      type: object
+      required:
+        - brand
+        - model
+        - osVersion
+        - appVersion
+      properties:
+        brand:
+          type: string
+        model:
+          type: string
+        osVersion:
+          type: string
+        appVersion:
+          type: string
+        locale:
+          type: string
+        timezone:
+          type: string
+        networkType:
+          type: string
+          enum:
+            - wifi
+            - cellular
+            - offline
+            - unknown
+    DeviceStatus:
+      type: string
+      enum:
+        - online
+        - degraded
+        - paused
+        - frozen
+        - offline
+    ChannelAccountStatus:
+      type: string
+      enum:
+        - online
+        - reconnecting
+        - logged_out
+        - restricted
+        - suspended
+    ChannelType:
+      type: string
+      enum:
+        - wechat
+        - wecom
+    ConversationType:
+      type: string
+      enum:
+        - direct
+        - group
+    SyncMode:
+      type: string
+      enum:
+        - full
+        - incremental
+    DeviceControlFlag:
+      type: string
+      enum:
+        - pause_command_pull
+        - freeze_device
+        - require_snapshot_upload
+        - downgrade_polling
+    DeviceControlDirective:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - noop
+            - pause_command_pull
+            - resume_command_pull
+            - freeze_device
+            - upload_snapshot
+            - force_token_refresh
+        reason:
+          type: string
+        until:
+          type: string
+          format: date-time
+        params:
+          type: object
+          additionalProperties: true
+    DeviceCommandQueueStatus:
+      type: object
+      required:
+        - pendingCount
+        - runningCount
+        - retryCount
+      properties:
+        pendingCount:
+          type: integer
+          minimum: 0
+        runningCount:
+          type: integer
+          minimum: 0
+        retryCount:
+          type: integer
+          minimum: 0
+        oldestPendingAt:
+          type: string
+          format: date-time
+    DeviceNetworkStatus:
+      type: object
+      properties:
+        networkType:
+          type: string
+          enum:
+            - wifi
+            - cellular
+            - offline
+            - unknown
+        signalLevel:
+          type: integer
+          minimum: 0
+          maximum: 5
+        ipAddress:
+          type: string
+    DeviceBatteryStatus:
+      type: object
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        charging:
+          type: boolean
+        powerSaveMode:
+          type: boolean
+    DeviceAppRuntimeStatus:
+      type: object
+      properties:
+        processState:
+          type: string
+          enum:
+            - foreground
+            - background
+            - restarting
+            - unknown
+        uptimeSec:
+          type: integer
+          minimum: 0
+        lastCrashAt:
+          type: string
+          format: date-time
+        storageUsedMb:
+          type: integer
+          minimum: 0
+    ContactIdentity:
+      type: object
+      required:
+        - externalUid
+      properties:
+        externalUid:
+          type: string
+        displayName:
+          type: string
+        remarkName:
+          type: string
+    GroupIdentity:
+      type: object
+      required:
+        - externalGroupId
+      properties:
+        externalGroupId:
+          type: string
+        groupName:
+          type: string
+    InboundMessagePayload:
+      type: object
+      required:
+        - messageType
+        - sentAt
+      properties:
+        messageType:
+          type: string
+          enum:
+            - text
+            - image
+            - video
+            - voice
+            - file
+            - card
+            - event
+        contentText:
+          type: string
+        mediaUrl:
+          type: string
+          format: uri
+        mediaDigest:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+    ContactSyncItem:
+      type: object
+      required:
+        - externalUid
+        - syncAction
+      properties:
+        externalUid:
+          type: string
+        displayName:
+          type: string
+        remarkName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+        phone:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        syncAction:
+          type: string
+          enum:
+            - upsert
+            - delete
+        updatedAt:
+          type: string
+          format: date-time
+    GroupSyncItem:
+      type: object
+      required:
+        - externalGroupId
+        - syncAction
+      properties:
+        externalGroupId:
+          type: string
+        groupName:
+          type: string
+        memberCount:
+          type: integer
+          minimum: 0
+        ownerExternalUid:
+          type: string
+        noticeDigest:
+          type: string
+        syncAction:
+          type: string
+          enum:
+            - upsert
+            - delete
+        updatedAt:
+          type: string
+          format: date-time
+    DeviceDiagnosticLogEntry:
+      type: object
+      required:
+        - level
+        - occurredAt
+        - category
+        - message
+      properties:
+        level:
+          type: string
+          enum:
+            - debug
+            - info
+            - warn
+            - error
+        occurredAt:
+          type: string
+          format: date-time
+        category:
+          type: string
+          enum:
+            - bootstrap
+            - auth
+            - heartbeat
+            - command_pull
+            - command_exec
+            - inbound_message
+            - sync_contacts
+            - sync_groups
+            - handoff
+            - storage
+        message:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+    DeviceCommandSnapshotItem:
+      type: object
+      properties:
+        commandId:
+          type: string
+        commandType:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - acked
+            - completed
+            - failed
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+    DiagnosticAttachment:
+      type: object
+      properties:
+        name:
+          type: string
+        contentType:
+          type: string
+        url:
+          type: string
+          format: uri
+        digest:
+          type: string
