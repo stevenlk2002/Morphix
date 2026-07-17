@@ -1,0 +1,5 @@
+# Local SQLite databases (dev/test/qa artifacts, not source)
+data/*.db
+
+# Superseded copy of the live P0 verifier (canonical version is scripts/verify_p0_live.py)
+/verify_p0_live.py
