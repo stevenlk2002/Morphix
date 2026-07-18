@@ -1,0 +1,585 @@
+.sd-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  height: 100%;
+}
+
+.sd-loading,
+.sd-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.sd-error {
+  color: var(--error);
+}
+
+.sd-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--spacing-md) var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.sd-subject {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.sd-subject-text {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-subject-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.sd-tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.sd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.sd-tab:hover {
+  color: var(--text);
+}
+
+.sd-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.sd-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--border-light);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.sd-tab.active .sd-tab-badge {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.sd-content {
+  flex: 1;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: var(--spacing-lg);
+}
+
+.sd-empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+}
+
+.sd-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid var(--error);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: var(--text-base);
+  margin-bottom: var(--spacing-md);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-sm);
+}
+
+/* ---- 消息流 ---- */
+.msg-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.msg-contact,
+.msg-runtime {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+}
+
+.msg-contact-label,
+.handoff-status-label {
+  color: var(--text-tertiary);
+}
+
+.msg-contact-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.msg-contact-tags {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.msg-load-more {
+  align-self: center;
+}
+
+.msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.msg-row {
+  display: flex;
+}
+
+.msg-row.msg-customer {
+  justify-content: flex-start;
+}
+
+.msg-row.msg-ai,
+.msg-row.msg-human,
+.msg-row.msg-system,
+.msg-row.msg-device {
+  justify-content: flex-end;
+}
+
+.msg-bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.msg-customer .msg-bubble {
+  background: var(--primary-light);
+  border-color: var(--primary-light);
+}
+
+.msg-ai .msg-bubble {
+  background: var(--surface);
+}
+
+.msg-human .msg-bubble {
+  background: var(--warning-bg);
+  border-color: var(--warning-bg);
+}
+
+.msg-system .msg-bubble {
+  background: var(--bg);
+  border-style: dashed;
+}
+
+.msg-device .msg-bubble {
+  background: var(--info-bg);
+  border-color: var(--info-bg);
+}
+
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.msg-sender {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.msg-type {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--border-light);
+}
+
+.msg-time {
+  margin-left: auto;
+}
+
+.msg-body {
+  font-size: var(--text-base);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- 运行轨迹 ---- */
+.runs-tab {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--spacing-lg);
+}
+
+.runs-list-col {
+  border-right: 1px solid var(--border-light);
+  padding-right: var(--spacing-md);
+}
+
+.runs-list-title,
+.nodes-title,
+.audit-section-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  margin-bottom: var(--spacing-sm);
+  transition: var(--transition);
+}
+
+.run-item:hover {
+  border-color: var(--primary);
+}
+
+.run-item.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.run-item-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.run-item-time {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.run-detail-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+  background: var(--bg);
+}
+
+.run-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--spacing-md);
+}
+
+.run-detail-id {
+  color: var(--text-secondary);
+}
+
+.run-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+  margin: 0;
+}
+
+.run-detail-grid dt {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.run-detail-grid dd {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text);
+}
+
+.run-error,
+.run-result {
+  grid-column: 1 / -1;
+}
+
+.run-error dd {
+  color: var(--error);
+}
+
+.run-result dd {
+  color: var(--text-secondary);
+}
+
+.node-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.node-item {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.node-marker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--text-tertiary);
+  padding-top: 2px;
+}
+
+.node-line {
+  flex: 1;
+  width: 2px;
+  background: var(--border);
+  margin-top: 4px;
+}
+
+.node-content {
+  flex: 1;
+  padding-bottom: var(--spacing-lg);
+}
+
+.node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.node-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.node-id {
+  color: var(--text-tertiary);
+}
+
+.node-sub {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: var(--text-sm);
+}
+
+/* ---- 审计 ---- */
+.audit-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.audit-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--border-light);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.audit-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+
+.audit-table thead th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.audit-table tbody tr {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.audit-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.audit-table td {
+  padding: 10px 14px;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.audit-decision {
+  max-width: 320px;
+  word-break: break-word;
+}
+
+/* ---- 接管 ---- */
+.handoff-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.handoff-status-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--bg);
+}
+
+.handoff-status-row {
+  display: flex;
+  gap: var(--spacing-xl);
+  flex-wrap: wrap;
+}
+
+.handoff-status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.handoff-form {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.handoff-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.handoff-field-grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.handoff-field label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.handoff-field input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  background: var(--surface);
+  color: var(--text);
+  min-width: 180px;
+}
+
+.handoff-field input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.handoff-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.handoff-toast {
+  align-self: flex-start;
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: var(--text-base);
+}
+
+.handoff-hint {
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .runs-tab {
+    grid-template-columns: 1fr;
+  }
+  .runs-list-col {
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
+    padding-right: 0;
+    padding-bottom: var(--spacing-md);
+  }
+  .run-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

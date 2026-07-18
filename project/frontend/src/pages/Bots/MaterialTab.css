@@ -1,0 +1,244 @@
+.material-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.material-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.material-search {
+  flex: 1;
+  position: relative;
+  max-width: 400px;
+}
+
+.material-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.material-table-wrapper {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.material-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.material-table thead {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.material-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.material-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text);
+}
+
+.material-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.material-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.material-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.material-type-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.material-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.material-name {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.material-type-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  background: var(--border-light);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.text-muted {
+  color: var(--text-tertiary) !important;
+}
+
+.usage-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.table-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.table-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.table-action-btn:hover {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.table-action-btn-danger:hover {
+  background: var(--error-bg);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.material-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-tertiary);
+  font-size: var(--text-base);
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+/* 复选框样式 */
+input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.material-loading {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-base);
+}
+
+/* 上传弹窗 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+.modal-title {
+  margin: 0 0 16px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.modal-field label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.modal-field input,
+.modal-field select {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  color: var(--text);
+  background: var(--surface);
+  transition: all var(--transition);
+}
+
+.modal-field input:focus,
+.modal-field select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

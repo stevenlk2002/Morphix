@@ -1,0 +1,262 @@
+.training-tab {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+}
+
+.training-main {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.training-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.training-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.training-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.message {
+  display: flex;
+  gap: 12px;
+}
+
+.message-user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.message-user .message-avatar {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.message-ai .message-avatar {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.message-content {
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-user .message-content {
+  align-items: flex-end;
+}
+
+.message-text {
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.message-user .message-text {
+  background: var(--primary);
+  color: white;
+}
+
+.message-ai .message-text {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.message-score {
+  padding: 2px 6px;
+  background: var(--success-bg);
+  color: var(--success);
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.message-action {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.message-action:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.training-input {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-light);
+}
+
+.training-input input {
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  color: var(--text);
+  background: var(--surface);
+  transition: all var(--transition);
+}
+
+.training-input input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.training-sidebar {
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.suggestions {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.suggestion {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.suggestion-good {
+  background: var(--success-bg);
+}
+
+.suggestion-improve {
+  background: var(--warning-bg);
+}
+
+.suggestion-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.suggestion-good .suggestion-icon {
+  background: var(--success);
+  color: white;
+}
+
+.suggestion-improve .suggestion-icon {
+  background: var(--warning);
+  color: white;
+}
+
+.suggestion-text {
+  flex: 1;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.training-stats {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.stats-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  color: var(--primary);
+}
