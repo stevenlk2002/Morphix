@@ -1,0 +1,26 @@
+meta {
+  name: 查询会话消息流水 (TC-B02)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}/messages
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+params {
+  limit: 50
+}
+
+script:post-response {
+  // TC-B02 期望：消息时间序正确，senderType 区分 customer/ai/human/system/device
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-B02] 消息流水 hasMore=" + body.data.hasMore + " 条数=" + (body.data.items ? body.data.items.length : 0));
+  }
+}

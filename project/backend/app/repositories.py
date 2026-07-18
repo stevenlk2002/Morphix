@@ -10,10 +10,15 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Optional
 
 from .database import DatabaseBackend
 from .pagination import Pagination
+
+
+def _generate_id(prefix: str) -> str:
+    return f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{id(prefix)}"
 
 
 # ---- 行 -> DTO 映射（与原实现字段严格对齐）----
@@ -60,6 +65,51 @@ class AuditRepository:
             "SELECT * FROM audit_events ORDER BY id DESC LIMIT ?",
             (limit,),
         )
+
+    def recent_unread(self, limit: int = 8) -> list[dict]:
+        """从审计事件派生未读通知（首页「未读消息」卡片）。
+
+        MVP 阶段尚未落库独立的未读表，这里用最近审计事件映射成
+        用户可理解的未读条目：每条审计事件 -> 一条通知。
+        后续接入真实未读/消息中心时，替换为独立表查询即可。
+        """
+        rows = self._db.query(
+            "SELECT * FROM audit_events ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        notifications: list[dict] = []
+        for r in rows:
+            action = (r.get("action") or "").lower()
+            title = self._unread_title(action, r.get("target") or "")
+            detail = r.get("detail") or ""
+            notifications.append(
+                {
+                    "id": f"un-{r['id']}",
+                    "title": title,
+                    "desc": detail,
+                    "time": r.get("created_at") or "",
+                }
+            )
+        return notifications
+
+    @staticmethod
+    def _unread_title(action: str, target: str) -> str:
+        """把审计 action 映射成前端未读通知的中文标题。
+
+        action 取值来自真实审计事件：train_bot / create_bot /
+        update_workflow_node / handoff / create_sop / create_channel_account /
+        create_customer_tag 等。
+        """
+        mapping = {
+            "handoff": f"{target} 转人工",
+            "create_sop": f"新增 SOP：{target}",
+            "create_bot": f"新增机器人：{target}",
+            "train_bot": f"{target} 训练完成",
+            "create_channel_account": f"新增渠道账号：{target}",
+            "create_customer_tag": f"新增客户标签：{target}",
+            "update_workflow_node": f"{target} 工作流节点更新",
+        }
+        return mapping.get(action, f"{target} 有更新")
 
 
 class BotRepository:
@@ -323,5 +373,237 @@ class MaterialRepository:
             "url": row["url"],
             "usageCount": row["usage_count"],
             "uploadedAt": row["created_at"],
+        }
+
+
+class WorkflowRunRepository:
+    """工作流执行记录仓储。"""
+
+    def __init__(self, backend: DatabaseBackend) -> None:
+        self.backend = backend
+
+    def list_by_conversation(self, conversation_id: str) -> list[dict]:
+        rows = self.backend.query(
+            "SELECT id, conversation_id, workflow_id, status, trigger, config, started_at, finished_at "
+            "FROM workflow_runs WHERE conversation_id = ? ORDER BY started_at DESC",
+            (conversation_id,),
+        )
+        return [self.row_to_run(row) for row in rows]
+
+    def create(
+        self,
+        conversation_id: str,
+        workflow_id: str,
+        status: str = "running",
+        trigger: str = "manual",
+        config: dict | None = None,
+    ) -> dict:
+        run_id = _generate_id("run")
+        config_json = json.dumps(config or {}, ensure_ascii=False)
+        self.backend.execute(
+            "INSERT INTO workflow_runs(id, conversation_id, workflow_id, status, trigger, config, started_at, finished_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)",
+            (run_id, conversation_id, workflow_id, status, trigger, config_json),
+        )
+        return {
+            "id": run_id,
+            "conversationId": conversation_id,
+            "workflowId": workflow_id,
+            "status": status,
+            "trigger": trigger,
+            "config": config or {},
+            "startedAt": datetime.now().isoformat(timespec="seconds"),
+            "finishedAt": None,
+        }
+
+    def update_status(self, run_id: str, status: str) -> None:
+        self.backend.execute(
+            "UPDATE workflow_runs SET status = ?, finished_at = CASE WHEN ? IN ('finished', 'interrupted') THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = ?",
+            (status, status, run_id),
+        )
+
+    def row_to_run(self, row: dict) -> dict:
+        return {
+            "id": row["id"],
+            "conversationId": row["conversation_id"],
+            "workflowId": row["workflow_id"],
+            "status": row["status"],
+            "trigger": row["trigger"],
+            "config": json.loads(row["config"] or "{}"),
+            "startedAt": row["started_at"],
+            "finishedAt": row["finished_at"],
+        }
+
+
+class ConversationRepository:
+    """会话、消息、机器人订阅与渠道坐席仓储。"""
+
+    def __init__(self, backend: DatabaseBackend) -> None:
+        self.backend = backend
+
+    def upsert_for_session(self, session: dict) -> None:
+        """从 dashboard 会话数据同步/更新会话行（兼容已有静态数据）。
+
+        session 字段约定（驼峰来自前端 contract）：
+        id / name / channel / bot / state / intent / last / time
+        """
+        conv_id = session["id"]
+        existing = self.backend.query(
+            "SELECT id FROM conversations WHERE id = ?", (conv_id,)
+        )
+        if existing:
+            self.backend.execute(
+                "UPDATE conversations SET name = ?, channel = ?, bot_id = ?, state = ?, intent = ?, last_message = ?, last_time = ? "
+                "WHERE id = ?",
+                (
+                    session.get("name", ""),
+                    session.get("channel", ""),
+                    session.get("bot", ""),
+                    session.get("state", ""),
+                    session.get("intent", ""),
+                    session.get("last", ""),
+                    session.get("time", ""),
+                    conv_id,
+                ),
+            )
+        else:
+            self.backend.execute(
+                "INSERT INTO conversations(id, name, channel, bot_id, state, intent, last_message, last_time) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    conv_id,
+                    session.get("name", ""),
+                    session.get("channel", ""),
+                    session.get("bot", ""),
+                    session.get("state", ""),
+                    session.get("intent", ""),
+                    session.get("last", ""),
+                    session.get("time", ""),
+                ),
+            )
+
+    def list_by_bot(self, bot_id: str) -> list[dict]:
+        rows = self.backend.query(
+            "SELECT id, name, channel, bot_id, state, intent, last_message, last_time, created_at "
+            "FROM conversations WHERE bot_id = ? ORDER BY created_at DESC",
+            (bot_id,),
+        )
+        return [self.row_to_conversation(row) for row in rows]
+
+    def list_all(self) -> list[dict]:
+        rows = self.backend.query(
+            "SELECT id, name, channel, bot_id, state, intent, last_message, last_time, created_at "
+            "FROM conversations ORDER BY created_at DESC"
+        )
+        return [self.row_to_conversation(row) for row in rows]
+
+    def list_paged(self, page: int = 1, page_size: int = 50) -> tuple[list[dict], int]:
+        total = self.backend.query("SELECT COUNT(*) AS c FROM conversations")[0]["c"]
+        offset = max(page - 1, 0) * page_size
+        rows = self.backend.query(
+            "SELECT id, name, channel, bot_id, state, intent, last_message, last_time, created_at "
+            "FROM conversations ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (page_size, offset),
+        )
+        return [self.row_to_conversation(row) for row in rows], total
+
+    def get_messages(self, conversation_id: str, page: int = 1, page_size: int = 50) -> dict:
+        total = self.backend.query(
+            "SELECT COUNT(*) AS c FROM messages WHERE conversation_id = ?",
+            (conversation_id,),
+        )[0]["c"]
+        offset = max(page - 1, 0) * page_size
+        rows = self.backend.query(
+            "SELECT id, conversation_id, sender_type, content, created_at "
+            "FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (conversation_id, page_size, offset),
+        )
+        items = [self.row_to_message(row) for row in rows]
+        return {
+            "conversationId": conversation_id,
+            "page": page,
+            "pageSize": page_size,
+            "total": total,
+            "items": items,
+            "hasMore": offset + len(items) < total,
+        }
+
+    def row_to_conversation(self, row: dict) -> dict:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "channel": row["channel"],
+            "bot": row["bot_id"],
+            "state": row["state"],
+            "intent": row["intent"],
+            "last": row["last_message"],
+            "time": row["last_time"],
+        }
+
+    def row_to_message(self, row: dict) -> dict:
+        return {
+            "id": row["id"],
+            "conversationId": row["conversation_id"],
+            "senderType": row["sender_type"],
+            "content": row["content"],
+            "createdAt": row["created_at"],
+        }
+
+
+class BotSubscriptionRepository:
+    """机器人托管订阅仓储。"""
+
+    def __init__(self, backend: DatabaseBackend) -> None:
+        self.backend = backend
+
+    def get(self, bot_id: str) -> Optional[dict]:
+        rows = self.backend.query(
+            "SELECT bot_id, hosted_sessions, expire_at FROM bot_subscriptions WHERE bot_id = ?",
+            (bot_id,),
+        )
+        if not rows:
+            return None
+        return self.row_to_subscription(rows[0])
+
+    def list_all(self) -> list[dict]:
+        rows = self.backend.query(
+            "SELECT bot_id, hosted_sessions, expire_at FROM bot_subscriptions ORDER BY expire_at ASC"
+        )
+        return [self.row_to_subscription(row) for row in rows]
+
+    def row_to_subscription(self, row: dict) -> dict:
+        return {
+            "botId": row["bot_id"],
+            "hostedSessions": row["hosted_sessions"],
+            "expireAt": row["expire_at"],
+        }
+
+
+class ChannelSeatRepository:
+    """渠道坐席（席位）仓储。"""
+
+    def __init__(self, backend: DatabaseBackend) -> None:
+        self.backend = backend
+
+    def get(self, channel_account_id: str) -> Optional[dict]:
+        rows = self.backend.query(
+            "SELECT channel_account_id, seats_left, online_sessions FROM channel_seats WHERE channel_account_id = ?",
+            (channel_account_id,),
+        )
+        if not rows:
+            return None
+        return self.row_to_seat(rows[0])
+
+    def list_all(self) -> list[dict]:
+        rows = self.backend.query(
+            "SELECT channel_account_id, seats_left, online_sessions FROM channel_seats ORDER BY seats_left ASC"
+        )
+        return [self.row_to_seat(row) for row in rows]
+
+    def row_to_seat(self, row: dict) -> dict:
+        return {
+            "channelAccountId": row["channel_account_id"],
+            "seatsLeft": row["seats_left"],
+            "onlineSessions": row["online_sessions"],
         }
 

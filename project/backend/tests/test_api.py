@@ -16,9 +16,11 @@ def test_dashboard_shape():
     response = client.get("/api/dashboard")
     assert response.status_code == 200
     data = response.json()
-    assert data["stats"]["activeProjects"] >= 1
-    assert len(data["bots"]) >= 1
-    assert len(data["sessions"]) >= 1
+    # 实际契约（见 app/routers/meta.py dashboard）：gauges/robots/channels/unread
+    assert "gauges" in data and "robots" in data and "channels" in data
+    assert data["robots"]["created"] >= 1
+    assert data["channels"]["added"] >= 1
+    assert isinstance(data["gauges"].get("sessionRate", {}).get("percent", 0), int)
 
 
 def test_handoff_records_status():

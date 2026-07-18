@@ -1,0 +1,52 @@
+meta {
+  name: 上报入站消息-单聊 (TC-A01 / TC-A03 / TC-E01)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/runtime/inbound-events/messages
+  body: json
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "deviceId": "{{deviceId}}",
+    "conversationType": "direct",
+    "sourceConversationId": "wx_conv_9981",
+    "sourceMessageId": "wx_msg_rt_001",
+    "contact": { "externalUid": "wx_user_7788", "displayName": "张三" },
+    "message": {
+      "messageType": "text",
+      "contentText": "我想了解下报价",
+      "sentAt": "2026-07-12T16:30:00+08:00"
+    },
+    "metadata": {
+      "channelType": "wechat",
+      "roomTopic": null,
+      "rawPayloadDigest": "sha256:xxxx"
+    }
+  }
+}
+
+script:post-response {
+  // TC-A01 / A03 期望：返回 conversationId / sessionRuntimeId / dispatchMode，并自动写入运行态链路
+  // TC-E01 期望：使用相同 sourceMessageId 重复提交应返回已处理结果或 no-op（不创建第二个 run）
+  const body = res.getBody();
+  if (body && body.requestId) {
+    bru.setEnvVar("inboundRequestId", body.requestId);
+  }
+  if (body && body.data && body.data.conversationId) {
+    bru.setEnvVar("conversationId", body.data.conversationId);
+    console.log("[TC-A01] 入站消息已接收 conversationId=" + body.data.conversationId + " dispatchMode=" + body.data.dispatchMode);
+  }
+}

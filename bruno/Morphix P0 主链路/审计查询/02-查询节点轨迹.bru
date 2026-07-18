@@ -1,0 +1,24 @@
+meta {
+  name: 查询节点轨迹 (TC-B04)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/control/workflow-runs/{{runId}}/node-executions
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-B04 期望：返回节点执行轨迹（nodeId / nodeType / status / attemptNo / durationMs / errorCode）
+  const body = res.getBody();
+  if (body && body.data) {
+    const items = body.data.items || [];
+    console.log("[TC-B04] 节点轨迹条数=" + items.length);
+    items.forEach(function (n) { console.log("  nodeId=" + n.nodeId + " status=" + n.status + " attempt=" + n.attemptNo); });
+  }
+}

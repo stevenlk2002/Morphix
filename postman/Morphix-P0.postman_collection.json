@@ -1,0 +1,1984 @@
+{
+  "info": {
+    "name": "Morphix P0 主链路",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Morphix P0 主链路联调集合：覆盖设备注册绑定、令牌刷新、心跳、入站消息、运行时编排、设备命令回执、人工接管、审计查询、异常边界与里程碑门禁(G)。请求间通过 test 脚本 pm.environment.set 链式传递 deviceId/deviceToken/conversationId/runId/commandId 等变量，顺序运行即可端到端跑通。"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string",
+      "description": "Morphix 服务基址；本地默认 http://localhost:8000，联调改 https://api.morphix.local"
+    },
+    {
+      "key": "controlToken",
+      "value": "",
+      "type": "string",
+      "description": "控制面 JWT（ControlAuth，Authorization: Bearer）。首次运行前填写"
+    },
+    {
+      "key": "runtimeToken",
+      "value": "",
+      "type": "string",
+      "description": "执行面令牌（RuntimeAuth，X-Runtime-Token）。首次运行前填写"
+    },
+    {
+      "key": "deviceToken",
+      "value": "",
+      "type": "string",
+      "description": "设备令牌（DeviceAuth，X-Device-Token）。由设备注册响应自动写入，勿手填"
+    },
+    {
+      "key": "internalToken",
+      "value": "",
+      "type": "string",
+      "description": "内部服务令牌（InternalServiceAuth，X-Internal-Service-Token）。仅内部编排接口使用"
+    },
+    {
+      "key": "provisioningKey",
+      "value": "",
+      "type": "string",
+      "description": "设备预配置密钥（DeviceProvisioningAuth，X-Device-Provisioning-Key）。注册时使用，首次运行前填写"
+    },
+    {
+      "key": "projectId",
+      "value": "01JPROJECT",
+      "type": "string",
+      "description": "项目 ID"
+    },
+    {
+      "key": "channelAccountId",
+      "value": "01JACCOUNT",
+      "type": "string",
+      "description": "渠道账号 ID（任务描述 channelId 即此字段）"
+    },
+    {
+      "key": "conversationId",
+      "value": "",
+      "type": "string",
+      "description": "会话 ID，由上报入站消息响应自动写入"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string",
+      "description": "设备 ID，由设备注册响应自动写入"
+    },
+    {
+      "key": "runId",
+      "value": "",
+      "type": "string",
+      "description": "工作流运行实例 ID，由运行态/入站事件状态自动写入"
+    },
+    {
+      "key": "commandId",
+      "value": "",
+      "type": "string",
+      "description": "设备命令 ID，由创建设备命令响应自动写入"
+    },
+    {
+      "key": "inboundRequestId",
+      "value": "",
+      "type": "string",
+      "description": "入站事件 requestId（封套顶层），由上报入站消息自动写入"
+    },
+    {
+      "key": "operatorId",
+      "value": "op_001",
+      "type": "string",
+      "description": "运营人员 ID，人工接管/交还使用"
+    },
+    {
+      "key": "bindCode",
+      "value": "BIND-20260712-8F2KQ",
+      "type": "string",
+      "description": "设备绑定码，注册时使用"
+    },
+    {
+      "key": "workflowVersionId",
+      "value": "wf_v1",
+      "type": "string",
+      "description": "工作流版本 ID（手动启动运行用，P1 预留）"
+    }
+  ],
+  "item": [
+    {
+      "name": "设备接入",
+      "item": [
+        {
+          "name": "01-设备注册绑定 (TC-C01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Provisioning-Key",
+                "value": "{{provisioningKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/registrations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "registrations"
+              ]
+            },
+            "description": "01-设备注册绑定 (TC-C01)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bindCode\": \"{{bindCode}}\",\n  \"projectId\": \"{{projectId}}\",\n  \"channelType\": \"wechat\",\n  \"accountType\": \"personal\",\n  \"installFingerprint\": \"android-14:pixel7:abc123\",\n  \"deviceMeta\": {\n    \"brand\": \"Google\",\n    \"model\": \"Pixel 7\",\n    \"osVersion\": \"Android 14\",\n    \"appVersion\": \"0.1.0\",\n    \"locale\": \"zh-CN\",\n    \"timezone\": \"Asia/Shanghai\",\n    \"networkType\": \"wifi\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.deviceId) {",
+                  "  pm.environment.set('deviceId', json.data.deviceId);",
+                  "  pm.environment.set('deviceToken', json.data.deviceToken);",
+                  "  pm.environment.set('channelAccountId', json.data.channelAccountId);",
+                  "  console.log('[TC-C01] 设备注册成功 deviceId=' + json.data.deviceId);",
+                  "} else { console.log('[TC-C01] 注册响应异常，请检查 provisioningKey / bindCode'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-设备令牌刷新 (TC-C02)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/registrations/{{deviceId}}/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "registrations",
+                "{{deviceId}}",
+                "refresh-token"
+              ]
+            },
+            "description": "02-设备令牌刷新 (TC-C02)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshReason\": \"expiring\",\n  \"currentTokenDigest\": \"sha256:optional\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.deviceToken) {",
+                  "  pm.environment.set('deviceToken', json.data.deviceToken);",
+                  "  console.log('[TC-C02] 令牌已刷新，新令牌已写入 deviceToken');",
+                  "} else { console.log('[TC-C02] 刷新响应异常，请确认 deviceId / deviceToken'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-设备心跳上报 (TC-C03)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/heartbeats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "heartbeats"
+              ]
+            },
+            "description": "03-设备心跳上报 (TC-C03)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"reportedAt\": \"2026-07-12T16:35:00+08:00\",\n  \"deviceStatus\": \"online\",\n  \"accountStatus\": \"online\",\n  \"commandQueue\": {\n    \"pendingCount\": 0,\n    \"runningCount\": 0,\n    \"retryCount\": 0\n  },\n  \"network\": {\n    \"networkType\": \"wifi\",\n    \"signalLevel\": 4\n  },\n  \"battery\": {\n    \"percent\": 88,\n    \"charging\": true\n  },\n  \"appRuntime\": {\n    \"processState\": \"foreground\",\n    \"uptimeSec\": 3600\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-C03] 心跳已接收 controlDirective.action=' + (json.data.controlDirective && json.data.controlDirective.action)); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-设备直接上报入站消息 (TC-C08)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/inbound-messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "inbound-messages"
+              ]
+            },
+            "description": "04-设备直接上报入站消息 (TC-C08)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"channelType\": \"wechat\",\n  \"sourceConversationId\": \"wx_conv_9981\",\n  \"sourceMessageId\": \"wx_msg_dev_001\",\n  \"conversationType\": \"direct\",\n  \"contact\": {\n    \"externalUid\": \"wx_user_7788\",\n    \"displayName\": \"张三\"\n  },\n  \"message\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"我想了解下报价\",\n    \"sentAt\": \"2026-07-12T16:30:00+08:00\"\n  },\n  \"rawContext\": {\n    \"appName\": \"WeChat\",\n    \"clientSeq\": 983472\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.conversationId) {",
+                  "  pm.environment.set('conversationId', json.data.conversationId);",
+                  "  console.log('[TC-C08] 设备上报入站消息已接入主链路 conversationId=' + json.data.conversationId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "控制面入口",
+      "item": [
+        {
+          "name": "01-查询会话列表 (TC-B01 / TC-A02)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "projectId",
+                  "value": "{{projectId}}",
+                  "disabled": false
+                },
+                {
+                  "key": "channelAccountId",
+                  "value": "{{channelAccountId}}",
+                  "disabled": false
+                },
+                {
+                  "key": "sessionState",
+                  "value": "AUTO_HOSTING",
+                  "disabled": false
+                },
+                {
+                  "key": "handoffStatus",
+                  "value": "none",
+                  "disabled": false
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "01-查询会话列表 (TC-B01 / TC-A02)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-B01] 会话总数 total=' + json.data.total + ' 本页 ' + (json.data.items?json.data.items.length:0) + ' 条'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-查询会话详情 (TC-B02)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}"
+              ]
+            },
+            "description": "02-查询会话详情 (TC-B02)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-B02] 会话详情 ownerType=' + json.data.ownerType + ' handoffStatus=' + json.data.handoffStatus); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-查询会话消息流水 (TC-B02)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "03-查询会话消息流水 (TC-B02)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-B02] 消息流水 hasMore=' + json.data.hasMore + ' 条数=' + (json.data.items?json.data.items.length:0)); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-查询当前运行态 (TC-B03 / TC-A03)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}/runtime",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}",
+                "runtime"
+              ]
+            },
+            "description": "04-查询当前运行态 (TC-B03 / TC-A03)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) {",
+                  "  pm.environment.set('runId', json.data.activeRunId || '');",
+                  "  console.log('[TC-B03] sessionState=' + json.data.sessionState + ' activeRunId=' + json.data.activeRunId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "运行时编排",
+      "item": [
+        {
+          "name": "01-上报入站消息-单聊 (TC-A01 / TC-A03 / TC-E01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/inbound-events/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "inbound-events",
+                "messages"
+              ]
+            },
+            "description": "01-上报入站消息-单聊 (TC-A01 / TC-A03 / TC-E01)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"conversationType\": \"direct\",\n  \"sourceConversationId\": \"wx_conv_9981\",\n  \"sourceMessageId\": \"wx_msg_rt_001\",\n  \"contact\": {\n    \"externalUid\": \"wx_user_7788\",\n    \"displayName\": \"张三\"\n  },\n  \"message\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"我想了解下报价\",\n    \"sentAt\": \"2026-07-12T16:30:00+08:00\"\n  },\n  \"metadata\": {\n    \"channelType\": \"wechat\",\n    \"roomTopic\": null,\n    \"rawPayloadDigest\": \"sha256:xxxx\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.requestId) pm.environment.set('inboundRequestId', json.requestId);",
+                  "if (json.data && json.data.conversationId) {",
+                  "  pm.environment.set('conversationId', json.data.conversationId);",
+                  "  console.log('[TC-A01] 入站消息已接收 conversationId=' + json.data.conversationId + ' dispatchMode=' + json.data.dispatchMode);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-上报入站消息-群聊 (TC-A02)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/inbound-events/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "inbound-events",
+                "messages"
+              ]
+            },
+            "description": "02-上报入站消息-群聊 (TC-A02)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"conversationType\": \"group\",\n  \"sourceConversationId\": \"wx_group_5566\",\n  \"sourceMessageId\": \"wx_msg_grp_001\",\n  \"contact\": {\n    \"externalUid\": \"wx_user_7788\",\n    \"displayName\": \"张三\"\n  },\n  \"message\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"群里有谁能报个价\",\n    \"sentAt\": \"2026-07-12T16:32:00+08:00\"\n  },\n  \"metadata\": {\n    \"channelType\": \"wechat\",\n    \"roomTopic\": \"采购询价群\",\n    \"rawPayloadDigest\": \"sha256:yyyy\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.conversationId) { console.log('[TC-A02] 群聊入站消息已定位 conversationId=' + json.data.conversationId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-查询入站事件状态 (TC-A01)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/inbound-events/{{inboundRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "inbound-events",
+                "{{inboundRequestId}}"
+              ]
+            },
+            "description": "03-查询入站事件状态 (TC-A01)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) {",
+                  "  if (json.data.runId) pm.environment.set('runId', json.data.runId);",
+                  "  console.log('[TC-A01] 入站事件 status=' + json.data.status + ' dispatchResult=' + json.data.dispatchResult);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-创建设备命令 (TC-A01 / TC-G02)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/device-commands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "device-commands"
+              ]
+            },
+            "description": "04-创建设备命令 (TC-A01 / TC-G02)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"conversationId\": \"{{conversationId}}\",\n  \"runId\": \"{{runId}}\",\n  \"commandType\": \"send_message\",\n  \"payload\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"您好，报价单已发送，请查收。\"\n  },\n  \"policyDecisionId\": \"pd_optional\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.commandId) {",
+                  "  pm.environment.set('commandId', json.data.commandId);",
+                  "  console.log('[TC-G02] 设备命令已创建 commandId=' + json.data.commandId + ' status=' + json.data.status);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05-内部Agent执行超时兜底 (TC-E05)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Internal-Service-Token",
+                "value": "{{internalToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/internal/agent-executor/invoke",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "internal",
+                "agent-executor",
+                "invoke"
+              ]
+            },
+            "description": "05-内部Agent执行超时兜底 (TC-E05)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"runId\": \"{{runId}}\",\n  \"nodeExecutionId\": \"ne_timeout_001\",\n  \"agentType\": \"qa\",\n  \"modelProfile\": \"standard\",\n  \"structuredInput\": {\n    \"prompt\": \"回答客户报价问题\",\n    \"timeoutMs\": 1\n  },\n  \"knowledgeContext\": {},\n  \"toolScope\": [\n    \"knowledge_search\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// TC-E05 需配合故障注入/mock agent 超时；内部编排接口，联调当天以 internalToken 调用",
+                  "const json = pm.response.json();",
+                  "console.log('[TC-E05] agent-executor 响应 status=' + pm.response.code + ' success=' + (json && json.success));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "设备命令回执",
+      "item": [
+        {
+          "name": "01-设备拉取待执行命令 (TC-C04 / TC-D02 / TC-E03)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "01-设备拉取待执行命令 (TC-C04 / TC-D02 / TC-E03)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { const items = json.data.items || []; console.log('[TC-C04] 待执行命令数=' + items.length);",
+                  "  items.forEach(function(c){ console.log('  commandId=' + c.commandId + ' type=' + c.commandType); }); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-命令ACK回执 (TC-C05 / TC-E02)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/{{commandId}}/ack",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "{{commandId}}",
+                "ack"
+              ]
+            },
+            "description": "02-命令ACK回执 (TC-C05 / TC-E02)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"ackedAt\": \"2026-07-12T16:36:00+08:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-C05] ACK 已接收 commandId=' + json.data.commandId + ' status=' + json.data.status); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-命令complete回执 (TC-C06 / TC-E02 / TC-E04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/{{commandId}}/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "{{commandId}}",
+                "complete"
+              ]
+            },
+            "description": "03-命令complete回执 (TC-C06 / TC-E02 / TC-E04)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"doneAt\": \"2026-07-12T16:37:00+08:00\",\n  \"result\": {\n    \"delivered\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-C06] complete 已接收 commandId=' + json.data.commandId + ' status=' + json.data.status); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-命令fail回执 (TC-C07 / TC-E07)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/{{commandId}}/fail",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "{{commandId}}",
+                "fail"
+              ]
+            },
+            "description": "04-命令fail回执 (TC-C07 / TC-E07)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"failedAt\": \"2026-07-12T16:37:00+08:00\",\n  \"failureReason\": \"wechat_account_kicked\",\n  \"retryable\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-C07] fail 已接收 commandId=' + json.data.commandId + ' status=' + json.data.status); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "人工接管",
+      "item": [
+        {
+          "name": "01-发起人工接管 (TC-D01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}/handoff",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}",
+                "handoff"
+              ]
+            },
+            "description": "01-发起人工接管 (TC-D01)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"operatorId\": \"{{operatorId}}\",\n  \"reason\": \"客户明确要求转人工\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-D01] 接管完成 handoffStatus=' + json.data.handoffStatus + ' sessionState=' + json.data.sessionState); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-并发人工接管冲突 (TC-E09)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}/handoff",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}",
+                "handoff"
+              ]
+            },
+            "description": "02-并发人工接管冲突 (TC-E09)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"operatorId\": \"op_002\",\n  \"reason\": \"并发接管-运营B\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "console.log('[TC-E09] 并发接管响应 status=' + pm.response.code + ' handoffStatus=' + (json.data?json.data.handoffStatus:'n/a'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-交还托管 (TC-D03)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}/handoff/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}",
+                "handoff",
+                "return"
+              ]
+            },
+            "description": "03-交还托管 (TC-D03)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"operatorId\": \"{{operatorId}}\",\n  \"resumeMode\": \"continue\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-D03] 交还完成 handoffStatus=' + json.data.handoffStatus + ' sessionState=' + json.data.sessionState); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "审计查询",
+      "item": [
+        {
+          "name": "01-查询运行实例详情 (TC-B04)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/workflow-runs/{{runId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "workflow-runs",
+                "{{runId}}"
+              ]
+            },
+            "description": "01-查询运行实例详情 (TC-B04)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-B04] run status=' + json.data.status + ' triggerType=' + json.data.triggerType + ' currentNodeId=' + json.data.currentNodeId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-查询节点轨迹 (TC-B04)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/workflow-runs/{{runId}}/node-executions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "workflow-runs",
+                "{{runId}}",
+                "node-executions"
+              ]
+            },
+            "description": "02-查询节点轨迹 (TC-B04)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { const items = json.data.items || []; console.log('[TC-B04] 节点轨迹条数=' + items.length);",
+                  "  items.forEach(function(n){ console.log('  nodeId=' + n.nodeId + ' status=' + n.status + ' attempt=' + n.attemptNo); }); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "异常边界",
+      "item": [
+        {
+          "name": "01-入站消息重复幂等 (TC-E01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/inbound-events/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "inbound-events",
+                "messages"
+              ]
+            },
+            "description": "01-入站消息重复幂等 (TC-E01)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"conversationType\": \"direct\",\n  \"sourceConversationId\": \"wx_conv_9981\",\n  \"sourceMessageId\": \"wx_msg_rt_001\",\n  \"contact\": {\n    \"externalUid\": \"wx_user_7788\",\n    \"displayName\": \"张三\"\n  },\n  \"message\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"我想了解下报价\",\n    \"sentAt\": \"2026-07-12T16:30:00+08:00\"\n  },\n  \"metadata\": {\n    \"channelType\": \"wechat\",\n    \"roomTopic\": null,\n    \"rawPayloadDigest\": \"sha256:xxxx\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "console.log('[TC-E01] 重复提交响应 status=' + pm.response.code + ' code=' + (json.error?json.error.code:'n/a'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-重复命令回执no-op (TC-E02)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/{{commandId}}/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "{{commandId}}",
+                "complete"
+              ]
+            },
+            "description": "02-重复命令回执no-op (TC-E02)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"doneAt\": \"2026-07-12T16:37:00+08:00\",\n  \"result\": {\n    \"delivered\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "console.log('[TC-E02] 重复 complete 响应 status=' + pm.response.code + ' code=' + (json.error?json.error.code:'n/a'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-设备离线命令重投 (TC-E03)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "03-设备离线命令重投 (TC-E03)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-E03] 恢复后待执行命令数=' + (json.data.items||[]).length); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-断网回执补传 (TC-E04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/{{commandId}}/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "{{commandId}}",
+                "complete"
+              ]
+            },
+            "description": "04-断网回执补传 (TC-E04)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"doneAt\": \"2026-07-12T16:40:00+08:00\",\n  \"result\": {\n    \"delivered\": true,\n    \"recoveredAfterReconnect\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-E04] 补传 complete 成功 commandId=' + json.data.commandId + ' status=' + json.data.status); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05-接管期间新消息不自动发送 (TC-D04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/inbound-events/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "inbound-events",
+                "messages"
+              ]
+            },
+            "description": "05-接管期间新消息不自动发送 (TC-D04)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"conversationType\": \"direct\",\n  \"sourceConversationId\": \"wx_conv_9981\",\n  \"sourceMessageId\": \"wx_msg_rt_handoff_001\",\n  \"contact\": {\n    \"externalUid\": \"wx_user_7788\",\n    \"displayName\": \"张三\"\n  },\n  \"message\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"接管期间的新消息\",\n    \"sentAt\": \"2026-07-12T16:45:00+08:00\"\n  },\n  \"metadata\": {\n    \"channelType\": \"wechat\",\n    \"roomTopic\": null,\n    \"rawPayloadDigest\": \"sha256:zzzz\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-D04] 接管期间新消息已接收 conversationId=' + json.data.conversationId + '（应为人工队列，无自动动作）'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-未带鉴权访问被拒 (TC-F01)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "projectId",
+                  "value": "{{projectId}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "06-未带鉴权访问被拒 (TC-F01)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[TC-F01] 未带鉴权访问 status=' + pm.response.code + '（期望 401）');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07-设备令牌无效被拒 (TC-F02)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "invalid-device-token-xxxx",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "07-设备令牌无效被拒 (TC-F02)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[TC-F02] 无效设备令牌访问 status=' + pm.response.code + '（期望 401/403）');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08-越权访问他人会话被拒 (TC-F03)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/conv_other_project_999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "conv_other_project_999"
+              ]
+            },
+            "description": "08-越权访问他人会话被拒 (TC-F03)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[TC-F03] 越权访问 status=' + pm.response.code + '（期望 403 或 404）');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "门禁验收(G)",
+      "item": [
+        {
+          "name": "01-G01-M1开发基线冻结",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "projectId",
+                  "value": "{{projectId}}",
+                  "disabled": false
+                },
+                {
+                  "key": "pageSize",
+                  "value": "1",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "01-G01-M1开发基线冻结"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[TC-G01] M1 基线接口探活 status=' + pm.response.code);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-G02-M2运行时命令生成",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Runtime-Token",
+                "value": "{{runtimeToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$randomUUID}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/runtime/inbound-events/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "runtime",
+                "inbound-events",
+                "messages"
+              ]
+            },
+            "description": "02-G02-M2运行时命令生成",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"channelAccountId\": \"{{channelAccountId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"conversationType\": \"direct\",\n  \"sourceConversationId\": \"wx_conv_9981\",\n  \"sourceMessageId\": \"wx_msg_g02_001\",\n  \"contact\": {\n    \"externalUid\": \"wx_user_7788\",\n    \"displayName\": \"张三\"\n  },\n  \"message\": {\n    \"messageType\": \"text\",\n    \"contentText\": \"M2 验收消息\",\n    \"sentAt\": \"2026-07-12T16:50:00+08:00\"\n  },\n  \"metadata\": {\n    \"channelType\": \"wechat\",\n    \"roomTopic\": null,\n    \"rawPayloadDigest\": \"sha256:g02\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.conversationId) { pm.environment.set('conversationId', json.data.conversationId);",
+                  "  console.log('[TC-G02] M2 入站消息已接收 conversationId=' + json.data.conversationId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-G03-M3设备回执闭环",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Device-Token",
+                "value": "{{deviceToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/device/commands/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "device",
+                "commands",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "03-G03-M3设备回执闭环"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-G03] M3 设备闭环探活：待执行命令数=' + (json.data.items||[]).length); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-G04-M4控制台可操作",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/conversations/{{conversationId}}/runtime",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "conversations",
+                "{{conversationId}}",
+                "runtime"
+              ]
+            },
+            "description": "04-G04-M4控制台可操作"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-G04] M4 运行态可见 sessionState=' + json.data.sessionState + ' handoffStatus=' + json.data.handoffStatus); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05-G05-M5灰度就绪",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{controlToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/workflow-runs/{{runId}}/node-executions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "workflow-runs",
+                "{{runId}}",
+                "node-executions"
+              ]
+            },
+            "description": "05-G05-M5灰度就绪"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data) { console.log('[TC-G05] M5 审计可观测：节点轨迹条数=' + (json.data.items||[]).length); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Morphix P0 集合级初始化：首次运行只需在环境里填好 token 即可",
+          "const required = ['baseUrl','controlToken','runtimeToken','deviceToken','provisioningKey','projectId'];",
+          "const missing = required.filter(k => !pm.environment.get(k));",
+          "if (missing.length) {",
+          "  console.log('[Morphix] 以下环境变量尚未填写，请先到环境配置补全: ' + missing.join(', '));",
+          "} else {",
+          "  console.log('[Morphix] 环境变量就绪，开始 P0 主链路联调。');",
+          "}"
+        ]
+      }
+    }
+  ]
+}

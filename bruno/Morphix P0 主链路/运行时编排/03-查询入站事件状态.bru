@@ -1,0 +1,24 @@
+meta {
+  name: 查询入站事件状态 (TC-A01)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/runtime/inbound-events/{{inboundRequestId}}
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+}
+
+script:post-response {
+  // TC-A01 期望：返回 status（accepted/queued/processing/processed/failed）与 runId
+  // runId 自动写入，供「审计查询」文件夹的 workflow-runs 请求复用
+  const body = res.getBody();
+  if (body && body.data) {
+    if (body.data.runId) bru.setEnvVar("runId", body.data.runId);
+    console.log("[TC-A01] 入站事件 status=" + body.data.status + " dispatchResult=" + body.data.dispatchResult);
+  }
+}

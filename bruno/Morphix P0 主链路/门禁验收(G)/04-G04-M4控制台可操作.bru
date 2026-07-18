@@ -1,0 +1,23 @@
+meta {
+  name: G04 M4 控制台可操作验收
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}/runtime
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-G04（M4）控制台可操作验收：控制台可见运行态，且人工接管/交还可驱动真实状态变化。
+  // 接管/交还见「人工接管」文件夹（TC-D01 / TC-D03）；run/节点/决策见「审计查询」与 B05/B06（P1）。
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-G04] M4 运行态可见 sessionState=" + body.data.sessionState + " handoffStatus=" + body.data.handoffStatus);
+  }
+}

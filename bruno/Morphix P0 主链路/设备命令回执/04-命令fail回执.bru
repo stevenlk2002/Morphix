@@ -1,0 +1,35 @@
+meta {
+  name: 命令fail回执 (TC-C07 / TC-E07)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/device/commands/{{commandId}}/fail
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "failedAt": "2026-07-12T16:37:00+08:00",
+    "failureReason": "wechat_account_kicked",
+    "retryable": false
+  }
+}
+
+script:post-response {
+  // TC-C07 期望：命令进入 failed，失败原因结构化落库
+  // TC-E07 期望：fail 后运行时进入人工兜底路径，运营可在控制台看到待处理项
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-C07] fail 已接收 commandId=" + body.data.commandId + " status=" + body.data.status);
+  }
+}

@@ -1,0 +1,49 @@
+meta {
+  name: 设备注册绑定 (TC-C01)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/device/registrations
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Provisioning-Key: {{provisioningKey}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "bindCode": "{{bindCode}}",
+    "projectId": "{{projectId}}",
+    "channelType": "wechat",
+    "accountType": "personal",
+    "installFingerprint": "android-14:pixel7:abc123",
+    "deviceMeta": {
+      "brand": "Google",
+      "model": "Pixel 7",
+      "osVersion": "Android 14",
+      "appVersion": "0.1.0",
+      "locale": "zh-CN",
+      "timezone": "Asia/Shanghai",
+      "networkType": "wifi"
+    }
+  }
+}
+
+script:post-response {
+  // TC-C01 期望：返回 deviceId / channelAccountId / deviceToken，并自动写入环境变量供后续请求复用
+  const body = res.getBody();
+  if (body && body.data && body.data.deviceId) {
+    bru.setEnvVar("deviceId", body.data.deviceId);
+    bru.setEnvVar("deviceToken", body.data.deviceToken);
+    bru.setEnvVar("channelAccountId", body.data.channelAccountId);
+    console.log("[TC-C01] 设备注册成功 deviceId=" + body.data.deviceId);
+  } else {
+    console.log("[TC-C01] 注册响应异常或未返回 deviceId，请检查 provisioningKey / bindCode");
+  }
+}

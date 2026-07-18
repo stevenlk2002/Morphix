@@ -1,0 +1,35 @@
+meta {
+  name: 设备令牌刷新 (TC-C02)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/device/registrations/{{deviceId}}/refresh-token
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "refreshReason": "expiring",
+    "currentTokenDigest": "sha256:optional"
+  }
+}
+
+script:post-response {
+  // TC-C02 期望：返回新 deviceToken；刷新后用新令牌访问受保护接口应成功
+  const body = res.getBody();
+  if (body && body.data && body.data.deviceToken) {
+    bru.setEnvVar("deviceToken", body.data.deviceToken);
+    console.log("[TC-C02] 令牌已刷新，新令牌已写入 deviceToken");
+  } else {
+    console.log("[TC-C02] 刷新响应异常，请确认 deviceId / deviceToken 有效");
+  }
+}

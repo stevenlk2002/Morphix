@@ -1,0 +1,23 @@
+meta {
+  name: 查询运行实例详情 (TC-B04)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/control/workflow-runs/{{runId}}
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-B04 期望：返回 run 详情（status / triggerType / currentNodeId / startedAt / endedAt）
+  // runId 由「查询当前运行态」activeRunId 或「查询入站事件状态」runId 自动写入
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-B04] run status=" + body.data.status + " triggerType=" + body.data.triggerType + " currentNodeId=" + body.data.currentNodeId);
+  }
+}

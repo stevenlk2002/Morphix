@@ -1,0 +1,21 @@
+meta {
+  name: 越权访问他人会话被拒 (TC-F03)
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations/conv_other_project_999
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-F03（M4）期望：A 项目运营访问 B 项目会话（conv_other_project_999 不存在于本项目）返回 403/404，不返回数据。
+  // 注：契约对跨项目访问未显式定义 403 响应，仅定义 401/404；错误码枚举含 FORBIDDEN。
+  // 建议联调时与架构确认跨项目越权应返回 403 还是 404（见回报中的待确认项）。
+  console.log("[TC-F03] 越权访问 status=" + res.getStatus() + "（期望 403 或 404）");
+}

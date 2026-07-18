@@ -1,0 +1,24 @@
+meta {
+  name: 查询当前运行态 (TC-B03 / TC-A03)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}/runtime
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-B03 期望：运行态字段完整（hostingStatus / sessionState / handoffStatus / interruptPolicy / activeRunId）
+  // TC-A03 期望：多轮消息后状态持续推进，不出现状态回退；activeRunId 自动写入供审计查询使用
+  const body = res.getBody();
+  if (body && body.data) {
+    bru.setEnvVar("runId", body.data.activeRunId || "");
+    console.log("[TC-B03] sessionState=" + body.data.sessionState + " activeRunId=" + body.data.activeRunId);
+  }
+}

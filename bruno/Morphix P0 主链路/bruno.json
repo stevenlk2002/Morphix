@@ -1,0 +1,102 @@
+{
+  "name": "Morphix P0 主链路",
+  "type": "environment",
+  "variables": [
+    {
+      "name": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "text",
+      "description": "Morphix 服务基址。本地开发默认 http://localhost:8000；联调环境改为 https://api.morphix.local"
+    },
+    {
+      "name": "controlToken",
+      "value": "",
+      "type": "text",
+      "description": "控制面 JWT（ControlAuth，Authorization: Bearer）。运营/控制台登录态，首次运行前填写"
+    },
+    {
+      "name": "runtimeToken",
+      "value": "",
+      "type": "text",
+      "description": "执行面服务令牌（RuntimeAuth，X-Runtime-Token）。渠道接入层/网关身份，首次运行前填写"
+    },
+    {
+      "name": "deviceToken",
+      "value": "",
+      "type": "text",
+      "description": "设备令牌（DeviceAuth，X-Device-Token）。由「设备注册绑定」响应自动写入，无需手填"
+    },
+    {
+      "name": "internalToken",
+      "value": "",
+      "type": "text",
+      "description": "内部服务令牌（InternalServiceAuth，X-Internal-Service-Token）。仅内部编排接口（/api/internal/*）使用"
+    },
+    {
+      "name": "provisioningKey",
+      "value": "",
+      "type": "text",
+      "description": "设备一次性预配置密钥（DeviceProvisioningAuth，X-Device-Provisioning-Key）。注册时使用，首次运行前填写"
+    },
+    {
+      "name": "projectId",
+      "value": "01JPROJECT",
+      "type": "text",
+      "description": "项目 ID"
+    },
+    {
+      "name": "channelAccountId",
+      "value": "01JACCOUNT",
+      "type": "text",
+      "description": "渠道账号 ID。任务描述中的 channelId 即对应此字段"
+    },
+    {
+      "name": "conversationId",
+      "value": "",
+      "type": "text",
+      "description": "会话 ID，由「上报入站消息」响应自动写入"
+    },
+    {
+      "name": "deviceId",
+      "value": "",
+      "type": "text",
+      "description": "设备 ID，由「设备注册绑定」响应自动写入"
+    },
+    {
+      "name": "runId",
+      "value": "",
+      "type": "text",
+      "description": "工作流运行实例 ID，由「查询当前运行态」或「查询入站事件状态」自动写入"
+    },
+    {
+      "name": "commandId",
+      "value": "",
+      "type": "text",
+      "description": "设备命令 ID，由「创建设备命令」响应自动写入"
+    },
+    {
+      "name": "inboundRequestId",
+      "value": "",
+      "type": "text",
+      "description": "入站事件 requestId（响应封套顶层），由「上报入站消息」自动写入，供「查询入站事件状态」使用"
+    },
+    {
+      "name": "operatorId",
+      "value": "op_001",
+      "type": "text",
+      "description": "运营人员 ID，人工接管 / 交还使用"
+    },
+    {
+      "name": "bindCode",
+      "value": "BIND-20260712-8F2KQ",
+      "type": "text",
+      "description": "设备绑定码，注册时使用"
+    },
+    {
+      "name": "workflowVersionId",
+      "value": "wf_v1",
+      "type": "text",
+      "description": "工作流版本 ID（手动启动运行用，P1 用例预留）"
+    }
+  ]
+}

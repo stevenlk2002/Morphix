@@ -1,0 +1,29 @@
+meta {
+  name: G03 M3 设备回执闭环验收
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/device/commands/pending
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+}
+
+params {
+  deviceId: {{deviceId}}
+  limit: 50
+}
+
+script:post-response {
+  // TC-G03（M3）设备回执闭环验收：代表「设备注册→心跳→拉命令→ACK→complete/fail」全闭环探活。
+  // 完整闭环由「设备接入」「设备命令回执」文件夹的用例串起；此处确认设备侧可稳定拉到命令。
+  // 重复回执 no-op、断网补传见「异常边界」文件夹（TC-E02 / TC-E04）。
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-G03] M3 设备闭环探活：待执行命令数=" + ((body.data.items || []).length));
+  }
+}

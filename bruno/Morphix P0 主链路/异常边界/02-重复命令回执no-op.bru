@@ -1,0 +1,33 @@
+meta {
+  name: 重复命令回执no-op (TC-E02)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/device/commands/{{commandId}}/complete
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "doneAt": "2026-07-12T16:37:00+08:00",
+    "result": { "delivered": true }
+  }
+}
+
+script:post-response {
+  // TC-E02（P0 阻塞项4）期望：对同一已完成的 commandId 再次提交 complete，
+  // 应为 no-op（COMMAND_ALREADY_DONE），状态只前进一次，不破坏状态机。
+  // 也可对同一 commandId 重复提交 ack / fail 验证各自 no-op。
+  const body = res.getBody();
+  console.log("[TC-E02] 重复 complete 响应 status=" + res.getStatus() + " code=" + (body && body.error ? body.error.code : "n/a"));
+}

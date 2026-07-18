@@ -1,0 +1,25 @@
+meta {
+  name: G05 M5 小流量灰度就绪验收
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/control/workflow-runs/{{runId}}/node-executions
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-G05（M5）小流量灰度就绪验收：代表「真实样本链路 + 审计可观测」探活。
+  // 灰度所需控制开关（停用 Bot / 冻结设备 / 限制会话范围 / 强制转人工）由服务端 controlFlags /
+  // controlDirective 下发，本集合通过心跳响应 controlDirective 与注册响应 controlFlags 观察。
+  // 错误演练（设备离线/回执失败/人工接管/命令失败）见「异常边界」「设备命令回执」相关用例。
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-G05] M5 审计可观测：节点轨迹条数=" + ((body.data.items || []).length));
+  }
+}

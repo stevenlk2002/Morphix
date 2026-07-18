@@ -1,0 +1,32 @@
+meta {
+  name: 查询会话列表 (TC-B01 / TC-A02)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+params {
+  projectId: {{projectId}}
+  channelAccountId: {{channelAccountId}}
+  sessionState: AUTO_HOSTING
+  handoffStatus: none
+  page: 1
+  pageSize: 20
+}
+
+script:post-response {
+  // TC-B01 期望：返回 items / page / pageSize / total，分页与过滤条件生效
+  // TC-A02 期望：可按 conversationType=group 过滤定位群会话，不污染单聊
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-B01] 会话总数 total=" + body.data.total + "，本页 " + (body.data.items ? body.data.items.length : 0) + " 条");
+  }
+}

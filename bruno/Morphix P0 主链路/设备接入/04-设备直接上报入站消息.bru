@@ -1,0 +1,44 @@
+meta {
+  name: 设备直接上报入站消息 (TC-C08)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/device/inbound-messages
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "channelType": "wechat",
+    "sourceConversationId": "wx_conv_9981",
+    "sourceMessageId": "wx_msg_dev_001",
+    "conversationType": "direct",
+    "contact": { "externalUid": "wx_user_7788", "displayName": "张三" },
+    "message": {
+      "messageType": "text",
+      "contentText": "我想了解下报价",
+      "sentAt": "2026-07-12T16:30:00+08:00"
+    },
+    "rawContext": { "appName": "WeChat", "clientSeq": 983472 }
+  }
+}
+
+script:post-response {
+  // TC-C08 期望：与 /api/runtime/inbound-events/messages 走同一条主链路，返回 conversationId / orchestrationRequestId
+  const body = res.getBody();
+  if (body && body.data && body.data.conversationId) {
+    bru.setEnvVar("conversationId", body.data.conversationId);
+    console.log("[TC-C08] 设备上报入站消息已接入主链路 conversationId=" + body.data.conversationId);
+  }
+}

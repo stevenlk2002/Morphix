@@ -1,0 +1,43 @@
+meta {
+  name: 入站消息重复幂等 (TC-E01)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/runtime/inbound-events/messages
+  body: json
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "deviceId": "{{deviceId}}",
+    "conversationType": "direct",
+    "sourceConversationId": "wx_conv_9981",
+    "sourceMessageId": "wx_msg_rt_001",
+    "contact": { "externalUid": "wx_user_7788", "displayName": "张三" },
+    "message": {
+      "messageType": "text",
+      "contentText": "我想了解下报价",
+      "sentAt": "2026-07-12T16:30:00+08:00"
+    },
+    "metadata": { "channelType": "wechat", "roomTopic": null, "rawPayloadDigest": "sha256:xxxx" }
+  }
+}
+
+script:post-response {
+  // TC-E01（P0 阻塞项1）期望：与「上报入站消息-单聊」使用相同 sourceMessageId 重复提交，
+  // 第二次应返回已处理结果或 no-op（DUPLICATE_MESSAGE），不创建第二个 run。
+  // 建议：先跑「上报入站消息-单聊」拿到首次结果，再单独运行本请求对比。
+  const body = res.getBody();
+  console.log("[TC-E01] 重复提交响应 status=" + res.getStatus() + " code=" + (body && body.error ? body.error.code : "n/a"));
+}

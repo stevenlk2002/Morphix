@@ -1,0 +1,24 @@
+meta {
+  name: 设备令牌无效被拒 (TC-F02)
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/device/commands/pending
+  auth: none
+}
+
+headers {
+  X-Device-Token: invalid-device-token-xxxx
+}
+
+params {
+  deviceId: {{deviceId}}
+}
+
+script:post-response {
+  // TC-F02（M3）期望：使用伪造/失效设备令牌拉命令返回 401/403，设备不进入正常链路。
+  // 注意：本请求故意使用无效令牌 invalid-device-token-xxxx。
+  console.log("[TC-F02] 无效设备令牌访问 status=" + res.getStatus() + "（期望 401/403）");
+}

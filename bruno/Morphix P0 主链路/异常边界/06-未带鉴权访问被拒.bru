@@ -1,0 +1,24 @@
+meta {
+  name: 未带鉴权访问被拒 (TC-F01)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+params {
+  projectId: {{projectId}}
+}
+
+script:post-response {
+  // TC-F01（M1）期望：未带 Authorization 头访问受保护接口返回 401，且不泄露内部错误。
+  // 注意：本请求故意不设置 Authorization 头。
+  console.log("[TC-F01] 未带鉴权访问 status=" + res.getStatus() + "（期望 401）");
+}

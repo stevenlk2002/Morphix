@@ -1,0 +1,33 @@
+meta {
+  name: 发起人工接管 (TC-D01)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}/handoff
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "operatorId": "{{operatorId}}",
+    "reason": "客户明确要求转人工"
+  }
+}
+
+script:post-response {
+  // TC-D01 期望：会话进入人工接管态（handoffStatus=active），后续自动动作受控
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-D01] 接管完成 handoffStatus=" + body.data.handoffStatus + " sessionState=" + body.data.sessionState);
+  }
+}

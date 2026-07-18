@@ -1,0 +1,38 @@
+meta {
+  name: 设备心跳上报 (TC-C03)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/device/heartbeats
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "reportedAt": "2026-07-12T16:35:00+08:00",
+    "deviceStatus": "online",
+    "accountStatus": "online",
+    "commandQueue": { "pendingCount": 0, "runningCount": 0, "retryCount": 0 },
+    "network": { "networkType": "wifi", "signalLevel": 4 },
+    "battery": { "percent": 88, "charging": true },
+    "appRuntime": { "processState": "foreground", "uptimeSec": 3600 }
+  }
+}
+
+script:post-response {
+  // TC-C03 期望：返回 serverTime / nextHeartbeatInSec / commandPollIntervalSec / controlDirective
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-C03] 心跳已接收，controlDirective.action=" + (body.data.controlDirective && body.data.controlDirective.action));
+  }
+}

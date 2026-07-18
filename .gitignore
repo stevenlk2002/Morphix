@@ -23,3 +23,18 @@ __pycache__/
 venv/
 dist/
 build/
+
+# Databases (runtime SQLite, regenerated on startup — do not commit)
+*.db
+*.sqlite
+*.sqlite3
+
+# Archive / superseded artifacts (retired/ is a safety archive, never committed)
+/retired/
+prototype.zip
+
+# Large docx/pdf already excluded above (see Large reference files)
+
+# Binary / vendored runtimes
+utils/
+database/

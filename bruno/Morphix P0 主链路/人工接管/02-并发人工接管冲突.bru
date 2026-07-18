@@ -1,0 +1,33 @@
+meta {
+  name: 并发人工接管冲突 (TC-E09)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}/handoff
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "operatorId": "op_002",
+    "reason": "并发接管-运营B"
+  }
+}
+
+script:post-response {
+  // TC-E09 期望：两个运营并发接管，只有一个成功（handoffStatus=active），
+  // 另一个应得到明确冲突结果（409 CONFLICT / HANDOFF_STATE_INVALID），状态机不脏。
+  // 联调建议：与「发起人工接管」几乎同时发起（可在 Bruno 桌面端多选并行运行，或用 Newman 并发）。
+  const body = res.getBody();
+  console.log("[TC-E09] 并发接管响应 status=" + res.getStatus() + " handoffStatus=" + (body && body.data ? body.data.handoffStatus : "n/a"));
+}

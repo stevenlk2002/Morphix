@@ -1,0 +1,126 @@
+/* prototype 独有页（渠道 / 客户 / 数据概览 / 渠道分布）共享样式 */
+.proto-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.proto-section-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0 0 var(--spacing-md);
+  color: var(--text);
+}
+
+.proto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.proto-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.proto-card-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+}
+
+.proto-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+
+.proto-table th,
+.proto-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.proto-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+}
+
+.proto-table tbody tr:hover {
+  background: var(--border-light);
+}
+
+.proto-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+.proto-badge-success { background: var(--success-bg); color: var(--success); }
+.proto-badge-warning { background: var(--warning-bg); color: var(--gold); }
+.proto-badge-danger { background: var(--error-bg); color: var(--error); }
+.proto-badge-info { background: var(--info-bg); color: var(--primary); }
+.proto-badge-neutral { background: #eef2f7; color: var(--text-secondary); }
+
+.proto-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: var(--text-xs);
+  margin: 2px;
+}
+
+.proto-stat-row {
+  display: flex;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.proto-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.proto-stat-value { font-size: var(--text-2xl); font-weight: 700; }
+.proto-stat-label { font-size: var(--text-sm); color: var(--text-secondary); }
+
+.proto-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+.proto-bar-label { width: 96px; font-size: var(--text-sm); color: var(--text-secondary); }
+.proto-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--border-light);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.proto-bar-fill { height: 100%; border-radius: 999px; }
+.proto-bar-value { width: 40px; text-align: right; font-weight: 600; }
+
+.proto-donut-row {
+  display: flex;
+  gap: var(--spacing-xl);
+  flex-wrap: wrap;
+}
+
+.proto-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}

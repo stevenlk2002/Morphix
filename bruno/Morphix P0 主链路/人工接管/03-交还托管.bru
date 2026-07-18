@@ -1,0 +1,33 @@
+meta {
+  name: 交还托管 (TC-D03)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}/handoff/return
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "operatorId": "{{operatorId}}",
+    "resumeMode": "continue"
+  }
+}
+
+script:post-response {
+  // TC-D03 期望：会话回到自动托管态（handoffStatus=none/returning），新消息可重新触发编排
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-D03] 交还完成 handoffStatus=" + body.data.handoffStatus + " sessionState=" + body.data.sessionState);
+  }
+}

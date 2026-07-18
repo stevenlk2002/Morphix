@@ -1,0 +1,42 @@
+meta {
+  name: G02 M2 运行时命令可生成验收
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/runtime/inbound-events/messages
+  body: json
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "deviceId": "{{deviceId}}",
+    "conversationType": "direct",
+    "sourceConversationId": "wx_conv_9981",
+    "sourceMessageId": "wx_msg_g02_001",
+    "contact": { "externalUid": "wx_user_7788", "displayName": "张三" },
+    "message": { "messageType": "text", "contentText": "M2 验收消息", "sentAt": "2026-07-12T16:50:00+08:00" },
+    "metadata": { "channelType": "wechat", "roomTopic": null, "rawPayloadDigest": "sha256:g02" }
+  }
+}
+
+script:post-response {
+  // TC-G02（M2）运行时命令可生成验收：入站消息可被接收校验、会话定位/创建成立，
+  // 且应能派生 session_runtime / workflow_run / device_command 并落库（同 sourceMessageId 不重复入链）。
+  // 后续用「创建设备命令」「查询运行态/节点轨迹」佐证落库事实。
+  const body = res.getBody();
+  if (body && body.data && body.data.conversationId) {
+    bru.setEnvVar("conversationId", body.data.conversationId);
+    console.log("[TC-G02] M2 入站消息已接收 conversationId=" + body.data.conversationId);
+  }
+}

@@ -1,0 +1,39 @@
+meta {
+  name: 内部Agent执行超时兜底 (TC-E05)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/internal/agent-executor/invoke
+  body: json
+  auth: none
+}
+
+headers {
+  X-Internal-Service-Token: {{internalToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "runId": "{{runId}}",
+    "nodeExecutionId": "ne_timeout_001",
+    "agentType": "qa",
+    "modelProfile": "standard",
+    "structuredInput": {
+      "prompt": "回答客户报价问题",
+      "timeoutMs": 1
+    },
+    "knowledgeContext": {},
+    "toolScope": ["knowledge_search"]
+  }
+}
+
+script:post-response {
+  // TC-E05 期望（需配合故障注入 / mock agent 超时）：Agent 调用超时后运行时进入兜底路径，
+  // 记录失败并可转人工，不导致主链路崩溃。该接口为 InternalServiceAuth 内部编排接口，
+  // 联调当天需由 orchestrator 以 internalToken 调用或搭建 mock agent 才能复现超时。
+  const body = res.getBody();
+  console.log("[TC-E05] agent-executor 响应 status=" + res.getStatus() + " success=" + (body && body.success));
+}

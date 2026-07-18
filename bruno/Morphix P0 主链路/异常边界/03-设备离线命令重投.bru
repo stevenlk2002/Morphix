@@ -1,0 +1,29 @@
+meta {
+  name: 设备离线命令重投 (TC-E03)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/device/commands/pending
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+}
+
+params {
+  deviceId: {{deviceId}}
+  limit: 50
+}
+
+script:post-response {
+  // TC-E03 期望：设备离线期间创建的命令不下发或标记未投递；恢复在线后重新拉取
+  // 能取回未完成命令（含离线期间创建的部分），不丢失。
+  // 联调建议：先触发「创建设备命令」且设备处于离线/未心跳状态，再运行本请求模拟恢复重投。
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-E03] 恢复后待执行命令数=" + ((body.data.items || []).length));
+  }
+}

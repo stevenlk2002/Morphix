@@ -1,0 +1,47 @@
+meta {
+  name: 上报入站消息-群聊 (TC-A02)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/runtime/inbound-events/messages
+  body: json
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "deviceId": "{{deviceId}}",
+    "conversationType": "group",
+    "sourceConversationId": "wx_group_5566",
+    "sourceMessageId": "wx_msg_grp_001",
+    "contact": { "externalUid": "wx_user_7788", "displayName": "张三" },
+    "message": {
+      "messageType": "text",
+      "contentText": "群里有谁能报个价",
+      "sentAt": "2026-07-12T16:32:00+08:00"
+    },
+    "metadata": {
+      "channelType": "wechat",
+      "roomTopic": "采购询价群",
+      "rawPayloadDigest": "sha256:yyyy"
+    }
+  }
+}
+
+script:post-response {
+  // TC-A02 期望：消息进入正确的群 conversation，不并入同账号单聊
+  const body = res.getBody();
+  if (body && body.data && body.data.conversationId) {
+    console.log("[TC-A02] 群聊入站消息已定位 conversationId=" + body.data.conversationId);
+  }
+}

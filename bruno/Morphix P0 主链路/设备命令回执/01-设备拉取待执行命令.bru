@@ -1,0 +1,31 @@
+meta {
+  name: 设备拉取待执行命令 (TC-C04 / TC-D02 / TC-E03)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/device/commands/pending
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+}
+
+params {
+  deviceId: {{deviceId}}
+  limit: 50
+}
+
+script:post-response {
+  // TC-C04 期望：只返回绑定本设备的 pending 命令，状态变为已下发
+  // TC-D02 期望：人工接管后再次拉取应不产生新的主动发消息命令（items 为空或仅非主动类型）
+  // TC-E03 期望：设备离线恢复后重新拉取能取回未完成命令，不丢失
+  const body = res.getBody();
+  if (body && body.data) {
+    const items = body.data.items || [];
+    console.log("[TC-C04] 待执行命令数=" + items.length);
+    items.forEach(function (c) { console.log("  commandId=" + c.commandId + " type=" + c.commandType); });
+  }
+}

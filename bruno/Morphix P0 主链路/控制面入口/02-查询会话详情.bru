@@ -1,0 +1,22 @@
+meta {
+  name: 查询会话详情 (TC-B02)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations/{{conversationId}}
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+script:post-response {
+  // TC-B02 期望：返回 conversation 详情，含 ownerType / handoffStatus / currentBot / contact
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-B02] 会话详情 ownerType=" + body.data.ownerType + " handoffStatus=" + body.data.handoffStatus);
+  }
+}

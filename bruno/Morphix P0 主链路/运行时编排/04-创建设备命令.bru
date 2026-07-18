@@ -1,0 +1,42 @@
+meta {
+  name: 创建设备命令 (TC-A01 / TC-G02)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/runtime/device-commands
+  body: json
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "deviceId": "{{deviceId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "conversationId": "{{conversationId}}",
+    "runId": "{{runId}}",
+    "commandType": "send_message",
+    "payload": {
+      "messageType": "text",
+      "contentText": "您好，报价单已发送，请查收。"
+    },
+    "policyDecisionId": "pd_optional"
+  }
+}
+
+script:post-response {
+  // TC-A01 / G02 期望：返回 commandId / status（created），commandId 自动写入供设备拉取与回执使用
+  const body = res.getBody();
+  if (body && body.data && body.data.commandId) {
+    bru.setEnvVar("commandId", body.data.commandId);
+    console.log("[TC-G02] 设备命令已创建 commandId=" + body.data.commandId + " status=" + body.data.status);
+  }
+}

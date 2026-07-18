@@ -1,0 +1,35 @@
+meta {
+  name: 命令complete回执 (TC-C06 / TC-E02 / TC-E04)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/device/commands/{{commandId}}/complete
+  body: json
+  auth: none
+}
+
+headers {
+  X-Device-Token: {{deviceToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "deviceId": "{{deviceId}}",
+    "doneAt": "2026-07-12T16:37:00+08:00",
+    "result": { "delivered": true }
+  }
+}
+
+script:post-response {
+  // TC-C06 期望：命令进入 completed，关联 workflow_run / session_runtime 状态向前推进
+  // TC-E02 期望：对已完成命令重复 complete 为 no-op
+  // TC-E04 期望：断网期间产生的回执，恢复后补传成功，状态正确推进无脏数据
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-C06] complete 已接收 commandId=" + body.data.commandId + " status=" + body.data.status);
+  }
+}

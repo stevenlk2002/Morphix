@@ -1,0 +1,45 @@
+meta {
+  name: 接管期间新消息不自动发送 (TC-D04)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/runtime/inbound-events/messages
+  body: json
+  auth: none
+}
+
+headers {
+  X-Runtime-Token: {{runtimeToken}}
+  Content-Type: application/json
+  Idempotency-Key: {{$uuid}}
+}
+
+body:json {
+  {
+    "projectId": "{{projectId}}",
+    "channelAccountId": "{{channelAccountId}}",
+    "deviceId": "{{deviceId}}",
+    "conversationType": "direct",
+    "sourceConversationId": "wx_conv_9981",
+    "sourceMessageId": "wx_msg_rt_handoff_001",
+    "contact": { "externalUid": "wx_user_7788", "displayName": "张三" },
+    "message": {
+      "messageType": "text",
+      "contentText": "接管期间的新消息",
+      "sentAt": "2026-07-12T16:45:00+08:00"
+    },
+    "metadata": { "channelType": "wechat", "roomTopic": null, "rawPayloadDigest": "sha256:zzzz" }
+  }
+}
+
+script:post-response {
+  // TC-D04（P0 阻塞项5）期望：先完成「发起人工接管」（handoffStatus=active），
+  // 再上报本条新消息，应仅进入人工处理队列，不自动回复、不自动产生主动发消息命令。
+  // 验证方式：本请求后运行「设备拉取待执行命令」(TC-D02) 应无新的主动发消息命令。
+  const body = res.getBody();
+  if (body && body.data) {
+    console.log("[TC-D04] 接管期间新消息已接收 conversationId=" + body.data.conversationId + "（应为人工队列，无自动动作）");
+  }
+}

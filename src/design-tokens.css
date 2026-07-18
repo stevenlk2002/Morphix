@@ -1,0 +1,148 @@
+/* Morphix 设计令牌 - 从高保真原型提取 */
+
+:root {
+  /* 颜色 - 背景（更通透的浅蓝白，明快感来源） */
+  --bg: #f4f8fe;
+  --surface: #ffffff;
+  --sidebar: #ffffff;
+
+  /* 颜色 - 文字 */
+  --text: #18243b;
+  --text-secondary: #5b6b82;
+  --text-tertiary: #93a1b5;
+
+  /* 颜色 - 边框（更淡，界面更轻盈） */
+  --border: #e8eef6;
+  --border-light: #f1f5fb;
+
+  /* 颜色 - 主色（更饱和明快的亮蓝） */
+  --primary: #2f6bff;
+  --primary-light: #eaf1ff;
+  --primary-hover: #1f57f0;
+
+  /* 颜色 - 语义色（更鲜活） */
+  --success: #12b886;
+  --success-bg: #e9fbf4;
+  --warning: #f7a823;
+  --warning-bg: #fff4e0;
+  --info: #2f6bff;
+  --info-bg: #eef3ff;
+  --error: #ff4d4f;
+  --error-bg: #fff1f0;
+
+  /* 颜色 - 扩展色（更明快） */
+  --purple: #9461ff;
+  --purple-bg: #f6f1ff;
+  --teal: #11c5b0;
+  --teal-bg: #e9fbf8;
+  --gold: #e0a93c;
+  --gold-hover: #cf9a2e;
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+
+  /* 阴影（更轻盈，界面更透气） */
+  --shadow-sm: 0 1px 2px rgba(15, 40, 90, 0.03);
+  --shadow: 0 4px 14px rgba(15, 40, 90, 0.05);
+  --shadow-lg: 0 10px 28px rgba(15, 40, 90, 0.06);
+
+  /* 过渡 */
+  --transition: 180ms ease;
+
+  /* 字体 */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+
+  /* 字号 */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 16px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+
+  /* 布局 */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 64px;
+  --header-height: 56px;
+}
+
+/* 全局重置 */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: var(--font-family);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 链接样式 */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 按钮重置 */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+/* 输入框重置 */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 禁用状态 */
+:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

@@ -1,0 +1,26 @@
+meta {
+  name: G01 M1 开发基线冻结验收
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/control/conversations
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{controlToken}}
+}
+
+params {
+  projectId: {{projectId}}
+  pageSize: 1
+}
+
+script:post-response {
+  // TC-G01（M1）开发基线冻结验收：控制面 API 可达且鉴权生效（带合法 token 返回 200/统一封套）。
+  // 其余检查项（工程骨架、.env.example、PG/Redis 可拉起、OpenAPI 可校验、requestId/统一错误/幂等约定冻结）
+  // 为工程与文档层面，详见集合 README「里程碑门禁映射」。
+  console.log("[TC-G01] M1 基线接口探活 status=" + res.getStatus());
+}
