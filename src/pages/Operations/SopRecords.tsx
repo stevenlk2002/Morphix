@@ -9,8 +9,7 @@
  * - 加载态、错误处理
  */
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { useParams } from 'react-router-dom'
 import { sopsApi } from '../../api/sops'
 import type { SopItem, SopRecord } from '../../types/sops'
 import { RECORD_STATUS_LABELS } from '../../types/sops'
@@ -39,7 +38,6 @@ function statusClass(status: string): string {
 
 export default function SopRecordsPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
 
   const [sop, setSop] = useState<SopItem | null>(null)
   const [records, setRecords] = useState<SopRecord[]>([])
@@ -70,16 +68,10 @@ export default function SopRecordsPage() {
     loadData()
   }, [loadData])
 
-  const goBack = () => navigate('/operations/sops')
-
   return (
     <div className="proto-page">
       {/* 顶部导航 */}
       <div className="sop-records-header">
-        <button type="button" className="sop-records-back" onClick={goBack}>
-          <ArrowLeft size={18} />
-          <span>返回</span>
-        </button>
         <h2 className="sop-records-title">
           {sop ? sop.name : '加载中...'}
         </h2>

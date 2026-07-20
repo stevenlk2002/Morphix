@@ -491,25 +491,6 @@
   padding: 12px 0;
 }
 
-.sop-editor-back {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #475569;
-  transition: all 0.15s;
-}
-
-.sop-editor-back:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-}
-
 .sop-editor-name {
   flex: 1;
 }

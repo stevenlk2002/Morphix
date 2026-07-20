@@ -90,7 +90,7 @@ export const navItems: NavItem[] = [
       { id: 'org-roles', label: '角色权限管理', path: '/organization/roles' },
     ],
   },
-  { id: 'data-panel', label: '数据面板', icon: BarChart3, path: '/overview' },
+  { id: 'data-panel', label: '数据面板', icon: BarChart3, path: '/data-panel' },
   { id: 'llm-config', label: 'LLM配置', icon: Cpu, path: '/llm-config' },
 ]
 

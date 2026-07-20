@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Save } from 'lucide-react'
+import { Save } from 'lucide-react'
 import Button from '../../components/common/Button'
 import FlowEditor from './components/FlowEditor'
 import { sopsApi } from '../../api/sops'
@@ -83,13 +83,6 @@ export default function SopCreateGroupPage() {
     <div className="proto-page">
       {/* 顶部栏 */}
       <div className="sop-editor-header">
-        <button
-          type="button"
-          className="sop-editor-back"
-          onClick={() => navigate('/operations/sops')}
-        >
-          <ArrowLeft size={18} />
-        </button>
         <div className="sop-editor-name">
           <input
             type="text"

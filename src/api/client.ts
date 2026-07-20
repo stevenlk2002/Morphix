@@ -533,3 +533,121 @@ export const workflowApi = {
     return api.delete(`/orchestration/workflows/${botId}`)
   },
 }
+
+// ---- 组织管理域 API ----
+
+export interface OrgInfoDTO {
+  orgName: string
+  contactName: string
+  contactPhone: string
+}
+
+export interface AuthUserDTO {
+  id: string
+  account: string
+  nickname: string
+  role: string
+}
+
+export interface RoleDTO {
+  id: string
+  name: string
+  description: string
+  color: string
+}
+
+export const orgApi = {
+  /** GET /api/org/info */
+  getInfo: () => api.get<OrgInfoDTO>('/org/info'),
+  /** PUT /api/org/info */
+  updateInfo: (data: Partial<OrgInfoDTO>) => api.put<OrgInfoDTO>('/org/info', data),
+
+  /** GET /api/org/auth-users */
+  listAuthUsers: (params?: { account?: string; nickname?: string }) =>
+    api.get<AuthUserDTO[]>('/org/auth-users', { params }),
+  /** POST /api/org/auth-users */
+  createAuthUser: (data: Omit<AuthUserDTO, 'id'>) =>
+    api.post<AuthUserDTO>('/org/auth-users', data),
+  /** PUT /api/org/auth-users/{id} */
+  updateAuthUser: (id: string, data: Partial<Omit<AuthUserDTO, 'id'>>) =>
+    api.put<AuthUserDTO>(`/org/auth-users/${id}`, data),
+  /** DELETE /api/org/auth-users/{id} */
+  deleteAuthUser: (id: string) =>
+    api.delete<{ deleted: boolean; id: string }>(`/org/auth-users/${id}`),
+
+  /** GET /api/org/roles */
+  listRoles: (params?: { keyword?: string }) =>
+    api.get<RoleDTO[]>('/org/roles', { params }),
+  /** POST /api/org/roles */
+  createRole: (data: Omit<RoleDTO, 'id'>) =>
+    api.post<RoleDTO>('/org/roles', data),
+  /** PUT /api/org/roles/{id} */
+  updateRole: (id: string, data: Partial<Omit<RoleDTO, 'id'>>) =>
+    api.put<RoleDTO>(`/org/roles/${id}`, data),
+  /** DELETE /api/org/roles/{id} */
+  deleteRole: (id: string) =>
+    api.delete<{ deleted: boolean; id: string }>(`/org/roles/${id}`),
+}
+
+// ---- LLM 配置 API ----
+
+export interface LlmConfigUpdate {
+  vendor: string
+  model: string
+  apiKey: string
+  apiBaseUrl: string
+  enabled: boolean
+}
+
+export interface LlmConfigItem extends LlmConfigUpdate {
+  id: string
+  updatedAt: string
+}
+
+export interface LlmConfigMap {
+  primary: LlmConfigItem
+  secondary: LlmConfigItem
+}
+
+export const llmConfigApi = {
+  getAll: () => api.get<LlmConfigMap>('/llm-config'),
+  update: (id: string, data: LlmConfigUpdate) =>
+    api.put<LlmConfigItem>(`/llm-config/${id}`, data),
+}
+
+// ---- 系统消息（消息中心）API ----
+
+/** 系统消息 DTO（DB 列 → 前端字段）。 */
+export interface SystemMessageDTO {
+  id: string
+  title: string
+  content: string
+  time: string
+  read: boolean
+  warn: boolean
+}
+
+/** 消息列表分页响应（资源域裸数据，无信封）。 */
+export interface MessagesListResponse {
+  items: SystemMessageDTO[]
+  total: number
+  page: number
+  pageSize: number
+  titles: string[]
+  unreadCount: number
+}
+
+export const messagesApi = {
+  /** GET /api/messages → 列表（tab / title / page / pageSize 筛选） */
+  list: (params: {
+    tab?: string
+    title?: string
+    page?: number
+    pageSize?: number
+  }) => api.get<MessagesListResponse>('/messages', { params }),
+  /** PUT /api/messages/{id}/read → 标记单条已读 */
+  markRead: (id: string) =>
+    api.put<{ id: string; read: boolean }>(`/messages/${id}/read`),
+  /** PUT /api/messages/read-all → 标记全部已读 */
+  markAllRead: () => api.put<{ updated: number }>('/messages/read-all'),
+}

@@ -15,7 +15,6 @@ import TagsPage from './pages/Customers/Tags'
 import BotLogsPage from './pages/Bots/Logs'
 import ResourcesPage from './pages/Resources/Resources'
 import OrdersPage from './pages/Resources/Orders'
-import DataOverviewPage from './pages/Overview/DataOverview'
 import ChannelDistributionPage from './pages/Overview/ChannelDistribution'
 import LlmConfigPage from './pages/LlmConfig/LlmConfig'
 import OrgInfoPage from './pages/Organization/OrgInfo'
@@ -31,6 +30,7 @@ import SopCreateGroupPage from './pages/Operations/SopCreateGroup'
 import SopRecordsPage from './pages/Operations/SopRecords'
 import { OrchestratePage } from './pages/Bots/Orchestrate'
 import DataPanelPage from './pages/DataPanel/DataPanel'
+import MessagesPage from './pages/Messages/MessagesPage'
 
 /**
  * v6 路由表。
@@ -69,10 +69,11 @@ export default function AppRoutes() {
       <Route path="/organization/info" element={<OrgInfoPage />} />
       <Route path="/organization/auth" element={<AuthPage />} />
       <Route path="/organization/roles" element={<RolesPage />} />
-      <Route path="/overview" element={<DataOverviewPage />} />
+      <Route path="/overview" element={<DataPanelPage />} />
       <Route path="/overview/distribution" element={<ChannelDistributionPage />} />
       <Route path="/llm-config" element={<LlmConfigPage />} />
       <Route path="/data-panel" element={<DataPanelPage />} />
+      <Route path="/messages" element={<MessagesPage />} />
     </Routes>
   )
 }

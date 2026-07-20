@@ -6,8 +6,10 @@
  * - 6 张指标卡片（checked toggle）
  * - 1 张比率卡片（3 条 rate，checked toggle）
  * - SVG 图表 + legend
+ *
+ * P1：日期改为两个独立 input[type=date]，筛选变更自动调用 API。
  */
-import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Check,
   HelpCircle,
@@ -16,6 +18,7 @@ import {
   Bot,
   Send,
   Bell,
+  Search,
 } from 'lucide-react'
 import { dataPanelApi } from '../../api/data_panel'
 import { DataChart, DataChartLegend } from './DataChart'
@@ -56,11 +59,44 @@ const DataPanel: React.FC = () => {
   const [accountOptions, setAccountOptions] = useState<FilterOption[]>([])
   const [botOptions, setBotOptions] = useState<FilterOption[]>([])
 
-  // 筛选器值
-  const [dateRange, setDateRange] = useState('2026-07-03 → 2026-07-09')
+  // 日期范围：默认 2026-07-14 ~ 2026-07-20（对齐截图）
+  const [startDate, setStartDate] = useState('2026-07-14')
+  const [endDate, setEndDate] = useState('2026-07-20')
   const [selectedChannel, setSelectedChannel] = useState('')
   const [selectedAccount, setSelectedAccount] = useState('')
+  const [accountSearch, setAccountSearch] = useState('')
+  const [accountOpen, setAccountOpen] = useState(false)
   const [selectedBot, setSelectedBot] = useState('')
+
+  // 托管账号可搜索下拉 ref（用于点击外部关闭）
+  const accountRef = useRef<HTMLDivElement>(null)
+
+  // 点击外部关闭账号下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+        setAccountOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // 过滤后的账号选项
+  const filteredAccounts = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase()
+    if (!q) return accountOptions
+    return accountOptions.filter(
+      (o) => o.value === '' || o.label.toLowerCase().includes(q)
+    )
+  }, [accountOptions, accountSearch])
+
+  // 选中账号的显示标签
+  const selectedAccountLabel = useMemo(() => {
+    if (!selectedAccount) return '全部'
+    const found = accountOptions.find((o) => o.value === selectedAccount)
+    return found ? found.label : selectedAccount
+  }, [selectedAccount, accountOptions])
 
   // 卡片 checked 状态（默认全选）
   const [checkedMetrics, setCheckedMetrics] = useState<Set<string>>(
@@ -74,7 +110,10 @@ const DataPanel: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const params: Record<string, string> = {}
+      const params: Record<string, string> = {
+        start: startDate,
+        end: endDate,
+      }
       if (selectedChannel) params.channel = selectedChannel
       if (selectedAccount) params.account = selectedAccount
       if (selectedBot) params.bot = selectedBot
@@ -86,7 +125,7 @@ const DataPanel: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [selectedChannel, selectedAccount, selectedBot])
+  }, [startDate, endDate, selectedChannel, selectedAccount, selectedBot])
 
   useEffect(() => {
     fetchData()
@@ -145,12 +184,19 @@ const DataPanel: React.FC = () => {
         <div className="card-body">
           <div className="dp-filter-bar">
             <label>日期</label>
-            <input
-              className="input"
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              readOnly
-            />
+            <span className="dp-date-range">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <span className="dp-date-sep">~</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </span>
             <label>渠道类型</label>
             <select
               className="select"
@@ -168,30 +214,54 @@ const DataPanel: React.FC = () => {
                     <option value="">全部</option>
                     <option value="企业微信">企业微信</option>
                     <option value="微信">微信</option>
-                    <option value="WhatsApp">WhatsApp</option>
+                    <option value="邮箱">邮箱</option>
                   </>
                 )}
             </select>
             <label>托管账号</label>
-            <select
-              className="select"
-              value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
-            >
-              {accountOptions.length > 0
-                ? accountOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))
-                : (
-                  <>
-                    <option value="">全部</option>
-                    <option value="竹绿-健康">竹绿-健康</option>
-                    <option value="恒康倍力">恒康倍力</option>
-                  </>
-                )}
-            </select>
+            <div className="dp-search-select" ref={accountRef}>
+              <button
+                type="button"
+                className="dp-search-select-trigger"
+                onClick={() => {
+                  setAccountOpen((v) => !v)
+                  if (!accountOpen) setAccountSearch('')
+                }}
+              >
+                <span className="dp-search-select-label">{selectedAccountLabel}</span>
+                <span className="dp-search-select-arrow">▾</span>
+              </button>
+              {accountOpen && (
+                <div className="dp-search-select-dropdown">
+                  <div className="dp-search-select-input-wrap">
+                    <Search size={14} className="dp-search-select-icon" />
+                    <input
+                      type="text"
+                      className="dp-search-select-input"
+                      placeholder="搜索托管账号…"
+                      value={accountSearch}
+                      onChange={(e) => setAccountSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="dp-search-select-list">
+                    {filteredAccounts.map((o) => (
+                      <div
+                        key={o.value}
+                        className={`dp-search-select-item${selectedAccount === o.value ? ' active' : ''}`}
+                        onClick={() => {
+                          setSelectedAccount(o.value)
+                          setAccountOpen(false)
+                          setAccountSearch('')
+                        }}
+                      >
+                        {o.label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <label>托管机器人</label>
             <select
               className="select"
@@ -218,7 +288,7 @@ const DataPanel: React.FC = () => {
 
       {/* ======== Metrics Grid + Rate Card ======== */}
       {loading ? (
-        <div className="card" style={{ minHeight: 200, display: 'grid', placeItems: 'center' }}>
+        <div className="card" style={{ flex: '1 1 auto', minHeight: 200, display: 'grid', placeItems: 'center' }}>
           <span style={{ color: 'var(--text-secondary)' }}>加载中…</span>
         </div>
       ) : (
@@ -265,7 +335,7 @@ const DataPanel: React.FC = () => {
                 return (
                   <div
                     key={key}
-                    className={`dp-rate${isChecked ? ' checked' : ''}`}
+                    className={`dp-rate dp-rate-${key}${isChecked ? ' checked' : ''}`}
                     onClick={() => toggleRate(key)}
                   >
                     <span className="dp-rate-check">

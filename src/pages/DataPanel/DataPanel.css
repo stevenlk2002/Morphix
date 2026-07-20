@@ -1,19 +1,27 @@
 /* Data Panel — checkable metric cards (严格对齐原型 index.html 331-477 行) */
 
+/* ---- 页面级约束：整体不超一屏 ---- */
+.dp-page-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ---- 筛选栏 ---- */
 .dp-filter-bar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 8px 16px;
 }
 .dp-filter-bar label {
   font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
+  margin-right: -4px;
 }
 .dp-filter-bar .input,
 .dp-filter-bar .select {
+  width: auto;
   height: 34px;
   padding: 0 10px;
   border: 1px solid var(--border);
@@ -24,20 +32,140 @@
   outline: none;
 }
 .dp-filter-bar .input {
-  width: 200px;
+  width: auto;
+  min-width: 140px;
   cursor: pointer;
 }
 .dp-filter-bar .select {
-  min-width: 120px;
+  width: auto;
+  min-width: 140px;
+  max-width: 200px;
   cursor: pointer;
+}
+
+/* ---- 日期范围双输入框 ---- */
+.dp-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dp-date-range input[type="date"] {
+  width: 140px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text);
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+}
+.dp-date-range input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+.dp-date-range .dp-date-sep {
+  font-size: 14px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* ---- 可搜索下拉（托管账号） ---- */
+.dp-search-select {
+  position: relative;
+  min-width: 160px;
+  max-width: 220px;
+  width: auto;
+}
+.dp-search-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text);
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+}
+.dp-search-select-trigger:hover {
+  border-color: var(--primary);
+}
+.dp-search-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dp-search-select-arrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.dp-search-select-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  min-width: 180px;
+}
+.dp-search-select-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.dp-search-select-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.dp-search-select-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+}
+.dp-search-select-input::placeholder {
+  color: var(--text-tertiary);
+}
+.dp-search-select-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.dp-search-select-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.dp-search-select-item:hover {
+  background: #f4f8ff;
+}
+.dp-search-select-item.active {
+  background: #f4f8ff;
+  color: var(--primary);
+  font-weight: 500;
 }
 
 /* ---- 指标卡片网格 ---- */
 .dp-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 10px;
   align-items: stretch;
 }
 
@@ -46,14 +174,14 @@
   position: relative;
   flex: 1 1 120px;
   min-width: 120px;
-  padding: 8px 8px 10px;
+  padding: 5px 6px 6px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: #fff;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
   user-select: none;
 }
@@ -63,6 +191,31 @@
 .dp-metric.checked {
   border-color: var(--primary);
   background: linear-gradient(180deg, #f4f8ff 0%, #ffffff 70%);
+}
+/* 各指标 checked 态背景色 — 与图表柱状图 BAR_COLORS 一致 */
+.dp-metric.accent-1.checked {
+  border-color: #d9a46a;
+  background: linear-gradient(180deg, #fdf0e0 0%, #ffffff 70%);
+}
+.dp-metric.accent-2.checked {
+  border-color: #7dbd9d;
+  background: linear-gradient(180deg, #e6f8ef 0%, #ffffff 70%);
+}
+.dp-metric.accent-3.checked {
+  border-color: #7daad0;
+  background: linear-gradient(180deg, #e6f1fb 0%, #ffffff 70%);
+}
+.dp-metric.accent-4.checked {
+  border-color: #d9cc7a;
+  background: linear-gradient(180deg, #fdfae0 0%, #ffffff 70%);
+}
+.dp-metric.accent-5.checked {
+  border-color: #b4a0d4;
+  background: linear-gradient(180deg, #f3eefa 0%, #ffffff 70%);
+}
+.dp-metric.accent-6.checked {
+  border-color: #d49595;
+  background: linear-gradient(180deg, #fce8e8 0%, #ffffff 70%);
 }
 
 /* 指标卡顶部行 */
@@ -102,39 +255,39 @@
 
 /* icon 圆角方块 */
 .dp-metric-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-/* 6 种 accent 颜色 */
+/* 6 种 accent 颜色 — 与图表柱状图 BAR_COLORS 一致 */
 .dp-metric.accent-1 .dp-metric-icon {
-  background: #eff6ff;
-  color: #3b82f6;
+  background: #f5c99b;
+  color: #7a4a16;
 }
 .dp-metric.accent-2 .dp-metric-icon {
-  background: #ecfeff;
-  color: #06b6d4;
+  background: #a8dcc1;
+  color: #1a5e44;
 }
 .dp-metric.accent-3 .dp-metric-icon {
-  background: #eef2ff;
-  color: #6366f1;
+  background: #a8c8e8;
+  color: #1d3f6b;
 }
 .dp-metric.accent-4 .dp-metric-icon {
-  background: #f0f9ff;
-  color: #0ea5e9;
+  background: #f3e6a8;
+  color: #7a6610;
 }
 .dp-metric.accent-5 .dp-metric-icon {
-  background: #f5f3ff;
-  color: #8b5cf6;
+  background: #d3c2e8;
+  color: #4a3578;
 }
 .dp-metric.accent-6 .dp-metric-icon {
-  background: #fef2f2;
-  color: #ef4444;
+  background: #f0b8b8;
+  color: #7a1f1f;
 }
 
 /* 标签文本 */
@@ -150,9 +303,9 @@
 
 /* 数值 */
 .dp-metric-value {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.3px;
   color: var(--text);
   line-height: 1;
 }
@@ -195,36 +348,37 @@
 
 /* ---- 比率卡片 ---- */
 .dp-rate-card {
-  flex: 0 0 160px;
-  min-width: 160px;
-  padding: 8px;
+  flex: 0 0 180px;
+  min-width: 180px;
+  padding: 5px 6px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .dp-rate-card .dp-rates-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 0;
+  margin-bottom: 2px;
 }
 
 /* ---- 单条比率项 ---- */
 .dp-rate {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
+  gap: 6px;
+  padding: 5px 6px;
   border-radius: var(--radius-sm);
   background: #fff;
   border: 1px solid var(--border);
   cursor: pointer;
   transition: all 160ms ease;
   user-select: none;
+  font-size: 12px;
 }
 .dp-rate:hover {
   border-color: var(--primary);
@@ -233,6 +387,19 @@
 .dp-rate.checked {
   border-color: var(--primary);
   background: #f4f8ff;
+}
+/* 各比率 checked 态背景色 — 与图表折线 LINE_COLORS 一致 */
+.dp-rate-msg_rate.checked {
+  border-color: #2563eb;
+  background: linear-gradient(90deg, #eff6ff 0%, #ffffff 70%);
+}
+.dp-rate-session_rate.checked {
+  border-color: #0891b2;
+  background: linear-gradient(90deg, #ecfeff 0%, #ffffff 70%);
+}
+.dp-rate-transfer_rate.checked {
+  border-color: #dc2626;
+  background: linear-gradient(90deg, #fef2f2 0%, #ffffff 70%);
 }
 
 .dp-rate-check {
@@ -337,7 +504,7 @@
 }
 
 .chart-tooltip {
-  position: absolute;
+  position: fixed;
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -345,10 +512,10 @@
   box-shadow: var(--shadow-lg);
   pointer-events: none;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text);
-  min-width: 160px;
-  display: none;
-  z-index: 10;
+  min-width: 180px;
+  z-index: 100;
 }
 
 .chart-tooltip-date {
@@ -377,6 +544,7 @@
 .chart-legend {
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 16px;
   font-size: 12px;

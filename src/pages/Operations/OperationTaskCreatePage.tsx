@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Plus, ArrowLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import Button from '../../components/common/Button'
 import type { ContentBlock, TaskType, ScheduleConfig } from '../../types/operations'
 import {
@@ -120,23 +120,12 @@ export default function OperationTaskCreatePage() {
     }
   }
 
-  const goBack = () => {
-    if (step > 1) {
-      setStep(step - 1)
-    } else {
-      navigate('/operations/tasks')
-    }
+  const goPrev = () => {
+    if (step > 1) setStep(step - 1)
   }
 
   return (
     <div className="proto-page">
-      {/* 返回栏 */}
-      <div className="ops-create-header">
-        <button className="ops-create-back" onClick={() => navigate('/operations/tasks')}>
-          <ArrowLeft size={18} />
-          <span>创建运营任务</span>
-        </button>
-      </div>
 
       <div className="proto-card">
         {/* Stepper */}
@@ -263,14 +252,16 @@ export default function OperationTaskCreatePage() {
 
         {/* Footer */}
         <div className="ops-stepper-footer">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={step > 1 ? <ChevronLeft size={14} /> : undefined}
-            onClick={goBack}
-          >
-            {step > 1 ? '上一步' : '返回'}
-          </Button>
+          {step > 1 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<ChevronLeft size={14} />}
+              onClick={goPrev}
+            >
+              上一步
+            </Button>
+          )}
           <div style={{ display: 'flex', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'var(--text-tertiary)', alignSelf: 'center' }}>{step} / 4</span>
             {step < 4 ? (

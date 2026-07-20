@@ -1,4 +1,31 @@
-/* 组织信息管理页专属样式（表单控件等共享类见 prototype.css） */
+/* 组织信息管理页专属样式 */
+
+/* Banner 蓝色渐变（与原型一致） */
+.org-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 140px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #e9f1fd 0%, #f3f8ff 100%);
+  border: 1px solid #cfe0f5;
+  padding: 0 32px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  position: relative;
+}
+
+.org-banner-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e40af;
+}
+
+.org-banner-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 6px;
+}
 
 .org-card {
   max-width: 100%;
@@ -16,8 +43,31 @@
   margin-top: var(--spacing-lg);
 }
 
+.org-notice {
+  margin-top: 16px;
+}
+
+.org-skeleton {
+  height: 200px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 @media (max-width: 720px) {
   .org-grid {
     grid-template-columns: 1fr;
+  }
+  .org-banner {
+    height: auto;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px;
+    gap: 12px;
   }
 }

@@ -380,6 +380,30 @@
   margin-top: 10px;
 }
 
+/* 通用问号气泡（伪元素）：数据总览标题旁「?」hover 提示「该处数据每十分钟更新一次」。
+   对齐原型 index.html 317-318 .tooltip 规范。 */
+.tooltip {
+  position: relative;
+  display: inline-flex;
+  cursor: help;
+}
+.tooltip:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  background: rgba(30, 41, 59, 0.95);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  z-index: 50;
+}
+
 /* 图表 tab 旁的「?」图标 */
 .chart-tabs .tab-help {
   display: inline-flex;

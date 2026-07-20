@@ -46,6 +46,34 @@ interface DataChartProps {
 const PADDING = { top: 20, right: 60, bottom: 40, left: 40 }
 const MAX_BAR = 5
 
+/**
+ * 由一系列点生成平滑曲线 path（Catmull-Rom 转三次贝塞尔）。
+ * 曲线必然穿过所有数据点；tension 控制平滑度（0.5 为适中值，不出现过冲）。
+ */
+function smoothPath(points: Array<{ x: number; y: number }>, tension = 0.5): string {
+  if (points.length === 0) return ''
+  if (points.length === 1) {
+    return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`
+  }
+  const p = points
+  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[i - 1] ?? p[i]
+    const p1 = p[i]
+    const p2 = p[i + 1]
+    const p3 = p[i + 2] ?? p2
+    const cp1x = p1.x + ((p2.x - p0.x) * tension) / 6
+    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 6
+    const cp2x = p2.x - ((p3.x - p1.x) * tension) / 6
+    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 6
+    d +=
+      ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ` +
+      `${cp2x.toFixed(1)},${cp2y.toFixed(1)} ` +
+      `${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
 export const DataChart: React.FC<DataChartProps> = ({
   data,
   checkedMetrics,
@@ -53,12 +81,28 @@ export const DataChart: React.FC<DataChartProps> = ({
   width: containerWidth,
   height: containerHeight = 320,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const [measuredWidth, setMeasuredWidth] = useState<number>(containerWidth || 0)
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
   const [tooltipIdx, setTooltipIdx] = useState<number>(-1)
 
-  const w = containerWidth || 700
-  const h = containerHeight
+  // 测量容器实际宽度
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const update = () => {
+      const w = el.clientWidth
+      if (w > 0) setMeasuredWidth(w)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const w = measuredWidth || containerWidth || 700
+  const h = containerHeight || 320
   const chartW = w - PADDING.left - PADDING.right
   const chartH = h - PADDING.top - PADDING.bottom
 
@@ -74,14 +118,16 @@ export const DataChart: React.FC<DataChartProps> = ({
       const svg = svgRef.current
       if (!svg || data.length === 0) return
       const rect = svg.getBoundingClientRect()
-      const mx = e.clientX - rect.left
+      // preserveAspectRatio="none" 时需换算出视口坐标
+      const scaleX = w / rect.width
+      const mx = (e.clientX - rect.left) * scaleX
       const chartX = PADDING.left
       let idx = Math.round(((mx - chartX) / chartW) * (data.length - 1))
       idx = Math.max(0, Math.min(data.length - 1, idx))
       setTooltipIdx(idx)
       setTooltipPos({ x: e.clientX, y: e.clientY })
     },
-    [chartW, data.length]
+    [chartW, data.length, w]
   )
 
   const handleMouseLeave = useCallback(() => {
@@ -168,21 +214,20 @@ export const DataChart: React.FC<DataChartProps> = ({
     })
   })
 
-  // ---- 折线图 ----
+  // ---- 折线图（平滑曲线） ----
   const lines = activeRates.map((key) => {
-    const points = data
-      .map((d, i) => {
-        const cx = PADDING.left + i * gap + gap / 2
-        const val = (d as unknown as Record<string, number>)[key] || 0
-        const cy = PADDING.top + chartH - (val / 100) * chartH
-        return `${cx},${cy}`
-      })
-      .join(' ')
+    const linePoints = data.map((d, i) => {
+      const cx = PADDING.left + i * gap + gap / 2
+      const val = (d as unknown as Record<string, number>)[key] || 0
+      const cy = PADDING.top + chartH - (val / 100) * chartH
+      return { x: cx, y: cy }
+    })
+    const linePath = smoothPath(linePoints)
     const color = LINE_COLORS[key] || '#000'
     return (
       <g key={`line-${key}`}>
-        <polyline
-          points={points}
+        <path
+          d={linePath}
           fill="none"
           stroke={color}
           strokeWidth="2"
@@ -210,7 +255,7 @@ export const DataChart: React.FC<DataChartProps> = ({
   })
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
       <svg
         ref={svgRef}
         width="100%"

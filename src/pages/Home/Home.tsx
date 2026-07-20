@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { FileText, Bot, Check, MessageSquare, User, HelpCircle } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import './Home.css'
+import { dashboardApi } from '../../api/client'
+import { dataPanelApi } from '../../api/data_panel'
 
 interface Gauge {
   percent: number
@@ -173,9 +175,136 @@ const dashboardSample: DashboardData = {
   ],
 }
 
-// 指标定义文案（原型 gauge 标题旁「?」气泡）
-const SESSION_RATE_HELP = '机器人会话处理率 = 机器人处理会话数 / 有客户消息的托管会话数'
-const MESSAGE_RATE_HELP = '机器人消息处理率 = 机器人处理消息数 / 总消息数'
+// 指标定义文案（原型 gauge 标题旁「?」气泡，逐字对齐 index.html 7081 / 7098）
+const SESSION_RATE_HELP = '机器人会话处理率=机器人处理会话数/有客户消息的托管会话数'
+const MESSAGE_RATE_HELP = '机器人消息处理率=机器人处理消息数/总消息数'
+
+// ---- 数据映射与平滑曲线工具 ----
+type Dict = Record<string, unknown>
+
+/** 安全转为数字，非有限值回退 fallback。 */
+function numOr(v: unknown, fallback = 0): number {
+  const n = typeof v === 'string' ? Number(v) : (v as number)
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback
+}
+
+/** 安全转为字符串，null/undefined 回退 fallback。 */
+function strOr(v: unknown, fallback = '--'): string {
+  return v == null ? fallback : String(v)
+}
+
+/**
+ * 由一系列点生成平滑曲线 path（Catmull-Rom 转三次贝塞尔）。
+ * 曲线必然穿过所有数据点；tension 控制平滑度（0.5 为适中值，不出现过冲）。
+ */
+function smoothPath(points: Array<{ x: number; y: number }>, tension = 0.5): string {
+  if (points.length === 0) return ''
+  if (points.length === 1) {
+    return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`
+  }
+  const p = points
+  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[i - 1] ?? p[i]
+    const p1 = p[i]
+    const p2 = p[i + 1]
+    const p3 = p[i + 2] ?? p2
+    const cp1x = p1.x + ((p2.x - p0.x) * tension) / 6
+    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 6
+    const cp2x = p2.x - ((p3.x - p1.x) * tension) / 6
+    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 6
+    d +=
+      ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ` +
+      `${cp2x.toFixed(1)},${cp2y.toFixed(1)} ` +
+      `${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
+/** 计算图表 tooltip 的 top：跟随鼠标 y，并 clamp 防止溢出容器底部。 */
+function chartTipTop(my: number, h: number, rows: number): number {
+  const tipH = 56 + 22 * rows
+  let top = my + 12
+  if (top + tipH > h) top = Math.max(h - tipH - 4, 4)
+  return Math.max(top, 4)
+}
+
+/** 把后端 /api/dashboard 响应映射为前端 DashboardData（兼容字符串型数值与缺字段）。 */
+function mapDashboard(raw: unknown): DashboardData {
+  const d = (raw ?? {}) as Dict
+  const gauges = (d.gauges ?? {}) as Dict
+  const sr = (gauges.sessionRate ?? {}) as Dict
+  const mr = (gauges.messageRate ?? {}) as Dict
+  const robots = (d.robots ?? {}) as Dict
+  const channels = (d.channels ?? {}) as Dict
+  const rawUnread = Array.isArray(d.unread) ? (d.unread as Array<Dict>) : []
+  return {
+    gauges: {
+      sessionRate: { percent: numOr(sr.percent), delta: numOr(sr.delta) },
+      messageRate: { percent: numOr(mr.percent), delta: numOr(mr.delta) },
+    },
+    robots: {
+      activeTemplates: numOr(robots.activeTemplates),
+      created: numOr(robots.created),
+      online: numOr(robots.online),
+      hostedSessions: numOr(robots.hostedSessions),
+      expireAt: strOr(robots.expireAt),
+    },
+    channels: {
+      seatsLeft: numOr(channels.seatsLeft),
+      added: numOr(channels.added),
+      online: numOr(channels.online),
+      onlineSessions: numOr(channels.onlineSessions),
+      distribution: (channels.distribution ?? []) as
+        | Array<{ name: string; count: number; color?: string }>
+        | Record<string, number | string>
+        | unknown,
+      expireAt: strOr(channels.expireAt),
+    },
+    unread: rawUnread.map((u) => ({
+      id: strOr(u.id, ''),
+      type: typeof u.type === 'string' ? u.type : undefined,
+      title: typeof u.title === 'string' ? u.title : undefined,
+      desc:
+        typeof u.desc === 'string'
+          ? u.desc
+          : typeof u.content === 'string'
+            ? u.content
+            : undefined,
+      time: typeof u.time === 'string' ? u.time : undefined,
+    })),
+  }
+}
+
+/** 把后端 /api/data-panel/metrics 的 daily 序列映射为前端 CHART_DATA 结构。 */
+function mapMetricsToChart(daily: unknown): Record<string, ChartPoint[]> {
+  const arr = Array.isArray(daily) ? (daily as Array<Dict>) : []
+  if (arr.length === 0) return CHART_DATA
+  const toPoint = (
+    getTotal: (d: Dict) => unknown,
+    getBot: (d: Dict) => unknown,
+  ) => (d: Dict): ChartPoint => {
+    const full = typeof d.date === 'string' ? d.date : ''
+    const date = full.length >= 10 ? full.slice(5) : full
+    return { date, total: numOr(getTotal(d)), bot: numOr(getBot(d)) }
+  }
+  return {
+    sessions: arr.map(toPoint((d) => d.new_sessions, (d) => d.bot_processed_sessions)),
+    messages: arr.map(toPoint((d) => d.total_messages, (d) => d.bot_processed_messages)),
+  }
+}
+
+/** 计算「近七天」日期范围（含今天），格式 YYYY-MM-DD。 */
+function last7Days(): { start: string; end: string } {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 6)
+  const fmt = (dt: Date) =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
+      dt.getDate(),
+    ).padStart(2, '0')}`
+  return { start: fmt(start), end: fmt(end) }
+}
 
 function Donut({ percent, color, label }: { percent: number; color: string; label?: string }) {
   const r = 34
@@ -212,7 +341,7 @@ function Donut({ percent, color, label }: { percent: number; color: string; labe
 
 function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series: ChartSeries[]; height?: number }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [hover, setHover] = useState<{ idx: number; cx: number } | null>(null)
+  const [hover, setHover] = useState<{ idx: number; cx: number; my: number } | null>(null)
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 600, h: height })
 
   useEffect(() => {
@@ -245,9 +374,10 @@ function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series:
     const rect = ref.current?.getBoundingClientRect()
     if (!rect) return
     const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
     let idx = Math.round(((mx - padL) / plotW) * (data.length - 1))
     idx = Math.max(0, Math.min(data.length - 1, idx))
-    setHover({ idx, cx: x(idx) })
+    setHover({ idx, cx: x(idx), my })
   }
 
   return (
@@ -282,9 +412,7 @@ function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series:
             y: y(d[s.key as keyof ChartPoint] as number),
             d,
           }))
-          const linePath = points
-            .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-            .join(' ')
+          const linePath = smoothPath(points.map((p) => ({ x: p.x, y: p.y })))
           const areaPath =
             `${linePath} L${x(data.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} ` +
             `L${x(0).toFixed(1)},${(padT + plotH).toFixed(1)} Z`
@@ -328,8 +456,8 @@ function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series:
           className="chart-tooltip"
           style={{
             display: 'block',
-            left: Math.min(Math.max(hover.cx + 12, 0), w - 190),
-            top: 4,
+            left: Math.min(Math.max(hover.cx + 12, 0), w - 160),
+            top: chartTipTop(hover.my, h, series.length),
           }}
         >
           <div className="chart-tooltip-date">{data[hover.idx].date}</div>
@@ -587,21 +715,62 @@ function UnreadCard({
   )
 }
 
-const USE_MOCK = true
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
 export default function HomePage() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('sessions')
 
-  // Mock-first：无后端时直接渲染样例数据，避免「仪表盘数据加载失败」报错与 loading 态。
-  // 后端就绪时：将 USE_MOCK 改为 false，并在此改为真实 API 结果：
-  //   const res = await dashboardApi.get(); setData(res as DashboardData)
-  const data: DashboardData = USE_MOCK ? dashboardSample : dashboardSample
+  // 先以静态样例作为初始 state，避免接口尚未返回时白屏；
+  // 首次加载即拉取真实数据，并每 10 分钟轮询刷新（失败时保留上一次数据）。
+  const [data, setData] = useState<DashboardData>(dashboardSample)
+  const [chartData, setChartData] = useState<Record<string, ChartPoint[]>>(CHART_DATA)
+
+  useEffect(() => {
+    let alive = true
+    const range = last7Days()
+
+    const loadDashboard = async () => {
+      try {
+        const res = await dashboardApi.get()
+        if (alive && res) setData(mapDashboard(res))
+      } catch (err) {
+        // 接口失败：保留上一次数据，不闪空。
+        console.warn('[Home] /api/dashboard 刷新失败，保留上一次数据', err)
+      }
+    }
+
+    const loadMetrics = async () => {
+      try {
+        const res = await dataPanelApi.getMetrics(range)
+        if (alive && res && Array.isArray(res.daily) && res.daily.length > 0) {
+          setChartData(mapMetricsToChart(res.daily))
+        } else {
+          // metrics 不含对应字段时保留 CHART_DATA mock，并加注释提示。
+          // TODO: 后端返回结构与预期不一致时，在此确认字段映射。
+          console.warn('[Home] /api/data-panel/metrics 返回为空，保留示例数据')
+        }
+      } catch (err) {
+        console.warn('[Home] /api/data-panel/metrics 刷新失败，保留上一次数据', err)
+      }
+    }
+
+    const loadAll = () => {
+      void loadDashboard()
+      void loadMetrics()
+    }
+
+    loadAll()
+    const timer = setInterval(loadAll, REFRESH_INTERVAL_MS)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
 
   const activeTab =
     CHART_TABS.find((t) => t.key === tab) ?? CHART_TABS[0]
   const series = activeTab.series
-  const chartData = CHART_DATA[tab]
 
   const sessionGauge = data?.gauges?.sessionRate ?? { percent: 0, delta: 0 }
   const messageGauge = data?.gauges?.messageRate ?? { percent: 0, delta: 0 }
@@ -612,7 +781,16 @@ export default function HomePage() {
         <div className="card home-overview">
           <div className="card-header">
             <span className="card-title">
-              数据总览<span className="card-subtitle">（近七天）</span>
+              <span>
+                数据总览<span className="card-subtitle">（近七天）</span>
+              </span>
+              <span
+                className="tooltip"
+                data-tip="该处数据每十分钟更新一次"
+                style={{ color: 'var(--text-tertiary)', cursor: 'help' }}
+              >
+                <HelpCircle size={14} />
+              </span>
             </span>
             <Link to="/overview" className="card-link">
               查看更多 →
@@ -644,7 +822,7 @@ export default function HomePage() {
                     </button>
                   ))}
                 </div>
-                <LineChart data={chartData} series={series} height={280} />
+                <LineChart data={chartData[tab]} series={series} height={280} />
                 <div className="chart-legend">
                   {series.map((s) => (
                     <div className="chart-legend-item" key={s.key}>
@@ -678,7 +856,7 @@ export default function HomePage() {
         {data.channels && (
           <MyChannelsCard c={data.channels} onManage={() => navigate('/channels/accounts')} />
         )}
-        {data.unread && <UnreadCard list={data.unread} onViewAll={() => navigate('/sessions')} />}
+        {data.unread && <UnreadCard list={data.unread} onViewAll={() => navigate('/messages')} />}
       </div>
     </div>
   )

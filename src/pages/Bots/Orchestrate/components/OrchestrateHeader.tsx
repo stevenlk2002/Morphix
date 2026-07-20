@@ -1,5 +1,4 @@
-import { ArrowLeft, Bot, Download, Save, Play, Square } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Bot, Download, Save, Play, Square } from 'lucide-react';
 import Button from '../../../../components/common/Button';
 import { useOrchestrateStore } from '../store/orchestrateStore';
 import './OrchestrateHeader.css';
@@ -22,8 +21,7 @@ export default function OrchestrateHeader({
   onEnterTest,
   onExitTest,
 }: OrchestrateHeaderProps) {
-  const navigate = useNavigate();
-  const { botId, botName, lastEdited, testMode } = useOrchestrateStore();
+  const { botName, lastEdited, testMode } = useOrchestrateStore();
 
   function formatTime(iso: string): string {
     if (!iso) return '--';
@@ -39,15 +37,6 @@ export default function OrchestrateHeader({
   return (
     <header className={`orchestrate-header${testMode ? ' orchestrate-header--test-mode' : ''}`}>
       <div className="orchestrate-header__left">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft size={16} />}
-          onClick={() => navigate(`/bots/${botId}`)}
-        >
-          返回
-        </Button>
-
         {/* 测试模式标识 */}
         {testMode && (
           <span className="orchestrate-header__test-badge">测试模式</span>

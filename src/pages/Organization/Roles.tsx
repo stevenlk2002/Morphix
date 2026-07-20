@@ -1,40 +1,14 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, RotateCcw } from 'lucide-react'
 import Button from '../../components/common/Button'
 import Modal from '../../components/common/Modal'
+import { orgApi } from '../../api/client'
+import type { RoleDTO } from '../../api/client'
 import '../../pages/prototype.css'
 import './Roles.css'
 
-/** 是否使用本地 mock 数据。接入真实后端时置为 false 并取消注释下方 fetch 调用。 */
-const USE_MOCK = true
-
-// 后端接口契约（mock 阶段暂未启用，接入真实后端时取消注释并替换本地状态）：
-// GET    /api/org/roles                   -> 拉取全部角色
-// POST   /api/org/roles                   -> 新建角色
-// PUT    /api/org/roles/{id}              -> 更新角色
-// DELETE /api/org/roles/{id}              -> 删除角色
-// GET/PUT /api/org/roles/{id}/permissions -> 角色权限矩阵
-
-/** 角色颜色，与 seed 数据中的徽标配色一一对应。 */
-type RoleColor = 'danger' | 'success' | 'info'
-
-/** 角色实体。 */
-interface Role {
-  id: string
-  name: string
-  description: string
-  color: RoleColor
-}
-
-/** 角色颜色 -> 新增/编辑弹窗下拉项。 */
-const COLOR_OPTIONS: { value: RoleColor; label: string }[] = [
-  { value: 'danger', label: '管理员红' },
-  { value: 'success', label: '团队组长绿' },
-  { value: 'info', label: '普通成员蓝' },
-]
-
-/** 角色颜色 -> 标签底色（与 prototype 原型像素级一致）。 */
-const COLOR_STYLE: Record<RoleColor, { background: string; color: string }> = {
+/** 角色颜色 -> 标签底色（与 prototype 原型一致）。 */
+const COLOR_STYLE: Record<string, { background: string; color: string }> = {
   danger: { background: '#f9e8e8', color: '#d76b6b' },
   success: { background: '#eef6ea', color: '#5a8f48' },
   info: { background: '#eaf2f9', color: '#4a7ba8' },
@@ -46,27 +20,21 @@ const PERMISSION_MODULES = ['客户管理', '运营任务', '渠道管理', '组
 /** 每个角色的权限勾选状态，外层键为 role id。 */
 type PermissionMap = Record<string, Record<string, boolean>>
 
-/** 种子角色：与 prototype 原型的 3 行完全一致。 */
-const MOCK_ROLES: Role[] = [
-  { id: 'role-admin', name: '管理员', description: '管理员', color: 'danger' },
-  { id: 'role-lead', name: '团队组长', description: '团队组长', color: 'success' },
-  { id: 'role-member', name: '普通成员', description: '普通成员', color: 'info' },
+/** 颜色选项 */
+const COLOR_OPTIONS: { value: string; label: string }[] = [
+  { value: 'danger', label: '管理员红' },
+  { value: 'success', label: '团队组长绿' },
+  { value: 'info', label: '普通成员蓝' },
 ]
 
-/** 依据颜色给出预置权限（管理员全开，组长/成员部分勾选）。 */
-function seedPerms(role: Role): Record<string, boolean> {
+/** 依据颜色给出预置权限。 */
+function seedPerms(color: string): Record<string, boolean> {
   const base: Record<string, boolean> = {}
-  PERMISSION_MODULES.forEach((m) => {
-    base[m] = false
-  })
-  if (role.color === 'danger') {
-    PERMISSION_MODULES.forEach((m) => {
-      base[m] = true
-    })
-  } else if (role.color === 'success') {
-    ;['客户管理', '运营任务', '渠道管理'].forEach((m) => {
-      base[m] = true
-    })
+  PERMISSION_MODULES.forEach((m) => { base[m] = false })
+  if (color === 'danger') {
+    PERMISSION_MODULES.forEach((m) => { base[m] = true })
+  } else if (color === 'success') {
+    ;['客户管理', '运营任务', '渠道管理'].forEach((m) => { base[m] = true })
   } else {
     base['客户管理'] = true
     base['组织管理'] = true
@@ -74,40 +42,19 @@ function seedPerms(role: Role): Record<string, boolean> {
   return base
 }
 
-/** 新建角色的默认权限（勾选前两个模块）。 */
+/** 默认权限（新建角色用）。 */
 function defaultPerms(): Record<string, boolean> {
   const base: Record<string, boolean> = {}
-  PERMISSION_MODULES.forEach((m) => {
-    base[m] = false
-  })
+  PERMISSION_MODULES.forEach((m) => { base[m] = false })
   base[PERMISSION_MODULES[0]] = true
   base[PERMISSION_MODULES[1]] = true
   return base
 }
 
-/** 由角色列表构造初始权限映射。 */
-function buildInitialPerms(roles: Role[]): PermissionMap {
-  const map: PermissionMap = {}
-  roles.forEach((r) => {
-    map[r.id] = seedPerms(r)
-  })
-  return map
-}
-
-const INITIAL_PERMS: PermissionMap = buildInitialPerms(MOCK_ROLES)
-
-/** 生成唯一 id（mock 阶段使用，不进入后端契约）。 */
-function genId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}`
-}
-
-/**
- * 角色权限管理页（/organization/roles）。
- * mock-first：种子数据 + 本地状态，支持按名称筛选、新增/编辑角色、编辑角色权限矩阵、删除角色。
- */
 export default function RolesPage() {
-  const [roles, setRoles] = useState<Role[]>(USE_MOCK ? MOCK_ROLES : [])
-  const [perms, setPerms] = useState<PermissionMap>(INITIAL_PERMS)
+  const [roles, setRoles] = useState<RoleDTO[]>([])
+  const [loading, setLoading] = useState(true)
+  const [perms, setPerms] = useState<PermissionMap>({})
 
   // 筛选
   const [keyword, setKeyword] = useState('')
@@ -115,18 +62,18 @@ export default function RolesPage() {
 
   // 新增/编辑角色弹窗
   const [roleModalOpen, setRoleModalOpen] = useState(false)
-  const [editingRole, setEditingRole] = useState<Role | null>(null)
+  const [editingRole, setEditingRole] = useState<RoleDTO | null>(null)
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
-  const [formColor, setFormColor] = useState<RoleColor>('info')
+  const [formColor, setFormColor] = useState<string>('info')
 
   // 编辑权限弹窗
   const [permModalOpen, setPermModalOpen] = useState(false)
-  const [permRole, setPermRole] = useState<Role | null>(null)
-  const [permDraft, setPermDraft] = useState<Record<string, boolean>>(defaultPerms)
+  const [permRole, setPermRole] = useState<RoleDTO | null>(null)
+  const [permDraft, setPermDraft] = useState<Record<string, boolean>>(defaultPerms())
 
   // 删除确认弹窗
-  const [deleteRole, setDeleteRole] = useState<Role | null>(null)
+  const [deleteRole, setDeleteRole] = useState<RoleDTO | null>(null)
 
   // 成功提示
   const [notice, setNotice] = useState('')
@@ -135,8 +82,34 @@ export default function RolesPage() {
   const showNotice = (msg: string) => {
     setNotice(msg)
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
-    noticeTimer.current = window.setTimeout(() => setNotice(''), 2000)
+    noticeTimer.current = window.setTimeout(() => setNotice(''), 2500)
   }
+
+  /** 从后端加载角色列表。 */
+  const loadRoles = async () => {
+    try {
+      const data = await orgApi.listRoles({ keyword: query.trim() || undefined })
+      setRoles(data)
+      // 初始化缺失角色的权限
+      setPerms((prev) => {
+        const next = { ...prev }
+        data.forEach((r) => {
+          if (!next[r.id]) {
+            next[r.id] = seedPerms(r.color)
+          }
+        })
+        return next
+      })
+    } catch {
+      showNotice('加载角色列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadRoles()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 按已应用的查询关键字过滤（name 包含匹配）。
   const filtered = useMemo(() => {
@@ -145,10 +118,17 @@ export default function RolesPage() {
     return roles.filter((r) => r.name.includes(q))
   }, [roles, query])
 
-  const handleQuery = () => setQuery(keyword)
+  const handleQuery = () => {
+    setQuery(keyword)
+    setLoading(true)
+    loadRoles()
+  }
+
   const handleReset = () => {
     setKeyword('')
     setQuery('')
+    setLoading(true)
+    loadRoles().then(() => setLoading(false))
   }
 
   // ---- 新增 / 编辑角色 ----
@@ -160,7 +140,7 @@ export default function RolesPage() {
     setRoleModalOpen(true)
   }
 
-  const openEditRole = (role: Role) => {
+  const openEditRole = (role: RoleDTO) => {
     setEditingRole(role)
     setFormName(role.name)
     setFormDesc(role.description)
@@ -168,29 +148,28 @@ export default function RolesPage() {
     setRoleModalOpen(true)
   }
 
-  const saveRole = () => {
+  const saveRole = async () => {
     const name = formName.trim()
     if (!name) return
-    if (editingRole) {
-      const id = editingRole.id
-      setRoles((prev) =>
-        prev.map((r) =>
-          r.id === id ? { ...r, name, description: formDesc.trim(), color: formColor } : r
-        )
-      )
-      showNotice('角色已更新')
-    } else {
-      const id = genId('role')
-      const newRole: Role = { id, name, description: formDesc.trim(), color: formColor }
-      setRoles((prev) => [newRole, ...prev])
-      setPerms((prev) => ({ ...prev, [id]: defaultPerms() }))
-      showNotice('角色已创建')
+    try {
+      if (editingRole) {
+        await orgApi.updateRole(editingRole.id, { name, description: formDesc.trim(), color: formColor })
+        showNotice('角色已更新')
+      } else {
+        const newRole = await orgApi.createRole({ name, description: formDesc.trim(), color: formColor })
+        setPerms((prev) => ({ ...prev, [newRole.id]: defaultPerms() }))
+        showNotice('角色已创建')
+      }
+      setRoleModalOpen(false)
+      setLoading(true)
+      loadRoles().then(() => setLoading(false))
+    } catch {
+      showNotice('操作失败')
     }
-    setRoleModalOpen(false)
   }
 
   // ---- 编辑权限 ----
-  const openPerm = (role: Role) => {
+  const openPerm = (role: RoleDTO) => {
     setPermRole(role)
     setPermDraft({ ...(perms[role.id] ?? defaultPerms()) })
     setPermModalOpen(true)
@@ -208,17 +187,22 @@ export default function RolesPage() {
   }
 
   // ---- 删除 ----
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteRole) return
-    const id = deleteRole.id
-    setRoles((prev) => prev.filter((r) => r.id !== id))
-    setPerms((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    showNotice('角色已删除')
-    setDeleteRole(null)
+    try {
+      await orgApi.deleteRole(deleteRole.id)
+      setPerms((prev) => {
+        const next = { ...prev }
+        delete next[deleteRole.id]
+        return next
+      })
+      showNotice('角色已删除')
+      setDeleteRole(null)
+      setLoading(true)
+      loadRoles().then(() => setLoading(false))
+    } catch {
+      showNotice('删除失败')
+    }
   }
 
   return (
@@ -256,7 +240,9 @@ export default function RolesPage() {
 
       {/* 角色表格 */}
       <div className="proto-card">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="roles-empty"><p>加载中...</p></div>
+        ) : filtered.length === 0 ? (
           <div className="roles-empty">
             <p>暂无角色，点击右上角「新增角色」开始创建。</p>
           </div>
@@ -273,7 +259,10 @@ export default function RolesPage() {
               {filtered.map((role) => (
                 <tr key={role.id}>
                   <td>
-                    <span className="role-badge" style={COLOR_STYLE[role.color]}>
+                    <span
+                      className="role-badge"
+                      style={COLOR_STYLE[role.color] ?? COLOR_STYLE.info}
+                    >
                       {role.name}
                     </span>
                   </td>
@@ -352,7 +341,7 @@ export default function RolesPage() {
           <select
             className="select"
             value={formColor}
-            onChange={(e) => setFormColor(e.target.value as RoleColor)}
+            onChange={(e) => setFormColor(e.target.value)}
           >
             {COLOR_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>

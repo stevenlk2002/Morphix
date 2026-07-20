@@ -1,95 +1,118 @@
-import { useState } from 'react'
-import { Check, Save } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Save } from 'lucide-react'
 import Button from '../../components/common/Button'
-import type { OrgInfo as OrgInfoType } from '../../types/resource'
+import { orgApi } from '../../api/client'
+import type { OrgInfoDTO } from '../../api/client'
 import '../../pages/prototype.css'
 import './OrgInfo.css'
 
-/** 组织信息种子数据。 */
-const DEFAULT_ORG: OrgInfoType = {
-  orgName: 'Morphix',
-  contactName: '江南竹绿',
-  contactPhone: '138****8888',
+/** Banner 右侧 SVG 插画（与原型完全一致）。 */
+function BannerIllustration() {
+  return (
+    <svg width="200" height="120" viewBox="0 0 200 120" aria-hidden="true">
+      <rect x="60" y="40" width="80" height="70" rx="6" fill="#fff" opacity="0.5" />
+      <rect x="80" y="20" width="40" height="30" rx="4" fill="#fff" opacity="0.4" />
+      <rect x="20" y="60" width="30" height="50" rx="4" fill="#fff" opacity="0.3" />
+      <rect x="150" y="60" width="30" height="50" rx="4" fill="#fff" opacity="0.3" />
+    </svg>
+  )
 }
 
-/**
- * 组织信息管理页（/organization/info）。
- * mock-first：使用种子数据 + 本地受控状态，确认后更新本地状态并展示成功提示。
- */
 export default function OrgInfoPage() {
-  const [form, setForm] = useState<OrgInfoType>(DEFAULT_ORG)
-  const [saved, setSaved] = useState(false)
+  const [form, setForm] = useState<OrgInfoDTO>({ orgName: '', contactName: '', contactPhone: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const update = (patch: Partial<OrgInfoType>) => {
-    setForm((prev) => ({ ...prev, ...patch }))
-    setSaved(false)
+  const showNotice = (msg: string) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    setNotice(msg)
+    noticeTimer.current = setTimeout(() => setNotice(''), 2500)
   }
 
-  const handleConfirm = () => {
-    // mock：仅更新本地状态并展示成功提示，后续接入后端 API
-    setSaved(true)
+  useEffect(() => {
+    orgApi
+      .getInfo()
+      .then(setForm)
+      .catch(() => showNotice('加载组织信息失败'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const update = (patch: Partial<OrgInfoDTO>) => {
+    setForm((prev) => ({ ...prev, ...patch }))
+  }
+
+  const handleConfirm = async () => {
+    setSaving(true)
+    try {
+      const updated = await orgApi.updateInfo(form)
+      setForm(updated)
+      showNotice('组织信息已保存')
+    } catch {
+      showNotice('保存失败，请稍后重试')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="proto-page proto-page-narrow">
+        <div className="org-skeleton" />
+      </div>
+    )
   }
 
   return (
     <div className="proto-page proto-page-narrow">
-      <div className="page-header">
+      {/* Banner 蓝色渐变 + 右侧 SVG 插画 */}
+      <div className="org-banner">
         <div>
-          <h2 className="page-title">组织信息管理</h2>
-          <p className="page-subtitle">维护当前租户的组织基本信息，用于合同、发票与工单关联。</p>
+          <div className="org-banner-title">组织信息管理</div>
+          <div className="org-banner-desc">Organizational Information Management</div>
         </div>
+        <BannerIllustration />
       </div>
 
       <div className="proto-card org-card">
         <div className="org-grid">
           <div className="form-group">
-            <label className="form-label">
-              组织名称 <span className="required">*</span>
-            </label>
+            <label className="form-label">组织名</label>
             <input
               className="input"
               type="text"
               value={form.orgName}
-              placeholder="请输入组织名称"
               onChange={(e) => update({ orgName: e.target.value })}
             />
           </div>
           <div className="form-group">
-            <label className="form-label">
-              联系人 <span className="required">*</span>
-            </label>
+            <label className="form-label">联系人</label>
             <input
               className="input"
               type="text"
               value={form.contactName}
-              placeholder="请输入联系人"
               onChange={(e) => update({ contactName: e.target.value })}
             />
           </div>
           <div className="form-group">
-            <label className="form-label">
-              联系方式 <span className="required">*</span>
-            </label>
+            <label className="form-label">联系方式</label>
             <input
               className="input"
               type="text"
               value={form.contactPhone}
-              placeholder="请输入联系方式"
               onChange={(e) => update({ contactPhone: e.target.value })}
             />
           </div>
         </div>
 
         <div className="org-actions">
-          <Button variant="primary" icon={<Save size={14} />} onClick={handleConfirm}>
+          <Button variant="primary" icon={<Save size={14} />} onClick={handleConfirm} disabled={saving}>
             确认
           </Button>
         </div>
 
-        {saved && (
-          <div className="proto-notice proto-notice-success">
-            <Check size={14} /> 组织信息已保存
-          </div>
-        )}
+        {notice && <div className="proto-notice proto-notice-success org-notice">{notice}</div>}
       </div>
     </div>
   )

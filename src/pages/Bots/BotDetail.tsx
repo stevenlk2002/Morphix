@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bot, MessageSquare, GitBranch } from 'lucide-react'
+import { Bot, MessageSquare, GitBranch } from 'lucide-react'
 import Button from '../../components/common/Button'
 import { toast } from '../../utils/toast'
 import TrainingTab from './TrainingTab'
@@ -78,15 +78,6 @@ export default function BotDetailPage() {
   return (
     <div className="bot-detail-page">
       <div className="detail-header">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft size={16} />}
-          onClick={() => navigate('/bots')}
-        >
-          返回
-        </Button>
-
         <div className="detail-header-info">
           <div className="detail-avatar">
             <Bot size={24} />

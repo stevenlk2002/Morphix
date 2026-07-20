@@ -1,0 +1,274 @@
+/* 消息中心页面样式 —— 对齐 prototype/index.html 的 .messages-* 系列类名。
+   所有规则作用域限定在 .messages-page，避免污染全局。 */
+
+.messages-page {
+  padding: 24px 28px 32px;
+}
+
+.messages-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.messages-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.messages-page .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.messages-page .card-body {
+  padding: 20px;
+}
+
+/* ---- 工具栏 ---- */
+.messages-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.messages-toolbar-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.filter-bar label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.messages-page .select {
+  min-width: 180px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.messages-page .select:focus {
+  border-color: var(--primary);
+}
+
+/* ---- tab 切换 ---- */
+.messages-tabs {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 999px;
+}
+
+.messages-tab {
+  padding: 8px 20px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  border: none;
+  background: transparent;
+}
+
+.messages-tab.active {
+  background: #fff;
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- 表格 ---- */
+.messages-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.messages-table th,
+.messages-table td {
+  padding: 14px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top;
+}
+
+.messages-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.messages-table tr:hover td {
+  background: #f8fafc;
+}
+
+.messages-table .col-title {
+  width: 18%;
+}
+
+.messages-table .col-content {
+  width: 46%;
+}
+
+.messages-table .col-time {
+  width: 18%;
+}
+
+.messages-table .col-action {
+  width: 18%;
+  text-align: right;
+}
+
+.messages-table .msg-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.messages-table .msg-title.warning {
+  color: var(--warning);
+}
+
+.messages-table .msg-content {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.messages-table .msg-time {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.messages-table .msg-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* 表格内的文字按钮（查看详情 / 已读） */
+.btn-text {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.btn-text:hover {
+  background: var(--primary-light);
+}
+
+.btn-text.read {
+  color: var(--text-secondary);
+}
+
+.btn-text.read:hover {
+  background: var(--border-light);
+}
+
+/* ---- 空态 / 错误 ---- */
+.messages-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-tertiary);
+}
+
+.messages-error {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--error-bg);
+  color: var(--error);
+  font-size: 13px;
+}
+
+/* ---- 分页器 ---- */
+.messages-pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.messages-pagination .page-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.messages-pagination .page-btn {
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  transition: background var(--transition);
+}
+
+.messages-pagination .page-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.messages-pagination .page-btn:hover:not(.active) {
+  background: var(--bg);
+}
+
+.messages-pagination .page-size-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ---- 详情弹窗正文 ---- */
+.message-detail-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 0;
+  white-space: pre-wrap;
+}
