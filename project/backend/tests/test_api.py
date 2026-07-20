@@ -44,9 +44,15 @@ def test_workflow_detail():
 
 
 def test_create_sop():
+    """POST /api/sops → 201 Created；创建后 SOP 处于启用状态（enabled=True）。
+
+    注：专属校验见 tests/test_sops.py::test_create_sop（断言 201 / enabled=True /
+    status=="stopped"）。此处仅做轻量冒烟，曾经写死的 200 与 status=="enabled"
+    与真实语义（创建资源返回 201、status 为运行态 stopped）不符，已纠正。
+    """
     response = client.post("/api/sops", json={"name": "高意向预约演示", "trigger": "tag=high"})
-    assert response.status_code == 200
-    assert response.json()["status"] == "enabled"
+    assert response.status_code == 201
+    assert response.json()["enabled"] is True
 
 
 def test_create_and_train_bot():

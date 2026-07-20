@@ -15,11 +15,14 @@ from . import (
     customers,
     data_panel,
     knowledge,
+    llm_config,
     materials,
+    messages,
     message_logs,
     meta,
     operations,
     orchestration,
+    organization,
     sops,
     tags,
     training,
@@ -39,10 +42,13 @@ api_router.include_router(workflows.router)
 api_router.include_router(orchestration.router)
 api_router.include_router(sops.router)
 api_router.include_router(knowledge.router)
+api_router.include_router(llm_config.router)
 api_router.include_router(materials.router)
 api_router.include_router(training.router)
 api_router.include_router(message_logs.router)
 api_router.include_router(data_panel.router)
+api_router.include_router(messages.router)
 api_router.include_router(operations.router)
+api_router.include_router(organization.router)
 
 __all__ = ["api_router"]

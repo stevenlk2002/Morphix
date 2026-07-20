@@ -14,7 +14,7 @@ from .database import DatabaseBackend
 # bot_id -> 显示名映射（前端「所属机器人」下拉与列表 robot 列共用）
 BOT_NAMES: dict[str, str] = {
     "yefengqiu": "野风秋大健康机器人",
-    "fanfuni": "梵芙尼美妆销售机器人",
+    "fanfuni": "笑笑尼家效销售机器人",
 }
 
 # ---- 建表语句（与 database/init_morphix_mvp.sql 对齐）----
@@ -380,6 +380,27 @@ CREATE TABLE IF NOT EXISTS operation_sop_records (
   error_message    TEXT NOT NULL DEFAULT '',
   created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ---- LLM 配置表 ----
+CREATE TABLE IF NOT EXISTS llm_model_configs (
+  id TEXT PRIMARY KEY,
+  vendor TEXT NOT NULL DEFAULT '',
+  model_name TEXT NOT NULL DEFAULT '',
+  api_key TEXT NOT NULL DEFAULT '',
+  api_base_url TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ---- 系统消息（消息中心） ----
+CREATE TABLE IF NOT EXISTS system_messages (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  msg_time TEXT NOT NULL DEFAULT '',
+  is_read INTEGER NOT NULL DEFAULT 0,
+  is_warning INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # ---- 索引定义（性能落地：高频查询列 + 排序列）----
@@ -444,6 +465,12 @@ CREATE INDEX IF NOT EXISTS idx_operation_sops_type   ON operation_sops(type, ena
 CREATE INDEX IF NOT EXISTS idx_operation_sops_status ON operation_sops(status);
 CREATE INDEX IF NOT EXISTS idx_operation_sops_enabled ON operation_sops(enabled);
 CREATE INDEX IF NOT EXISTS idx_operation_sop_records_sop ON operation_sop_records(sop_id, created_at);
+
+-- ---- LLM 配置索引 ----
+CREATE INDEX IF NOT EXISTS idx_llm_model_configs_updated ON llm_model_configs(updated_at);
+
+-- ---- 系统消息索引 ----
+CREATE INDEX IF NOT EXISTS idx_system_messages_read ON system_messages(is_read);
 """
 
 
@@ -451,8 +478,8 @@ def dashboard_seed() -> dict:
     """种子数据源（与原实现保持一致，保证 contract 不变）。"""
     return {
         "bots": [
-            {"id": "bot-1", "name": "美妆销售顾问", "project": "GlowLab", "status": "online", "workflow": "销售接待主流程", "tone": "亲切专业", "score": 92},
-            {"id": "bot-2", "name": "企微售后助手", "project": "Morphix Demo", "status": "training", "workflow": "售后问题处理", "tone": "耐心清晰", "score": 81},
+            {"id": "yefengqiu", "name": "野风秋大健康机器人", "project": "Morphix", "status": "online", "workflow": "销售接待主流程", "tone": "亲切专业", "score": 92},
+            {"id": "fanfuni", "name": "笑笑尼家效销售机器人", "project": "Morphix", "status": "training", "workflow": "售后问题处理", "tone": "耐心清晰", "score": 81},
             {"id": "bot-3", "name": "WhatsApp 成交助理", "project": "Global Fit", "status": "online", "workflow": "海外询盘跟进", "tone": "国际化", "score": 88},
         ],
     }
@@ -552,10 +579,11 @@ def seed_defaults(backend: DatabaseBackend) -> None:
             )
     if _count(backend, "SELECT COUNT(*) AS c FROM channel_accounts") == 0:
         rows = [
-            # 对齐原型：竹绿-健康 / 恒康倍力 / 福寿康
+            # 对齐原型：竹绿-健康 / 恒康倍力 / 福寿康 / 邮箱账号
             ("acc-zhulu", "企业微信", "竹绿-健康", "online", "yefengqiu", 600, "team-initial", "wecom", "ipad", 181),
             ("acc-hengkang", "企业微信", "恒康倍力", "online", "yangqicheng", 300, "team-initial", "wecom", "ipad", 73),
             ("acc-fushou", "微信", "福寿康", "offline", "yefengqiu", 120, "team-initial", "wechat", "", 12),
+            ("acc-email", "邮箱", "企业邮箱客服", "online", "fanfuni", 200, "team-initial", "email", "", 8),
         ]
         for row in rows:
             backend.execute(
@@ -594,8 +622,8 @@ def seed_defaults(backend: DatabaseBackend) -> None:
             )
     if _count(backend, "SELECT COUNT(*) AS c FROM conversations") == 0:
         sessions = [
-            ("s-1", "张先生", "企业微信", "bot-1", "AI托管", "价格咨询", "标准版支持多少个账号？", "2分钟前"),
-            ("s-2", "Alicia", "WhatsApp", "bot-2", "人工接管", "预约演示", "Can we schedule a demo?", "8分钟前"),
+            ("s-1", "张先生", "企业微信", "yefengqiu", "AI托管", "价格咨询", "标准版支持多少个账号？", "2分钟前"),
+            ("s-2", "Alicia", "WhatsApp", "fanfuni", "人工接管", "预约演示", "Can we schedule a demo?", "8分钟前"),
             ("s-3", "宝妈护肤交流群", "微信群", "bot-3", "AI托管", "群内意向", "有人问优惠活动", "14分钟前"),
         ]
         for row in sessions:
@@ -631,8 +659,8 @@ def seed_defaults(backend: DatabaseBackend) -> None:
                 )
     if _count(backend, "SELECT COUNT(*) AS c FROM bot_subscriptions") == 0:
         subs = [
-            ("bot-1", 120, "2027-06-30 23:59:59"),
-            ("bot-2", 300, "2027-12-31 23:59:59"),
+            ("yefengqiu", 120, "2027-06-30 23:59:59"),
+            ("fanfuni", 300, "2027-12-31 23:59:59"),
             ("bot-3", 80, "2026-12-31 23:59:59"),
         ]
         for row in subs:
@@ -645,6 +673,7 @@ def seed_defaults(backend: DatabaseBackend) -> None:
             ("acc-zhulu", 580, 20),
             ("acc-hengkang", 285, 15),
             ("acc-fushou", 110, 10),
+            ("acc-email", 50, 5),
         ]
         for row in seats:
             backend.execute(
@@ -719,6 +748,23 @@ def seed_defaults(backend: DatabaseBackend) -> None:
             ("ses-tongtian", "acc-zhulu", "通天草-林瞰", "@微信", "wechat", "竹绿-健康：亲爱的您好呀...", "10:41", 2, "unread", "unhosted", None, "竹", "online", "外部联系人", "外部", "2026-06-30 18:29:19", "-"),
             ("ses-zhizu", "acc-zhulu", "知足常乐【中奖】", "@微信", "wechat", "感谢参与本次活动", "09:12", 0, "read", "hosted", "yefengqiu", "竹", "offline", "外部联系人", "外部", "2026-06-30 18:29:20", "-"),
             ("ses-fushou", "acc-zhulu", "福寿康VIP", "@微信", "wechat", "您好，想咨询一下产品", "昨天", 0, "read", "unhosted", None, "竹", "offline", "外部联系人", "外部", "2026-06-30 18:29:21", "-"),
+            # ---- 近 7 天种子（2026-07-14 ~ 2026-07-20），让数据面板有丰富内容 ----
+            ("ses-714a", "acc-zhulu", "格布式健康咨询", "@微信", "wechat", "你好，想了解一下产品", "07-14", 0, "read", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-07-14 09:30:00", "-"),
+            ("ses-714b", "acc-hengkang", "笑笑尼家效会员", "@企业微信", "wecom", "最近的优惠活动还有吗？", "07-14", 1, "unread", "hosted", "fanfuni", "恒", "online", "外部联系人", "外部", "2026-07-14 14:20:00", "-"),
+            ("ses-715a", "acc-zhulu", "客户王阿姨", "@微信", "wechat", "帮我看看这个产品", "07-15", 0, "read", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-07-15 10:15:00", "-"),
+            ("ses-715b", "acc-hengkang", "李先生咨询", "@企业微信", "wecom", "请问套餐价格？", "07-15", 0, "read", "unhosted", None, "恒", "offline", "外部联系人", "外部", "2026-07-15 16:40:00", "-"),
+            ("ses-716a", "acc-zhulu", "用户张先生", "@微信", "wechat", "直播链接发一下", "07-16", 0, "read", "hosted", "yefengqiu", "竹", "offline", "外部联系人", "外部", "2026-07-16 08:50:00", "-"),
+            ("ses-716b", "acc-zhulu", "新用户测试", "@微信", "wechat", "注册流程怎么样？", "07-16", 2, "unread", "unhosted", None, "竹", "online", "外部联系人", "外部", "2026-07-16 11:30:00", "-"),
+            ("ses-717a", "acc-hengkang", "老客户赵姐", "@企业微信", "wecom", "帮我续费", "07-17", 1, "unread", "hosted", "fanfuni", "恒", "online", "外部联系人", "外部", "2026-07-17 09:00:00", "-"),
+            ("ses-717b", "acc-zhulu", "陈总私人号", "@微信", "wechat", "上次的项目跟进一下", "07-17", 0, "read", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-07-17 15:20:00", "-"),
+            ("ses-717c", "acc-fushou", "李女士问价", "@微信", "wechat", "价格表发我", "07-17", 0, "read", "unhosted", None, "福", "online", "外部联系人", "外部", "2026-07-17 17:45:00", "-"),
+            ("ses-718a", "acc-zhulu", "VIP客户Tina", "@微信", "wechat", "预约明天的线上问诊", "07-18", 0, "read", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-07-18 08:10:00", "-"),
+            ("ses-718b", "acc-hengkang", "学生家长群问", "@企业微信", "wecom", "暑假体验课还有名额吗", "07-18", 3, "unread", "unhosted", None, "恒", "offline", "外部联系人", "外部", "2026-07-18 14:00:00", "-"),
+            ("ses-719a", "acc-zhulu", "周医生咨询", "@微信", "wechat", "帮我看看这个处方", "07-19", 1, "unread", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-07-19 07:30:00", "-"),
+            ("ses-719b", "acc-zhulu", "孙阿姨复诊", "@微信", "wechat", "上次开的药吃完了", "07-19", 0, "read", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-07-19 10:45:00", "-"),
+            ("ses-719c", "acc-hengkang", "吴老师推荐", "@企业微信", "wecom", "您好我是吴老师推荐的", "07-19", 0, "read", "hosted", "fanfuni", "恒", "online", "外部联系人", "外部", "2026-07-19 16:20:00", "-"),
+            ("ses-720a", "acc-zhulu", "健身老刘", "@微信", "wechat", "今天约几点？", "07-20", 0, "read", "hosted", "yefengqiu", "竹", "offline", "外部联系人", "外部", "2026-07-20 09:00:00", "-"),
+            ("ses-720b", "acc-hengkang", "群内@小助手", "@企业微信", "wecom", "有人发广告", "07-20", 0, "read", "unhosted", None, "恒", "online", "外部联系人", "外部", "2026-07-20 11:30:00", "-"),
         ]
         for row in sessions:
             backend.execute(
@@ -744,6 +790,58 @@ def seed_defaults(backend: DatabaseBackend) -> None:
             ("msg-zhizu-2", "ses-zhizu", "bot", "恭喜中奖！奖品将于3个工作日内寄出~", "2026-07-09 09:12:05"),
             ("msg-fushou-1", "ses-fushou", "user", "您好，想咨询一下产品", "2026-07-08 20:00:00"),
             ("msg-fushou-2", "ses-fushou", "bot", "您好，福寿康VIP客服为您服务~", "2026-07-08 20:00:03"),
+            # ---- 近 7 天消息种子（与上面新增的会话对应） ----
+            ("msg-714a-1", "ses-714a", "user", "你好，想了解一下产品", "2026-07-14 09:30:00"),
+            ("msg-714a-2", "ses-714a", "bot", "您好！很高兴为您服务，请问您想了解哪方面的产品呢？", "2026-07-14 09:30:03"),
+            ("msg-714a-3", "ses-714a", "user", "主要是健康管理这块", "2026-07-14 09:31:00"),
+            ("msg-714a-4", "ses-714a", "bot", "好的，我们的健康管理方案覆盖慢病管理、体检报告解读等多个维度。", "2026-07-14 09:31:05"),
+            ("msg-714b-1", "ses-714b", "user", "最近的优惠活动还有吗？", "2026-07-14 14:20:00"),
+            ("msg-714b-2", "ses-714b", "bot", "有的！目前暑期特惠正在进行中，会员可享8折优惠哦~", "2026-07-14 14:20:04"),
+            ("msg-714b-3", "ses-714b", "user", "太好了，我报个名", "2026-07-14 14:21:00"),
+            ("msg-714b-4", "ses-714b", "bot", "已为您登记，稍后会有客服联系您确认。", "2026-07-14 14:21:05"),
+            ("msg-715a-1", "ses-715a", "user", "帮我看看这个产品", "2026-07-15 10:15:00"),
+            ("msg-715a-2", "ses-715a", "bot", "好的，请您发送产品图片或名称，我来帮您查询。", "2026-07-15 10:15:05"),
+            ("msg-715a-3", "ses-715a", "user", "就是那个保健茶", "2026-07-15 10:16:00"),
+            ("msg-715a-4", "ses-715a", "system", "需要转人工：客户需要详细了解产品成分", "2026-07-15 10:16:30"),
+            ("msg-715b-1", "ses-715b", "user", "请问套餐价格？", "2026-07-15 16:40:00"),
+            ("msg-715b-2", "ses-715b", "bot", "目前基础套餐498元/月，高级套餐998元/月，您更关注哪个呢？", "2026-07-15 16:40:05"),
+            ("msg-716a-1", "ses-716a", "user", "直播链接发一下", "2026-07-16 08:50:00"),
+            ("msg-716a-2", "ses-716a", "bot", "今天的健康讲座直播将于10:00开始，链接已发送到您微信~", "2026-07-16 08:50:05"),
+            ("msg-716b-1", "ses-716b", "user", "注册流程怎么样？", "2026-07-16 11:30:00"),
+            ("msg-716b-2", "ses-716b", "bot", "注册很简单！只需要微信扫码→填写手机号→验证码→完成，约2分钟。", "2026-07-16 11:30:05"),
+            ("msg-716b-3", "ses-716b", "user", "好的谢谢", "2026-07-16 11:31:00"),
+            ("msg-716b-4", "ses-716b", "bot", "不客气，如有问题随时咨询~", "2026-07-16 11:31:05"),
+            ("msg-717a-1", "ses-717a", "user", "帮我续费", "2026-07-17 09:00:00"),
+            ("msg-717a-2", "ses-717a", "bot", "赵姐您好！您的会员将于月底到期，现在我帮您操作续费，确认一下是继续高级套餐吗？", "2026-07-17 09:00:05"),
+            ("msg-717a-3", "ses-717a", "user", "对，就高级套餐", "2026-07-17 09:01:00"),
+            ("msg-717a-4", "ses-717a", "bot", "好的，已提交续费申请，预计1个工作日内生效。", "2026-07-17 09:01:08"),
+            ("msg-717a-5", "ses-717a", "system", "客户确认续费高级套餐，请安排跟进。", "2026-07-17 09:01:30"),
+            ("msg-717b-1", "ses-717b", "user", "上次的项目跟进一下", "2026-07-17 15:20:00"),
+            ("msg-717b-2", "ses-717b", "bot", "陈总好！上次关于企业健康管理的方案我已经整理好了，您方便什么时候详细沟通？", "2026-07-17 15:20:06"),
+            ("msg-717c-1", "ses-717c", "user", "价格表发我", "2026-07-17 17:45:00"),
+            ("msg-717c-2", "ses-717c", "bot", "好的，产品价格表已发送给您，请查收。如有疑问可以随时问我~", "2026-07-17 17:45:05"),
+            ("msg-718a-1", "ses-718a", "user", "预约明天的线上问诊", "2026-07-18 08:10:00"),
+            ("msg-718a-2", "ses-718a", "bot", "Tina您好！明天上午9:00-11:00、下午14:00-17:00都有号，您方便哪个时段？", "2026-07-18 08:10:05"),
+            ("msg-718a-3", "ses-718a", "user", "上午9点吧", "2026-07-18 08:11:00"),
+            ("msg-718a-4", "ses-718a", "bot", "已为您预约明天上午9:00线上问诊，届时请提前5分钟进入直播间~", "2026-07-18 08:11:08"),
+            ("msg-718b-1", "ses-718b", "user", "暑假体验课还有名额吗", "2026-07-18 14:00:00"),
+            ("msg-718b-2", "ses-718b", "bot", "有的！7月体验课还有5个名额，需要帮您预留吗？", "2026-07-18 14:00:05"),
+            ("msg-719a-1", "ses-719a", "user", "帮我看看这个处方", "2026-07-19 07:30:00"),
+            ("msg-719a-2", "ses-719a", "bot", "周医生您好，我暂时无法解读处方哦，建议您转人工咨询我们的执业药师。", "2026-07-19 07:30:05"),
+            ("msg-719a-3", "ses-719a", "system", "转人工：客户需要处方解读，转入执业药师", "2026-07-19 07:30:20"),
+            ("msg-719b-1", "ses-719b", "user", "上次开的药吃完了", "2026-07-19 10:45:00"),
+            ("msg-719b-2", "ses-719b", "bot", "孙阿姨好！需要帮您续方吗？请确认一下药品名称和用量。", "2026-07-19 10:45:05"),
+            ("msg-719b-3", "ses-719b", "user", "就是那个降压的药", "2026-07-19 10:46:00"),
+            ("msg-719b-4", "ses-719b", "bot", "好的，降压药已记录。需要转人工确认续方，请稍等~", "2026-07-19 10:46:05"),
+            ("msg-719b-5", "ses-719b", "system", "转人工：客户续方确认为降压药", "2026-07-19 10:46:20"),
+            ("msg-719c-1", "ses-719c", "user", "您好我是吴老师推荐的", "2026-07-19 16:20:00"),
+            ("msg-719c-2", "ses-719c", "bot", "您好！欢迎！吴老师是老客户了，请问您想了解哪方面的服务呢？", "2026-07-19 16:20:05"),
+            ("msg-719c-3", "ses-719c", "user", "我想了解一下健康体检套餐", "2026-07-19 16:21:00"),
+            ("msg-719c-4", "ses-719c", "bot", "好的！我们提供基础体检（399元）、全面体检（899元）和VIP深度体检（1999元）三种套餐。需要我详细介绍一下吗？", "2026-07-19 16:21:08"),
+            ("msg-720a-1", "ses-720a", "user", "今天约几点？", "2026-07-20 09:00:00"),
+            ("msg-720a-2", "ses-720a", "bot", "老刘好！今天的私教课是上午10:00，健身房3号厅见~", "2026-07-20 09:00:05"),
+            ("msg-720b-1", "ses-720b", "user", "有人发广告", "2026-07-20 11:30:00"),
+            ("msg-720b-2", "ses-720b", "system", "已检测群内广告内容，自动移除了该成员。", "2026-07-20 11:30:10"),
         ]
         for msg_id, conv_id, sender_type, content, ts in session_messages:
             backend.execute(
@@ -889,6 +987,91 @@ def seed_defaults(backend: DatabaseBackend) -> None:
 
     if _count(backend, "SELECT COUNT(*) AS c FROM operation_sop_records") == 0:
         _seed_operation_sop_records(backend)
+
+    # ---- LLM 配置种子（主 / 副模型各 1 条） ----
+    if _count(backend, "SELECT COUNT(*) AS c FROM llm_model_configs") == 0:
+        backend.execute(
+            "INSERT INTO llm_model_configs(id, vendor, model_name, api_key, api_base_url, enabled) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("primary", "OpenAI", "GPT-4o", "sk-orchestrator-7f3a9c2e1b4d", "https://api.openai.com/v1", 1),
+        )
+        backend.execute(
+            "INSERT INTO llm_model_configs(id, vendor, model_name, api_key, api_base_url, enabled) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("secondary", "Anthropic", "Claude 3.5 Sonnet", "", "", 0),
+        )
+
+    # ---- 系统消息（消息中心）种子 ----
+    if _count(backend, "SELECT COUNT(*) AS c FROM system_messages") == 0:
+        _seed_system_messages(backend)
+
+
+def _seed_system_messages(backend: DatabaseBackend) -> None:
+    """消息中心种子（1 条额度预警 + 6 条竹绿-健康同步事件），与原型一致。"""
+    messages: list[dict] = [
+        {
+            "id": "msg-1",
+            "title": "可用额度不足预警",
+            "content": "账户的可用额度仅剩余0.00元，为避免影响您的正常使用，请及时进入资源管理进行充值。",
+            "msg_time": "2026-07-10 10:20:02",
+            "is_read": 0,
+            "is_warning": 1,
+        },
+        {
+            "id": "msg-2",
+            "title": "[竹绿-健康]已完成同步",
+            "content": "[竹绿-健康]已于2026-07-09 22:43:43完成同步，您现在可以开始使用该账号了，如果您没有看到对话，请刷新页面。",
+            "msg_time": "2026-07-09 22:43:43",
+            "is_read": 0,
+            "is_warning": 0,
+        },
+        {
+            "id": "msg-3",
+            "title": "[竹绿-健康]已开始同步",
+            "content": "[竹绿-健康]已于2026-07-09 22:41:39开始同步，预计将在20分钟内同步完成，请勿在其他pc设备登录账号。",
+            "msg_time": "2026-07-09 22:41:45",
+            "is_read": 0,
+            "is_warning": 0,
+        },
+        {
+            "id": "msg-4",
+            "title": "[竹绿-健康]已上线",
+            "content": "[竹绿-健康]已于2026-07-09 22:41:39上线，您可以接收到该账号的消息了。",
+            "msg_time": "2026-07-09 22:41:40",
+            "is_read": 0,
+            "is_warning": 0,
+        },
+        {
+            "id": "msg-5",
+            "title": "[竹绿-健康]已掉线",
+            "content": "[竹绿-健康]已于2026-07-09 22:38:54掉线，原因为[客户端登出]。为不影响您的消息接收，请尽快重新登录。",
+            "msg_time": "2026-07-09 22:38:54",
+            "is_read": 0,
+            "is_warning": 0,
+        },
+        {
+            "id": "msg-6",
+            "title": "[竹绿-健康]已完成同步",
+            "content": "[竹绿-健康]已于2026-07-09 18:13:41完成同步，您现在可以开始使用该账号了，如果您没有看到对话，请刷新页面。",
+            "msg_time": "2026-07-09 18:13:41",
+            "is_read": 0,
+            "is_warning": 0,
+        },
+        {
+            "id": "msg-7",
+            "title": "[竹绿-健康]已开始同步",
+            "content": "[竹绿-健康]已于2026-07-09 18:09:31开始同步，预计将在20分钟内同步完成，请勿在其他pc设备登录账号。",
+            "msg_time": "2026-07-09 18:09:39",
+            "is_read": 0,
+            "is_warning": 0,
+        },
+    ]
+    for m in messages:
+        backend.execute(
+            "INSERT INTO system_messages(id, title, content, msg_time, is_read, is_warning) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (m["id"], m["title"], m["content"], m["msg_time"], m["is_read"], m["is_warning"]),
+        )
 
 
 def _seed_operation_sops(backend: DatabaseBackend) -> None:

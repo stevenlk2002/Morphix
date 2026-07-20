@@ -22,12 +22,21 @@ client = TestClient(app)
 # ---- 任务列表 ----
 
 def test_list_tasks_returns_seed_data():
-    """GET /api/operations/tasks → 200，返回种子 4 个任务。"""
+    """GET /api/operations/tasks → 200，返回 4 个种子任务（opt-1..opt-4）。
+
+    注意：共享库 database/morphix_mvp.db 会被本套件中创建类用例（如
+    test_create_task_with_targets / test_create_task_minimal_fields）累积写入，
+    因此不再断言「恰好 4 条」，改为校验 4 个种子任务 id 均在返回列表中，
+    以反映「真实的种子数据」并避免共享库污染导致的偶发失败。
+    """
     resp = client.get("/api/operations/tasks")
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 4
+    seed_ids = {"opt-1", "opt-2", "opt-3", "opt-4"}
+    returned_ids = {item["id"] for item in data}
+    assert seed_ids.issubset(returned_ids), returned_ids
+    assert len(data) >= 4
 
 
 def test_list_tasks_has_required_fields():
@@ -491,12 +500,19 @@ def test_list_channel_accounts_wecom():
 
 
 def test_list_channel_accounts_wechat():
-    """GET /api/operations/channel-accounts?channel=wechat → 返回 1 个 offline 账号。"""
+    """GET /api/operations/channel-accounts?channel=wechat → 返回种子账号 acc-fushou（offline）。
+
+    注意：共享库会被其它用例的创建操作累积写入额外 wechat 账号（如遗留的
+    「接口测试账号」），故改为校验该种子账号确实返回且属性正确，而非「恰好 1 个」，
+    以反映「真实的种子数据」并避免共享库污染导致的偶发失败。
+    """
     resp = client.get("/api/operations/channel-accounts", params={"channel": "wechat"})
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 1
-    assert data[0]["id"] == "acc-fushou"
-    assert data[0]["status"] == "offline"
-    assert data[0]["channel_type"] == "wechat"
+    acc_ids = {item["id"] for item in data}
+    assert "acc-fushou" in acc_ids, acc_ids
+    fushou = next(item for item in data if item["id"] == "acc-fushou")
+    assert fushou["status"] == "offline"
+    assert fushou["channel_type"] == "wechat"
+    assert len(data) >= 1
