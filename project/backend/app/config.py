@@ -29,14 +29,15 @@ class Settings:
     sqlite_path: Path = field(default_factory=lambda: Path(_env("MORPHIX_SQLITE_PATH", str(DEFAULT_SQLITE_PATH))))
     # PostgreSQL DSN（切换到 postgres 时使用）
     postgres_dsn: str = field(default_factory=lambda: _env("MORPHIX_POSTGRES_DSN", ""))
-    # 允许的前端来源（CORS）——新增 console 开发端口 5173
+    # 允许的前端来源（CORS）——含 console 专用端口 5183 与旧 5173
     cors_origins: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             origin.strip()
             for origin in _env(
                 "MORPHIX_CORS_ORIGINS",
                 "http://localhost:1181,http://127.0.0.1:1181,http://localhost:1182,http://127.0.0.1:1182,"
-                "http://localhost:5173,http://127.0.0.1:5173",
+                "http://localhost:5173,http://127.0.0.1:5173,"
+                "http://localhost:5183,http://127.0.0.1:5183",
             ).split(",")
             if origin.strip()
         )

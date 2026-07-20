@@ -7,17 +7,42 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import bots, channels, conversations, knowledge, materials, meta, sops, tags, workflows
+from . import (
+    bots,
+    channels,
+    channel_mgmt,
+    conversations,
+    customers,
+    data_panel,
+    knowledge,
+    materials,
+    message_logs,
+    meta,
+    operations,
+    orchestration,
+    sops,
+    tags,
+    training,
+    workflows,
+)
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(meta.router)
 api_router.include_router(bots.router)
 api_router.include_router(channels.router)
+api_router.include_router(channel_mgmt.router)
 api_router.include_router(tags.router)
+api_router.include_router(customers.router)
+api_router.include_router(customers._customer_groups_router)
 api_router.include_router(conversations.router)
 api_router.include_router(workflows.router)
+api_router.include_router(orchestration.router)
 api_router.include_router(sops.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(materials.router)
+api_router.include_router(training.router)
+api_router.include_router(message_logs.router)
+api_router.include_router(data_panel.router)
+api_router.include_router(operations.router)
 
 __all__ = ["api_router"]

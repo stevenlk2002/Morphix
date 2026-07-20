@@ -1,0 +1,143 @@
+sequenceDiagram
+    actor User
+    participant ListPage as OperationTasks.tsx
+    participant CreateModal as OperationTaskCreateModal
+    participant EditPage as OperationTaskEdit.tsx
+    participant API as api/operations.ts
+    participant Router as routers/operations.py
+    participant Repo as operations_repository.py
+    participant DB as SQLite
+
+    %% ---- 列表加载 ----
+    Note over ListPage,DB: === 列表加载与筛选 ===
+    User->>ListPage: 进入 /operations/tasks
+    ListPage->>API: GET /api/operations/tasks?search=&type=&enabled=&run_status=
+    API->>Router: HTTP GET
+    Router->>Repo: list_all(filters)
+    Repo->>DB: SELECT * FROM operation_tasks WHERE ... ORDER BY created_at DESC
+    DB-->>Repo: rows
+    Repo-->>Router: (items, total)
+    Router-->>API: OperationTaskResponse[]
+    API-->>ListPage: OperationTask[]
+    ListPage->>ListPage: render 卡片网格
+
+    %% ---- Switch 切换 ----
+    Note over ListPage,DB: === Switch 启用切换 ===
+    User->>ListPage: 点击 Switch
+    ListPage->>ListPage: 乐观更新 UI
+    ListPage->>API: PATCH /api/operations/tasks/:id/toggle
+    API->>Router: HTTP PATCH
+    Router->>Repo: toggle(task_id)
+    Repo->>DB: UPDATE operation_tasks SET enabled = NOT enabled, updated_at = now
+    DB-->>Repo: ok
+    Repo-->>Router: updated task dict
+    Router-->>API: OperationTaskResponse
+    API-->>ListPage: updated task (reconcile)
+
+    %% ---- 创建任务 4 步 Stepper ----
+    Note over CreateModal,DB: === 创建运营任务（4 步 Stepper） ===
+
+    User->>ListPage: 点击"创建运营任务"
+    ListPage->>CreateModal: open (step=1)
+
+    Note over CreateModal: Step 1: 选择任务类型
+    User->>CreateModal: 选择"群发任务"
+    CreateModal->>CreateModal: step=2
+
+    Note over CreateModal: Step 2: 设置任务参数
+    User->>CreateModal: 填写名称/渠道/会话类型/内容块/托管
+
+    CreateModal->>CreateModal: step=3
+    Note over CreateModal: Step 3: 选择运营对象
+
+    CreateModal->>API: GET /api/operations/targets/sessions?account_id=&search=
+    API->>Router: HTTP GET
+    Router->>Repo: list_sessions_for_targeting(filters)
+    Repo->>DB: SELECT cs.* FROM channel_sessions cs WHERE ...
+    DB-->>Repo: rows
+    Repo-->>Router: list[dict]
+    Router-->>API: TargetSessionResponse[]
+    API-->>CreateModal: sessions list
+
+    User->>CreateModal: 勾选目标会话 (checkbox)
+    CreateModal->>CreateModal: step=4
+
+    Note over CreateModal: Step 4: 设置运行时间
+    User->>CreateModal: 选择频率"单次" + 运行时间 + 生效区间
+    User->>CreateModal: 点击"创建任务"
+
+    CreateModal->>API: POST /api/operations/tasks (完整 body)
+    API->>Router: HTTP POST + OperationTaskCreateRequest
+    Router->>Repo: create(data) with transaction
+    Repo->>DB: BEGIN
+    Repo->>DB: INSERT INTO operation_tasks (...)
+    Repo->>DB: INSERT INTO operation_task_targets (...) × N
+    Repo->>DB: COMMIT
+    DB-->>Repo: ok
+    Repo-->>Router: task dict
+    Router-->>API: 201 + OperationTaskResponse
+    API-->>CreateModal: success
+    CreateModal->>CreateModal: close + toast "运营任务创建成功"
+    CreateModal-->>ListPage: onCreated() → 刷新列表
+
+    %% ---- 编辑页 ----
+    Note over EditPage,DB: === 编辑任务（独立路由 + 三 Tab） ===
+
+    User->>ListPage: 点击任务卡"编辑"
+    ListPage->>EditPage: navigate(/operations/tasks/:id/edit)
+
+    EditPage->>API: GET /api/operations/tasks/:id
+    API->>Router: HTTP GET
+    Router->>Repo: get(task_id)
+    Repo->>DB: SELECT * FROM operation_tasks WHERE id=?
+    DB-->>Repo: row
+    Repo-->>Router: task dict
+    Router-->>API: OperationTaskResponse
+    API-->>EditPage: OperationTask
+
+    EditPage->>API: GET /api/operations/tasks/:id/targets
+    API->>Router: HTTP GET
+    Router->>Repo: list_targets(task_id)
+    Repo->>DB: SELECT ott.*, cs.name FROM operation_task_targets ott JOIN channel_sessions cs ON cs.id = ott.session_id WHERE ott.task_id=?
+    DB-->>Repo: rows
+    Repo-->>Router: list[dict]
+    Router-->>API: OperationTaskTargetResponse[]
+    API-->>EditPage: targets
+
+    Note over EditPage: Tab 1: 任务参数（回填）
+    User->>EditPage: 修改内容块/托管机器人
+    User->>EditPage: 切换到 Tab 2: 运营对象
+
+    EditPage->>API: GET /api/operations/targets/sessions
+    API->>Router: HTTP GET
+    Router->>Repo: list_sessions_for_targeting()
+    Repo->>DB: SELECT * FROM channel_sessions
+    DB-->>Repo: rows
+    Repo-->>Router: list[dict]
+    Router-->>API: TargetSessionResponse[]
+    API-->>EditPage: sessions (标记已选)
+
+    User->>EditPage: 增删目标会话
+    User->>EditPage: 切换到 Tab 3: 任务时间
+    User->>EditPage: 修改频率/时间/生效区间
+    User->>EditPage: 点击"保存"
+
+    EditPage->>API: PUT /api/operations/tasks/:id (任务参数+时间)
+    API->>Router: HTTP PUT + OperationTaskUpdateRequest
+    Router->>Repo: update(task_id, data)
+    Repo->>DB: UPDATE operation_tasks SET ...
+    DB-->>Repo: ok
+
+    EditPage->>API: PUT /api/operations/tasks/:id/targets (新目标列表)
+    API->>Router: HTTP PUT
+    Router->>Repo: set_targets(task_id, targets)
+    Repo->>DB: BEGIN; DELETE FROM operation_task_targets WHERE task_id=?; INSERT INTO ...; COMMIT
+    DB-->>Repo: ok
+    Router-->>API: success
+    EditPage->>EditPage: toast "保存成功"
+    EditPage->>ListPage: navigate('/operations/tasks')
+
+    %% ---- 运营记录（P0 toast 占位） ----
+    Note over ListPage: === 运营记录（P0 toast 占位） ===
+    User->>ListPage: 点击任务卡"运营记录"
+    ListPage->>ListPage: toast("查看运营记录") 占位

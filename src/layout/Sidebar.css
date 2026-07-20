@@ -42,6 +42,16 @@
 .brand {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.brand-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .sidebar.collapsed .brand {
@@ -57,6 +67,7 @@
   padding: 4px 6px;
   border-radius: var(--radius-sm);
   transition: background var(--transition);
+  flex: 1;
 }
 
 .brand-user:hover {
@@ -98,6 +109,11 @@
   padding: 12px 10px;
 }
 
+/* 层级分组容器：对齐 prototype 第 81 行 */
+.nav-group {
+  margin-bottom: 4px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -109,6 +125,32 @@
   transition: all var(--transition);
   margin-bottom: 4px;
   cursor: pointer;
+}
+
+/* 父级菜单的 chevron：自动推到最右侧，展开时旋转 180deg（对齐 prototype 86-87 行） */
+.nav-item .chevron {
+  margin-left: auto;
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+
+.nav-item.expanded .chevron {
+  transform: rotate(180deg);
+}
+
+/* 子菜单容器：默认隐藏，展开时显示（对齐 prototype 88-90 行） */
+.nav-sub {
+  padding-left: 34px;
+  display: none;
+}
+
+.nav-sub.open {
+  display: block;
+}
+
+.nav-sub .nav-item {
+  padding: 7px 12px;
+  font-size: 12px;
 }
 
 .sidebar.collapsed .nav-item {
@@ -133,4 +175,180 @@
 
 .sidebar.collapsed .nav-label {
   display: none;
+}
+
+/* 折叠态下隐藏子菜单（对齐 prototype 第 65 行） */
+.sidebar.collapsed .nav-sub {
+  display: none;
+}
+
+/* ===== 登录用户区 / 消息通知（对齐 prototype/index.html 2099-2122, 55-111） ===== */
+
+.brand-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover {
+  background: var(--border-light);
+}
+
+.notify-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 1.5px solid var(--surface);
+}
+
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 16px;
+  right: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  display: none;
+  z-index: 100;
+}
+
+.user-dropdown.open {
+  display: block;
+}
+
+.user-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.user-option:hover {
+  background: var(--bg);
+}
+
+.user-option.active {
+  background: var(--primary-light);
+}
+
+.user-option:not(:last-child) {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.user-option .brand-avatar {
+  width: 26px;
+  height: 26px;
+}
+
+.user-option .brand-name {
+  font-size: 13px;
+}
+
+.user-option .brand-tag {
+  font-size: 10px;
+}
+
+.notify-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 16px;
+  width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  display: none;
+  z-index: 100;
+}
+
+.notify-dropdown.open {
+  display: block;
+}
+
+.notify-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-light);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.notify-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.notify-item:hover {
+  background: var(--bg);
+}
+
+.notify-item:last-child {
+  border-bottom: none;
+  text-align: center;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.notify-title {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.notify-desc {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* 折叠态隐藏用户区文案 / 箭头 / 铃铛 / 下拉（对齐 prototype 55-59, 67） */
+.sidebar.collapsed .brand-info,
+.sidebar.collapsed .brand-chevron,
+.sidebar.collapsed .brand .btn-icon:not(.sidebar-toggle) {
+  display: none;
+}
+
+.sidebar.collapsed .user-dropdown,
+.sidebar.collapsed .notify-dropdown {
+  display: none;
+}
+
+/* 轻量 toast：居中顶部黑色胶囊 */
+.sidebar-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
 }

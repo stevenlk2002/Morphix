@@ -1,0 +1,93 @@
+/* 特殊渠道设置页（/channels/settings）样式 */
+
+/* 区块标题 */
+.config-section-head {
+  margin-bottom: var(--spacing-lg);
+}
+
+.config-section-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+
+/* 卡片网格：自适应填充，最小列宽 320px */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+/* 单张企微应用配置卡片 */
+.config-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+}
+
+.config-card-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+/* 帮助行：为何需要扫码授权？ */
+.config-help-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  cursor: help;
+}
+
+.config-card-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* 虚线「新增企微主体」卡片 */
+.config-card-add {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.config-card-add:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.config-card-add:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.config-add-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.config-add-text {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}

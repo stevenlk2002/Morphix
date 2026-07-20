@@ -1,0 +1,480 @@
+/* ===== 托管消息日志页（/bots/logs）专用样式 ===== */
+
+/* ---- 头部工具栏（对齐原型 message-logs-toolbar） ---- */
+.message-logs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.message-logs-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.message-logs-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 头部浅色图标按钮（刷新 / 筛选 / 列设置） */
+.message-logs-actions .btn-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.message-logs-actions .btn-icon:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* 列设置下拉 */
+.logs-colsettings {
+  position: relative;
+}
+
+.logs-colsettings-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 160px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.logs-colsettings-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.logs-colsettings-item:hover {
+  background: var(--bg);
+}
+
+.logs-colsettings-item input {
+  cursor: pointer;
+}
+
+/* ---- 筛选卡片（对齐原型 message-logs-filters 4 列网格） ---- */
+.logs-filters {
+  margin-bottom: 16px;
+}
+
+.message-logs-filters {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+
+.message-logs-filters .filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.message-logs-filters .filter-field > label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.message-logs-filters .filter-field .input,
+.message-logs-filters .filter-field .select {
+  width: 100%;
+}
+
+.message-logs-filters .date-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-logs-filters .date-range .input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.message-logs-filters .date-range .logs-date-arrow {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* 筛选底部操作按钮（重置 / 查询） */
+.filter-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.logs-btn-reset,
+.logs-btn-query {
+  height: 28px;
+  padding: 0 16px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.logs-btn-reset {
+  background: #fff;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.logs-btn-reset:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--bg);
+}
+
+.logs-btn-query {
+  background: #c9a87c;
+  color: #fff;
+  border-color: #c9a87c;
+}
+
+.logs-btn-query:hover {
+  background: #b3936a;
+  border-color: #b3936a;
+}
+
+@media (max-width: 1200px) {
+  .message-logs-filters {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .message-logs-filters {
+    grid-template-columns: 1fr;
+  }
+  .message-logs-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
+/* 表格 */
+.message-logs-table th,
+.message-logs-table td {
+  vertical-align: top;
+}
+
+.col-content {
+  max-width: 280px;
+}
+
+.json-preview {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  max-height: 96px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 操作列链接 */
+.proto-link,
+.col-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--text-sm);
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.col-link:hover {
+  text-decoration: underline;
+}
+
+/* 分页脚注 */
+.logs-pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-light);
+  flex-wrap: wrap;
+}
+
+.logs-page-info {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.logs-page-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.logs-page-size {
+  width: auto;
+  min-width: 120px;
+  margin-left: auto;
+}
+
+/* 空状态 */
+.logs-empty {
+  padding: 48px 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* 详情弹窗 */
+.logs-detail .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.logs-detail-value {
+  font-size: var(--text-base);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.json-detail {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 通用工具类 */
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+/* ===== 回复详情弹窗：编排工作流节点执行追踪（debug-node） ===== */
+/* 对齐原型 prototype/index.html 行 1264-1288，并补充受控展开与长代码滚动。 */
+
+.logs-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.logs-debug-id {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+}
+
+/* Debug workflow nodes modal */
+.debug-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.debug-node {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.debug-node-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: #fafafa;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.debug-node-header:hover {
+  background: #f3f4f6;
+}
+
+.debug-node-header .arrow {
+  color: var(--text-tertiary);
+  display: inline-flex;
+}
+
+.debug-node-header .arrow svg {
+  transition: transform 0.18s;
+  transform: rotate(-90deg);
+}
+
+.debug-node.expanded .debug-node-header .arrow svg {
+  transform: rotate(0deg);
+}
+
+.debug-node-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #e8f0fe;
+  color: #4a7fd9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.debug-node-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.debug-node-runtime {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.debug-node-body {
+  display: none;
+  padding: 14px;
+  border-top: 1px solid var(--border-light);
+  background: #fff;
+}
+
+.debug-node.expanded .debug-node-body {
+  display: block;
+}
+
+.debug-section {
+  margin-bottom: 14px;
+}
+
+.debug-section:last-child {
+  margin-bottom: 0;
+}
+
+.debug-section-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.debug-code-block {
+  background: #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.debug-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #334155;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.debug-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #cbd5e1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.debug-code-copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.debug-code-body {
+  padding: 12px;
+  color: #e2e8f0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.debug-code-body .key {
+  color: #93c5fd;
+}
+
+.debug-code-body .string {
+  color: #86efac;
+}
+
+.debug-code-body .number {
+  color: #fca5a5;
+}
+
+.debug-code-body .boolean {
+  color: #f0abfc;
+}
+
+.debug-code-body .null {
+  color: #94a3b8;
+}

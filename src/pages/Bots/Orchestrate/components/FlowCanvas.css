@@ -1,0 +1,84 @@
+/* ──── FlowCanvas ──── */
+
+.flow-canvas {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  outline: none;
+}
+
+.flow-canvas .react-flow__pane {
+  cursor: default;
+}
+
+.flow-canvas .react-flow__node {
+  cursor: default;
+}
+
+/* 选中框样式覆盖 */
+.flow-canvas .react-flow__nodesselection-rect {
+  border: 2px dashed var(--primary);
+  background: rgba(47, 107, 255, 0.06);
+}
+
+.flow-canvas .react-flow__selection {
+  border: 2px dashed var(--primary);
+  background: rgba(47, 107, 255, 0.06);
+}
+
+/* Controls 样式 */
+.flow-canvas__controls {
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.flow-canvas__controls button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+}
+
+.flow-canvas__controls button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.flow-canvas__controls button:last-child {
+  border-bottom: none;
+}
+
+/* ──── 打包工具栏 ──── */
+
+.flow-canvas__pack-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  gap: 8px;
+}
+
+.flow-canvas__pack-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(47, 107, 255, 0.3);
+  transition: background var(--transition), box-shadow var(--transition);
+}
+
+.flow-canvas__pack-btn:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(47, 107, 255, 0.4);
+}

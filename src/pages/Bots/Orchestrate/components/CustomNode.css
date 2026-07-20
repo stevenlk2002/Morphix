@@ -1,0 +1,222 @@
+/* ──── CustomNode ──── */
+
+.custom-node {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 200px;
+  max-width: 260px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: visible;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  cursor: default;
+}
+
+.custom-node--selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(47, 107, 255, 0.2), var(--shadow);
+}
+
+.custom-node__accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+/* ──── Header ──── */
+
+.custom-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.custom-node-header__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.custom-node-header__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ──── Body ──── */
+
+.custom-node-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  min-height: 32px;
+}
+
+.custom-node-body__desc {
+  flex: 1;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 0 4px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ──── Ports ──── */
+
+.custom-node-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.custom-node-ports--input {
+  align-items: flex-start;
+}
+
+.custom-node-ports--output {
+  align-items: flex-end;
+}
+
+.custom-node-port {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  min-height: 18px;
+  padding: 1px 0;
+}
+
+.custom-node-port--input {
+  padding-left: 0;
+}
+
+.custom-node-port--output {
+  padding-right: 0;
+  justify-content: flex-end;
+}
+
+.custom-node-port__name {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  line-height: 1;
+  user-select: none;
+}
+
+.custom-node-port--input .custom-node-port__name {
+  margin-left: 0;
+}
+
+.custom-node-port--output .custom-node-port__name {
+  margin-right: 0;
+  text-align: right;
+}
+
+.custom-node-port__required {
+  color: var(--error);
+  margin-left: 1px;
+}
+
+/* ──── subflowCall 节点 ──── */
+
+.custom-node--subflow {
+  border-style: dashed;
+  border-color: #8b5cf6;
+  border-width: 2px;
+}
+
+.custom-node--subflow.custom-node--selected {
+  border-style: dashed;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2), var(--shadow);
+}
+
+.custom-node-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.custom-node-header__subtitle {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.custom-node-subflow__desc {
+  padding: 4px 12px 4px 16px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  line-height: 1.3;
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* ──── 测试模式样式 ──── */
+
+.custom-node--executing {
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3), var(--shadow);
+  animation: breathe 1.5s ease-in-out infinite;
+}
+
+.custom-node--executed::after {
+  content: '✓';
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  background: #22c55e;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+@keyframes breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3), var(--shadow);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.15), var(--shadow);
+  }
+}
+
+/* React Flow Handle 定位微调 */
+/* 修复：不覆盖 position: absolute，让 React Flow 默认的 absolute 定位生效。
+   Handle 容器 .custom-node-port 已设有 position: relative，可正确锚定。 */
+.custom-node-ports--input .react-flow__handle {
+  left: -5px !important;
+}
+
+.custom-node-ports--output .react-flow__handle {
+  right: -5px !important;
+}

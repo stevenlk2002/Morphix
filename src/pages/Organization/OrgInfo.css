@@ -1,0 +1,23 @@
+/* 组织信息管理页专属样式（表单控件等共享类见 prototype.css） */
+
+.org-card {
+  max-width: 100%;
+}
+
+.org-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-lg);
+}
+
+.org-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--spacing-lg);
+}
+
+@media (max-width: 720px) {
+  .org-grid {
+    grid-template-columns: 1fr;
+  }
+}

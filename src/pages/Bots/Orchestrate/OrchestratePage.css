@@ -1,0 +1,179 @@
+/* ──── OrchestratePage ──── */
+
+.orchestrate-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+
+.orchestrate-page__body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ──── 测试模式布局 ──── */
+
+.orchestrate-page--test-mode .orchestrate-page__body {
+  /* body 高度需要为 TestPanel 留出空间 */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ──── OrchestrateHeader 测试模式 ──── */
+
+.orchestrate-header--test-mode {
+  border-bottom-color: #f59e0b;
+}
+
+.orchestrate-header__test-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* ──── Input area (used by TestPanelInput) ──── */
+
+.test-input {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.test-input__area {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  flex-shrink: 0;
+}
+
+.test-input__textarea {
+  flex: 1;
+  resize: none;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.test-input__textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(47, 107, 255, 0.1);
+}
+
+.test-input__send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: flex-end;
+  transition: background var(--transition), opacity var(--transition);
+}
+
+.test-input__send-btn:hover {
+  background: var(--primary-hover);
+}
+
+.test-input__send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Quick messages */
+
+.test-input__quick {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.test-input__quick-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.test-input__quick-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.test-input__quick-item {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.test-input__quick-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ──── Inspector read-only text ──── */
+
+.node-inspector__readonly-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.node-inspector__expand-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.node-inspector__expand-btn:hover {
+  background: rgba(47, 107, 255, 0.06);
+  border-color: var(--primary);
+}
+
+.node-inspector__empty-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 4px 0 0 0;
+}

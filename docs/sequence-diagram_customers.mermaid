@@ -1,0 +1,114 @@
+sequenceDiagram
+    actor User as 运营人员
+    participant FE as CustomerListPage (React)
+    participant API as customersApi
+    participant Router as FastAPI Router
+    participant Repo as CustomerRepository
+    participant DB as SQLite
+
+    %% ====================
+    %% 1. 客户列表加载 + 聚合
+    %% ====================
+    rect rgb(240, 248, 255)
+        Note over User,DB: 1. 客户列表加载（外部客户 Tab，带筛选+分页）
+        User->>FE: 打开客户列表 / 切换 Tab / 输入筛选
+        FE->>FE: setState(tab=external, keyword, page=1, pageSize=10)
+        FE->>API: customersApi.list({type:'customer', keyword?, channel?, page, pageSize})
+        API->>Router: GET /api/customers?type=customer&page=1&pageSize=10
+        Router->>Repo: CustomerRepository.list_customers(type='customer', page=1, page_size=10)
+        Repo->>DB: SELECT cp.*, cc.*, latest_comm.*<br/>FROM customer_profiles cp<br/>JOIN channel_contacts cc ON cc.id=cp.contact_id<br/>LEFT JOIN (ROW_NUMBER OVER PARTITION) latest_comm
+        DB-->>Repo: rows[N]
+        Repo->>DB: SELECT ctr.customer_id, ct.*, ctg.name AS group_name<br/>FROM customer_tag_relations ctr<br/>JOIN customer_tags ct ON ct.id=ctr.tag_id<br/>JOIN customer_tag_groups ctg ON ctg.id=ct.group_id<br/>WHERE ctr.customer_id IN (id1,id2,...)
+        DB-->>Repo: tag rows
+        Repo-->>Router: {items:[{...tags:[...]}], total, page, pageSize, hasMore}
+        Router-->>API: 200 JSON
+        API-->>FE: Paged<CustomerListItem>
+        FE->>FE: setState(items, total) → 渲染表格 + 分页
+    end
+
+    %% ====================
+    %% 2. 打开客户详情抽屉
+    %% ====================
+    rect rgb(255, 248, 240)
+        Note over User,DB: 2. 打开客户详情抽屉
+        User->>FE: 点击表格行「详情」
+        FE->>FE: openDrawer(contactId)
+        FE->>API: channelsApi.getContactDetail(contactId)
+        API->>Router: GET /api/contacts/{contactId}
+        Router->>Repo: ChannelMgmtRepository.get_contact_detail(contactId)
+        Repo->>DB: SELECT * FROM channel_contacts WHERE id=?
+        DB-->>Repo: contact row
+        Repo->>DB: SELECT * FROM customer_profiles WHERE contact_id=?
+        DB-->>Repo: profile row
+        Repo->>DB: SELECT * FROM communication_records WHERE customer_id=? ORDER BY created_at DESC
+        DB-->>Repo: communications[N]
+        Repo->>DB: SELECT * FROM custom_attributes WHERE customer_id=? ORDER BY created_at
+        DB-->>Repo: attributes[N]
+        Repo-->>Router: {contact, profile, communications, attributes}
+        Router-->>API: 200 JSON
+        API-->>FE: ContactDetailDTO
+        FE->>FE: 渲染 CustomerDetailDrawer (主区+侧区)
+    end
+
+    %% ====================
+    %% 3. 保存档案编辑（备注/基本信息）
+    %% ====================
+    rect rgb(240, 255, 240)
+        Note over User,DB: 3. 保存客户档案编辑（备注/基本信息/AI总结开关）
+        User->>FE: 点击「编辑备注」/「编辑基本信息」→ 填写 → 保存
+        FE->>FE: setState(drawerProfile.remark = newValue)
+        FE->>API: customersApi.updateProfile(contactId, {remark, phone, email, ...})
+        API->>Router: PUT /api/channels/contacts/{contactId}/profile
+        Router->>Repo: CustomerRepository.update_customer_profile(contactId, fields)
+        Repo->>DB: UPDATE customer_profiles SET remark=?, phone=?, ... WHERE contact_id=?
+        DB-->>Repo: OK
+        Repo-->>Router: None
+        Router-->>API: 200 {"ok": true}
+        API-->>FE: success
+        FE->>FE: toast('保存成功') → 刷新抽屉数据
+    end
+
+    %% ====================
+    %% 4. 打标签
+    %% ====================
+    rect rgb(255, 240, 255)
+        Note over User,DB: 4. 客户打标签
+        User->>FE: 点击抽屉「+添加标签」
+        FE->>FE: openTagModal(customerId)
+        FE->>API: customersApi.listTagGroups()
+        API->>Router: GET /api/customer-tag-groups
+        Router->>Repo: CustomerRepository.list_tag_groups()
+        Repo->>DB: SELECT * FROM customer_tag_groups; SELECT * FROM customer_tags
+        DB-->>Repo: groups + tags
+        Repo-->>Router: [{id, name, isHot, tags:[...]}]
+        Router-->>FE: TagGroupDTO[]
+        FE->>FE: 渲染标签弹窗（3组+热标签徽标+标签列表）
+        User->>FE: 点击选中标签 → 确定
+        FE->>API: customersApi.setCustomerTags(customerId, {tagIds:[...]})
+        API->>Router: PUT /api/customer-tag-relations/{customerId}
+        Router->>Repo: CustomerRepository.set_customer_tags(customerId, tagIds)
+        Repo->>DB: BEGIN; DELETE FROM customer_tag_relations WHERE customer_id=?; INSERT INTO customer_tag_relations (...); COMMIT
+        DB-->>Repo: OK
+        Repo-->>Router: None
+        Router-->>API: 200
+        API-->>FE: success
+        FE->>FE: toast('标签已保存') → 刷新列表行标签列
+    end
+
+    %% ====================
+    %% 5. 客户分组列表加载
+    %% ====================
+    rect rgb(248, 248, 255)
+        Note over User,DB: 5. 客户分组管理列表加载
+        User->>FE: 导航到 /customers/groups
+        FE->>FE: useEffect → fetchGroups()
+        FE->>API: customersApi.listGroups({name?, type?})
+        API->>Router: GET /api/customer-groups?name=&type=
+        Router->>Repo: CustomerRepository.list_customer_groups(name, type)
+        Repo->>DB: SELECT * FROM customer_groups WHERE name LIKE ? AND type = COALESCE(?, type) ORDER BY created_at
+        DB-->>Repo: rows[N]
+        Repo-->>Router: [{id, name, type, count, createdAt, updatedAt, editor}]
+        Router-->>API: 200 JSON
+        API-->>FE: CustomerGroupDTO[]
+        FE->>FE: 渲染分组表格（6列）/ 空态「暂无数据」
+    end

@@ -1,0 +1,246 @@
+/* 我的资源页专属样式（页面容器 / 卡片 / 表格等共享类见 prototype.css） */
+
+/* ---- 套餐栏 ---- */
+.resource-plan-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.resource-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.resource-auto-renew {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 受控开关（与 SopList 的 .proto-switch 同构，页面内自包含） */
+.proto-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: #cbd5e1;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.proto-switch.on {
+  background: #22c55e;
+}
+
+.proto-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 0.2s;
+}
+
+.proto-switch.on .proto-switch-knob {
+  transform: translateX(16px);
+}
+
+/* ---- 可用余额 ---- */
+.resource-balance {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 16px;
+}
+
+.resource-balance-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.resource-balance-value {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.resource-balance-formula {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.resource-balance-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+/* 收支明细 / 月账单 为 ghost 按钮，按原型用金色点缀 */
+.resource-balance-actions .btn-ghost {
+  color: #c9a87c;
+}
+
+/* ---- 资源卡片网格 ---- */
+.resource-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.resource-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.resource-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.resource-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #1f2937;
+  flex-shrink: 0;
+}
+
+.resource-card-body {
+  display: flex;
+  gap: 28px;
+  flex: 1;
+}
+
+.resource-card-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resource-card-value {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.resource-card-label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.resource-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- 明细页签 ---- */
+.resource-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 16px;
+}
+
+.resource-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 10px 4px;
+  margin-bottom: -1px;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.resource-tab:hover {
+  color: var(--text);
+}
+
+.resource-tab.active {
+  color: var(--primary);
+  font-weight: 600;
+  border-bottom-color: var(--primary);
+}
+
+/* ---- 筛选栏 ---- */
+.resource-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.resource-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.resource-filter-date .input {
+  width: auto;
+}
+
+.resource-date-sep {
+  color: var(--text-tertiary);
+}
+
+/* 筛选激活态（消耗 / 获得） */
+.btn.is-active {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ---- 表格补充 ---- */
+.resource-points-minus {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.resource-points-plus {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.resource-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 24px 0;
+}

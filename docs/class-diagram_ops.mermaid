@@ -1,0 +1,200 @@
+classDiagram
+    %% ---- 后端 Pydantic Schemas ----
+    class OperationTaskCreateRequest {
+        +str name
+        +str task_type
+        +str channel_type
+        +str session_type
+        +list~ContentBlock~ content_blocks
+        +str hosting_action
+        +str run_frequency
+        +str run_time
+        +str effective_start
+        +str effective_end
+        +str cron_expression
+        +list~TaskTargetInput~ targets
+    }
+
+    class ContentBlock {
+        +str type
+        +str content
+    }
+
+    class TaskTargetInput {
+        +str session_id
+        +str target_type
+    }
+
+    class OperationTaskUpdateRequest {
+        +optional str name
+        +optional str task_type
+        +optional str channel_type
+        +optional str session_type
+        +optional list~ContentBlock~ content_blocks
+        +optional str hosting_action
+        +optional str run_frequency
+        +optional str run_time
+        +optional str effective_start
+        +optional str effective_end
+        +optional str cron_expression
+        +optional bool enabled
+    }
+
+    class OperationTaskResponse {
+        +str id
+        +str name
+        +str task_type
+        +str channel_type
+        +str session_type
+        +list~ContentBlock~ content_blocks
+        +str hosting_action
+        +str run_frequency
+        +str run_time
+        +str effective_start
+        +str effective_end
+        +str cron_expression
+        +str run_status
+        +bool enabled
+        +str next_run_time
+        +int target_count
+        +str created_at
+        +str updated_at
+    }
+
+    class OperationTaskTargetResponse {
+        +str id
+        +str task_id
+        +str target_type
+        +str session_id
+        +str session_name
+        +str account_name
+        +str session_type
+        +str hosted_status
+        +dict filter_rules
+    }
+
+    class TargetSessionResponse {
+        +str id
+        +str name
+        +str account_name
+        +str session_type
+        +str hosted_status
+        +str add_time
+        +bool selected
+    }
+
+    %% ---- 前端 TypeScript 类型 ----
+    class OperationTask {
+        +string id
+        +string name
+        +TaskType task_type
+        +string channel_type
+        +string session_type
+        +ContentBlock[] content_blocks
+        +string hosting_action
+        +string run_frequency
+        +string run_time
+        +string effective_start
+        +string effective_end
+        +string cron_expression
+        +RunStatus run_status
+        +boolean enabled
+        +string next_run_time
+        +number target_count
+        +string created_at
+        +string updated_at
+    }
+
+    class TaskType {
+        <<enumeration>>
+        群发任务
+        机器人定时任务
+        朋友圈任务
+    }
+
+    class RunStatus {
+        <<enumeration>>
+        运行中
+        未运行
+        已完成
+        失败
+        已暂停
+    }
+
+    class OperationTaskTarget {
+        +string id
+        +string task_id
+        +string target_type
+        +string session_id
+        +string session_name
+        +string account_name
+        +string session_type
+        +string hosted_status
+    }
+
+    %% ---- Repository（后端） ----
+    class OperationTaskRepository {
+        -DatabaseBackend _db
+        +list_all(filters) tuple
+        +get(task_id) dict
+        +create(data) dict
+        +update(task_id, data) dict
+        +toggle(task_id) dict
+        +delete(task_id) None
+        +list_targets(task_id) list
+        +set_targets(task_id, targets) None
+        +list_sessions_for_targeting(filters) list
+    }
+
+    %% ---- DB Tables ----
+    class operation_tasks {
+        +TEXT id PK
+        +TEXT name
+        +TEXT task_type
+        +TEXT channel_type
+        +TEXT session_type
+        +TEXT content_blocks
+        +TEXT hosting_action
+        +TEXT run_frequency
+        +TEXT run_time
+        +TEXT effective_start
+        +TEXT effective_end
+        +TEXT cron_expression
+        +TEXT run_status
+        +INTEGER enabled
+        +TEXT next_run_time
+        +TEXT created_at
+        +TEXT updated_at
+    }
+
+    class operation_task_targets {
+        +TEXT id PK
+        +TEXT task_id FK
+        +TEXT target_type
+        +TEXT session_id
+        +TEXT filter_rules
+        +TEXT created_at
+    }
+
+    class channel_sessions {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT name
+        +TEXT session_type
+        +TEXT hosted_status
+        +TEXT add_time
+    }
+
+    %% ---- 关系 ----
+    OperationTaskCreateRequest --> ContentBlock : contains
+    OperationTaskCreateRequest --> TaskTargetInput : contains
+    OperationTaskResponse --> ContentBlock : contains
+    OperationTask --> TaskType : uses
+    OperationTask --> RunStatus : uses
+    OperationTaskRepository --> OperationTaskResponse : returns
+    OperationTaskRepository --> OperationTaskTargetResponse : returns
+    OperationTaskRepository --> TargetSessionResponse : returns
+    OperationTaskRepository --> operation_tasks : reads/writes
+    OperationTaskRepository --> operation_task_targets : reads/writes
+    OperationTaskRepository --> channel_sessions : reads
+    operation_task_targets --> operation_tasks : FK task_id

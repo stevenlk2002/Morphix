@@ -1,0 +1,403 @@
+/* Data Panel — checkable metric cards (严格对齐原型 index.html 331-477 行) */
+
+/* ---- 筛选栏 ---- */
+.dp-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.dp-filter-bar label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.dp-filter-bar .input,
+.dp-filter-bar .select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text);
+  background: #fff;
+  outline: none;
+}
+.dp-filter-bar .input {
+  width: 200px;
+  cursor: pointer;
+}
+.dp-filter-bar .select {
+  min-width: 120px;
+  cursor: pointer;
+}
+
+/* ---- 指标卡片网格 ---- */
+.dp-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+
+/* ---- 单张指标卡 ---- */
+.dp-metric {
+  position: relative;
+  flex: 1 1 120px;
+  min-width: 120px;
+  padding: 8px 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+  user-select: none;
+}
+.dp-metric:hover {
+  box-shadow: var(--shadow-sm);
+}
+.dp-metric.checked {
+  border-color: var(--primary);
+  background: linear-gradient(180deg, #f4f8ff 0%, #ffffff 70%);
+}
+
+/* 指标卡顶部行 */
+.dp-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* checkbox 方块 */
+.dp-metric-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  transition: all 160ms ease;
+  flex-shrink: 0;
+}
+.dp-metric.checked .dp-metric-check {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.dp-metric-check svg {
+  color: #fff;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  width: 12px;
+  height: 12px;
+}
+.dp-metric.checked .dp-metric-check svg {
+  opacity: 1;
+}
+
+/* icon 圆角方块 */
+.dp-metric-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 6 种 accent 颜色 */
+.dp-metric.accent-1 .dp-metric-icon {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+.dp-metric.accent-2 .dp-metric-icon {
+  background: #ecfeff;
+  color: #06b6d4;
+}
+.dp-metric.accent-3 .dp-metric-icon {
+  background: #eef2ff;
+  color: #6366f1;
+}
+.dp-metric.accent-4 .dp-metric-icon {
+  background: #f0f9ff;
+  color: #0ea5e9;
+}
+.dp-metric.accent-5 .dp-metric-icon {
+  background: #f5f3ff;
+  color: #8b5cf6;
+}
+.dp-metric.accent-6 .dp-metric-icon {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+/* 标签文本 */
+.dp-metric-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* 数值 */
+.dp-metric-value {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  line-height: 1;
+}
+
+/* 帮助气泡 */
+.dp-metric-help {
+  position: relative;
+  display: inline-flex;
+  color: var(--text-tertiary);
+  cursor: help;
+}
+.dp-metric-help:hover {
+  color: var(--primary);
+}
+.dp-metric-help .dp-metric-tip {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 8px;
+  min-width: 220px;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 6px;
+  white-space: normal;
+  word-break: break-word;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 160ms ease;
+  z-index: 10;
+  pointer-events: none;
+}
+.dp-metric-help:hover .dp-metric-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ---- 比率卡片 ---- */
+.dp-rate-card {
+  flex: 0 0 160px;
+  min-width: 160px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dp-rate-card .dp-rates-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0;
+}
+
+/* ---- 单条比率项 ---- */
+.dp-rate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 160ms ease;
+  user-select: none;
+}
+.dp-rate:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+.dp-rate.checked {
+  border-color: var(--primary);
+  background: #f4f8ff;
+}
+
+.dp-rate-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  transition: all 160ms ease;
+  flex-shrink: 0;
+}
+.dp-rate.checked .dp-rate-check {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.dp-rate-check svg {
+  color: #fff;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  width: 12px;
+  height: 12px;
+}
+.dp-rate.checked .dp-rate-check svg {
+  opacity: 1;
+}
+
+.dp-rate-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+  white-space: nowrap;
+}
+.dp-rate.checked .dp-rate-label {
+  color: var(--text);
+}
+
+.dp-rate-help {
+  position: relative;
+  display: inline-flex;
+  color: var(--text-tertiary);
+  cursor: help;
+}
+.dp-rate-help:hover {
+  color: var(--primary);
+}
+.dp-rate-help .dp-rate-tip {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 8px;
+  min-width: 220px;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 6px;
+  white-space: normal;
+  word-break: break-word;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 160ms ease;
+  z-index: 10;
+  pointer-events: none;
+}
+.dp-rate-help:hover .dp-rate-tip {
+  opacity: 1;
+  visibility: visible;
+}
+.dp-rate-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
+}
+
+/* ---- 图表区域 ---- */
+.dp-chart-body {
+  padding: 16px;
+}
+.dp-chart-body .chart-container {
+  width: 100%;
+  height: 320px;
+}
+.dp-chart-body .chart-legend {
+  margin-top: 12px;
+}
+
+/* ---- 通用图表组件（跨页面复用） ---- */
+.chart-crosshair {
+  stroke: var(--text-tertiary);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  pointer-events: none;
+}
+
+.chart-tooltip {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--text);
+  min-width: 160px;
+  display: none;
+  z-index: 10;
+}
+
+.chart-tooltip-date {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.chart-tooltip-row:first-child {
+  margin-top: 0;
+}
+
+.chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* 响应式 */
+@media (max-width: 900px) {
+  .dp-chart-body .chart-container {
+    height: 280px;
+  }
+}

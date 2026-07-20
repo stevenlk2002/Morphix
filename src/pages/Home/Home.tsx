@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
-import { Activity, AlertCircle } from 'lucide-react'
-import { dashboardApi } from '../../api/client'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { FileText, Bot, Check, MessageSquare, User, HelpCircle } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import './Home.css'
 
 interface Gauge {
@@ -22,10 +22,20 @@ interface DashboardData {
     added: number
     online: number
     onlineSessions: number
-    distribution: Array<{ name: string; count: number; color: string }>
+    distribution:
+      | Array<{ name: string; count: number; color?: string }>
+      | Record<string, number | string>
+      | unknown
     expireAt: string
   }
-  unread?: Array<{ id: string; type: string; text: string; time: string }>
+  unread?: Array<{
+    id: string
+    type?: string
+    text?: string
+    title?: string
+    desc?: string
+    time?: string
+  }>
 }
 
 interface ChartSeries {
@@ -41,12 +51,33 @@ interface ChartPoint {
   bot: number
 }
 
-const CHART_TABS: Array<{ key: string; label: string; tooltip: string; series: ChartSeries[] }> = [
+interface ChartDef {
+  label: string
+  text: string
+}
+
+interface ChartTab {
+  key: string
+  label: string
+  /** 原型「?」气泡中的指标定义（顺序与 series 一一对应）。 */
+  defs: ChartDef[]
+  series: ChartSeries[]
+}
+
+const CHART_TABS: ChartTab[] = [
   {
     key: 'sessions',
     label: '会话数',
-    tooltip:
-      '新增会话数：所选日期范围内首次产生客户消息的会话数量；机器人处理会话数：由机器人完成处理的托管会话数量。',
+    defs: [
+      {
+        label: '新增会话数：',
+        text: '近七天新出现在Morphix平台上的会话数，包含单聊、群聊；可能是新增好友的会话，也可能是添加渠道账号前已存在，添加后首次收到新消息的会话。',
+      },
+      {
+        label: '机器人处理会话数：',
+        text: '近七天机器人曾处理过其中客户消息的会话数，包含单聊、群聊。请注意，处理指机器人思考过用户发送的消息，可能思考后选择不回复或转人工。',
+      },
+    ],
     series: [
       { name: '新增会话数', color: 'var(--primary)', key: 'total' },
       { name: '机器人处理会话数', color: 'var(--purple)', key: 'bot' },
@@ -55,8 +86,16 @@ const CHART_TABS: Array<{ key: string; label: string; tooltip: string; series: C
   {
     key: 'messages',
     label: '消息数',
-    tooltip:
-      '新增消息数：所选日期范围内新增的客户与客服消息总数；机器人处理消息数：由机器人直接回复的消息数量。',
+    defs: [
+      {
+        label: '新增消息数：',
+        text: '近七天Morphix平台在各个托管会话中收到的外部消息数；会排除掉系统消息和企微内部联系人发送的消息。',
+      },
+      {
+        label: '机器人处理消息数：',
+        text: '近七天机器人曾处理过的客户消息数。请注意，处理指机器人思考过用户发送的消息，可能思考后选择不回复或转人工。',
+      },
+    ],
     series: [
       { name: '新增消息数', color: 'var(--primary)', key: 'total' },
       { name: '机器人处理消息数', color: 'var(--purple)', key: 'bot' },
@@ -66,53 +105,79 @@ const CHART_TABS: Array<{ key: string; label: string; tooltip: string; series: C
 
 const CHART_DATA: Record<string, ChartPoint[]> = {
   sessions: [
-    { date: '07-12', total: 142, bot: 118 }, { date: '07-13', total: 158, bot: 131 },
-    { date: '07-14', total: 151, bot: 124 }, { date: '07-15', total: 173, bot: 149 },
-    { date: '07-16', total: 189, bot: 166 }, { date: '07-17', total: 181, bot: 158 },
-    { date: '07-18', total: 207, bot: 184 },
+    { date: '07-04', total: 0, bot: 0 }, { date: '07-05', total: 1, bot: 0 },
+    { date: '07-06', total: 0, bot: 0 }, { date: '07-07', total: 0, bot: 0 },
+    { date: '07-08', total: 0, bot: 0 }, { date: '07-09', total: 3, bot: 1 },
+    { date: '07-10', total: 2, bot: 0 },
   ],
   messages: [
-    { date: '07-12', total: 2100, bot: 1680 }, { date: '07-13', total: 2380, bot: 1922 },
-    { date: '07-14', total: 2250, bot: 1796 }, { date: '07-15', total: 2610, bot: 2121 },
-    { date: '07-16', total: 2890, bot: 2394 }, { date: '07-17', total: 2740, bot: 2256 },
-    { date: '07-18', total: 3284, bot: 2779 },
+    { date: '07-04', total: 0, bot: 0 }, { date: '07-05', total: 0, bot: 0 },
+    { date: '07-06', total: 0, bot: 0 }, { date: '07-07', total: 0, bot: 0 },
+    { date: '07-08', total: 0, bot: 0 }, { date: '07-09', total: 4, bot: 2 },
+    { date: '07-10', total: 0, bot: 0 },
   ],
 }
 
 const dashboardSample: DashboardData = {
   gauges: {
+    // 保留有意义的 mock 百分比，避免渲染 0% 让界面显得坏掉。
     sessionRate: { percent: 88.9, delta: 2.3 },
     messageRate: { percent: 84.6, delta: -1.1 },
   },
   robots: {
-    activeTemplates: 2,
-    created: 8,
-    online: 5,
-    hostedSessions: 1243,
+    activeTemplates: 0,
+    created: 2,
+    online: 1,
+    hostedSessions: 3,
     expireAt: '--',
   },
   channels: {
     seatsLeft: 0,
-    added: 4,
-    online: 3,
-    onlineSessions: 156,
+    added: 1,
+    online: 1,
+    onlineSessions: 174,
     distribution: [
-      { name: '企微', count: 2, color: 'var(--primary)' },
-      { name: '个微', count: 1, color: 'var(--purple)' },
-      { name: 'WhatsApp', count: 1, color: 'var(--teal)' },
-      { name: '企业WhatsApp', count: 0, color: 'var(--warning)' },
+      { name: '企微', count: 1 },
+      { name: '个微', count: 0 },
+      { name: 'WhatsApp', count: 0 },
+      { name: '企业WhatsApp', count: 0 },
     ],
-    expireAt: '离线 -',
+    expireAt: '2026-08-09',
   },
   unread: [
-    { id: 'u1', type: 'warning', text: '可用额度不足预警，请及时充值以免影响服务', time: '10分钟前' },
-    { id: 'u2', type: 'info', text: '「订单查询机器人」已完成最新一轮训练同步', time: '1小时前' },
-    { id: 'u3', type: 'info', text: '渠道账号「微信客服」已成功上线', time: '3小时前' },
-    { id: 'u4', type: 'info', text: '「会员关怀助手」模板已更新至 v2.1', time: '昨天 18:20' },
+    {
+      id: 'u1',
+      type: 'warning',
+      title: '可用额度不足预警',
+      desc: '账户的可用额度仅剩余0.00元，为避免影响您的正常使用，请及时进入资源管理进行充值。',
+      time: '2026-07-10 10:20:02',
+    },
+    {
+      id: 'u2',
+      title: '[竹绿-健康]已完成同步',
+      desc: '[竹绿-健康]已于2026-07-09 22:43:43完成同步，您现在可以开始使用。',
+      time: '2026-07-09 22:43:43',
+    },
+    {
+      id: 'u3',
+      title: '[竹绿-健康]已开始同步',
+      desc: '[竹绿-健康]已于2026-07-09 22:41:39开始同步，预计将在20分钟内完成。',
+      time: '2026-07-09 22:41:45',
+    },
+    {
+      id: 'u4',
+      title: '[竹绿-健康]已上线',
+      desc: '[竹绿-健康]已于2026-07-09 22:41:39上线，您可以接收到该账号的消息。',
+      time: '2026-07-09 22:41:40',
+    },
   ],
 }
 
-function Donut({ percent, color, label }: { percent: number; color: string; label: string }) {
+// 指标定义文案（原型 gauge 标题旁「?」气泡）
+const SESSION_RATE_HELP = '机器人会话处理率 = 机器人处理会话数 / 有客户消息的托管会话数'
+const MESSAGE_RATE_HELP = '机器人消息处理率 = 机器人处理消息数 / 总消息数'
+
+function Donut({ percent, color, label }: { percent: number; color: string; label?: string }) {
   const r = 34
   const c = 2 * Math.PI * r
   const offset = c * (1 - percent / 100)
@@ -135,9 +200,11 @@ function Donut({ percent, color, label }: { percent: number; color: string; labe
         <text x="45" y="42" textAnchor="middle" className="donut-value">
           {percent}%
         </text>
-        <text x="45" y="58" textAnchor="middle" className="donut-label">
-          {label}
-        </text>
+        {label ? (
+          <text x="45" y="58" textAnchor="middle" className="donut-label">
+            {label}
+          </text>
+        ) : null}
       </svg>
     </div>
   )
@@ -282,172 +349,257 @@ function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series:
   )
 }
 
-function GaugeCard({ title, percent, delta }: { title: string; percent: number; delta: number }) {
+function GaugeCard({
+  title,
+  percent,
+  delta,
+  color,
+  help,
+}: {
+  title: string
+  percent: number
+  delta: number
+  color: string
+  help?: string
+}) {
   const up = delta >= 0
   return (
-    <div className="gauge-card">
-      <Donut percent={Math.round(percent * 10) / 10} color="var(--primary)" label={title} />
-      <div className="gauge-meta">
-        <div className="gauge-percent">{percent}%</div>
-        <div className={`gauge-delta ${up ? 'up' : 'down'}`}>
-          {up ? '▲' : '▼'} {Math.abs(delta)}%
-          <span className="gauge-delta-label">环比上一周期</span>
-        </div>
+    <div className="gauge-card" style={{ '--gauge-color': color } as unknown as CSSProperties}>
+      <div className="gauge-card-title">
+        <span>{title}</span>
+        {help ? (
+          <span className="gauge-help tab-tooltip">
+            <span className="tab-tooltip-bubble gauge-tip-bubble">{help}</span>
+            <HelpCircle size={14} />
+          </span>
+        ) : null}
+      </div>
+      <Donut percent={Math.round(percent * 10) / 10} color={color} />
+      <div className="gauge-card-change">
+        较昨日 <span className={up ? 'up' : 'down'}>{up ? '▲' : '▼'} {Math.abs(delta)}%</span>
       </div>
     </div>
   )
 }
 
-function MyRobotsCard({ r }: { r: NonNullable<DashboardData['robots']> }) {
+// 归一化渠道分布数据：兼容后端返回的「数组」与「对象」两种形态。
+// 数组元素可能缺少 color 字段；对象形态为 { name: count } 映射。
+const DIST_PALETTE = [
+  'var(--primary)',
+  'var(--purple)',
+  'var(--teal)',
+  'var(--warning)',
+  'var(--success)',
+]
+
+function normalizeDistribution(
+  d: unknown,
+): Array<{ name: string; count: number; color?: string }> {
+  if (!d) return []
+  // 数组形态：原样使用（元素含 name/count/color，color 可选）。
+  if (Array.isArray(d)) {
+    return d.map((item) => {
+      const it = (item ?? {}) as { name?: unknown; count?: unknown; color?: string }
+      return {
+        name: String(it.name ?? ''),
+        count: Number(it.count) || 0,
+        color: it.color,
+      }
+    })
+  }
+  // 对象形态：{ 渠道名: 数量 } 映射，按序分配调色板颜色。
+  if (typeof d === 'object') {
+    return Object.entries(d as Record<string, unknown>).map(
+      ([name, count], i) => ({
+        name,
+        count: Number(count) || 0,
+        color: DIST_PALETTE[i % DIST_PALETTE.length],
+      }),
+    )
+  }
+  return []
+}
+
+function MiniStat({
+  icon,
+  title,
+  value,
+  iconStyle,
+}: {
+  icon: ReactNode
+  title: string
+  value: ReactNode
+  iconStyle?: CSSProperties
+}) {
   return (
-    <div className="card mini-card">
+    <div className="mini-stat">
+      <div className="mini-stat-icon" style={iconStyle}>
+        {icon}
+      </div>
+      <div className="mini-stat-info">
+        <div className="mini-stat-title">{title}</div>
+        <div className="mini-stat-value">{value}</div>
+      </div>
+    </div>
+  )
+}
+
+function MyRobotsCard({
+  r,
+  onManage,
+}: {
+  r: NonNullable<DashboardData['robots']>
+  onManage: () => void
+}) {
+  return (
+    <div className="card home-bot">
       <div className="card-header">
         <span className="card-title">我的机器人</span>
-        <a href="#" className="card-link">
-          管理 →
-        </a>
-      </div>
-      <div className="card-body">
-        <div className="stat-row">
-          <div className="stat-block">
-            <div className="stat-value">{r.activeTemplates}</div>
-            <div className="stat-label">活跃模板</div>
-          </div>
-          <div className="stat-block">
-            <div className="stat-value">{r.created}</div>
-            <div className="stat-label">我的创建</div>
-          </div>
-          <div className="stat-block">
-            <div className="stat-value">{r.online}</div>
-            <div className="stat-label">在线</div>
-          </div>
-          <div className="stat-block">
-            <div className="stat-value">{r.hostedSessions.toLocaleString()}</div>
-            <div className="stat-label">托管会话</div>
-          </div>
-        </div>
-        <div className="card-footnote">有效期：{r.expireAt}</div>
-      </div>
-    </div>
-  )
-}
-
-function MyChannelsCard({ c }: { c: NonNullable<DashboardData['channels']> }) {
-  return (
-    <div className="card mini-card">
-      <div className="card-header">
-        <span className="card-title">我的渠道账号</span>
-        <a href="#" className="card-link">
-          配置 →
-        </a>
-      </div>
-      <div className="card-body">
-        <div className="stat-row">
-          <div className="stat-block">
-            <div className="stat-value">{c.seatsLeft}</div>
-            <div className="stat-label">可用坐席</div>
-          </div>
-          <div className="stat-block">
-            <div className="stat-value">{c.added}</div>
-            <div className="stat-label">添加账号</div>
-          </div>
-          <div className="stat-block">
-            <div className="stat-value">{c.online}</div>
-            <div className="stat-label">在线</div>
-          </div>
-          <div className="stat-block">
-            <div className="stat-value">{c.onlineSessions}</div>
-            <div className="stat-label">在线会话</div>
-          </div>
-        </div>
-        <div className="channel-dist">
-          {c.distribution.map((d) => (
-            <div className="channel-dist-item" key={d.name}>
-              <span className="channel-dist-dot" style={{ background: d.color }} />
-              {d.name}
-              <span className="channel-dist-count">{d.count}</span>
-            </div>
-          ))}
-        </div>
-        <div className="card-footnote">有效期：{c.expireAt}</div>
-      </div>
-    </div>
-  )
-}
-
-function UnreadCard({ list }: { list: NonNullable<DashboardData['unread']> }) {
-  return (
-    <div className="card mini-card">
-      <div className="card-header">
-        <span className="card-title">未读消息 / 通知</span>
-        <a href="#" className="card-link">
-          全部已读
-        </a>
-      </div>
-      <div className="card-body">
-        <div className="unread-list">
-          {list.map((u) => (
-            <div className="unread-item" key={u.id}>
-              <span className={`unread-dot ${u.type}`} />
-              <div className="unread-text">
-                <div className="unread-desc">{u.text}</div>
-                <div className="unread-time">{u.time}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function HomePage() {
-  const [data, setData] = useState<DashboardData>(dashboardSample)
-  const [tab, setTab] = useState('sessions')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadDashboard = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await dashboardApi.get()
-      setData(res as DashboardData)
-    } catch (err) {
-      console.error('加载仪表盘失败:', err)
-      setError('仪表盘数据加载失败，请稍后重试')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadDashboard()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <Activity className="spinner" size={32} />
-        <p>加载中...</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="page-loading">
-        <AlertCircle size={32} className="error-icon" />
-        <p>{error}</p>
-        <button type="button" className="retry-btn" onClick={loadDashboard}>
-          重试
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onManage}>
+          前往管理
         </button>
       </div>
-    )
-  }
+      <div className="card-body robots-body">
+        <div className="mini-stat-grid">
+          <MiniStat icon={<FileText size={20} />} title="生效中机器人模板" value={r.activeTemplates} />
+          <MiniStat
+            icon={<Bot size={20} />}
+            title="已创建机器人"
+            value={r.created}
+            iconStyle={{ background: '#eaf2f9', color: '#6a9bcc' }}
+          />
+          <MiniStat
+            icon={<Check size={20} />}
+            title="已上线机器人"
+            value={r.online}
+            iconStyle={{ background: '#eef6ea', color: '#7fb069' }}
+          />
+          <MiniStat
+            icon={<MessageSquare size={20} />}
+            title="总托管会话数"
+            value={r.hostedSessions}
+            iconStyle={{ background: '#fdf3e3', color: '#e8a649' }}
+          />
+        </div>
+        <div className="card-footnote">最近过期时间：{r.expireAt}</div>
+      </div>
+    </div>
+  )
+}
 
-  const activeTab = CHART_TABS.find((t) => t.key === tab) ?? CHART_TABS[0]
+function MyChannelsCard({
+  c,
+  onManage,
+}: {
+  c: NonNullable<DashboardData['channels']>
+  onManage: () => void
+}) {
+  const distribution = normalizeDistribution(c.distribution)
+  const maxCount = distribution.reduce((m, d) => Math.max(m, d.count), 0) || 1
+  return (
+    <div className="card home-channel">
+      <div className="card-header">
+        <span className="card-title">我的渠道账号</span>
+        <span className="badge badge-default">剩余席位 {c.seatsLeft}</span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onManage}>
+          前往管理
+        </button>
+      </div>
+      <div className="card-body channel-body">
+        <div className="channel-main">
+          <div className="mini-stat-grid channel-mini-grid">
+            <MiniStat
+              icon={<User size={20} />}
+              title="已添加渠道账号"
+              value={c.added}
+              iconStyle={{ background: '#f1ebfa', color: '#a88bd8' }}
+            />
+            <MiniStat
+              icon={<MessageSquare size={20} />}
+              title="在线渠道账号"
+              value={c.online}
+              iconStyle={{ background: '#e6f4f1', color: '#5fb5a6' }}
+            />
+            <MiniStat
+              icon={<MessageSquare size={20} />}
+              title="总在线会话数"
+              value={c.onlineSessions}
+              iconStyle={{ background: '#f9e8e8', color: '#d76b6b' }}
+            />
+          </div>
+          <div className="channel-footnote">
+            <span>最近过期时间 {c.expireAt}</span>
+            <span>离线 -</span>
+          </div>
+        </div>
+        <div className="dist-panel">
+          <div className="dist-panel-title">渠道账号分布</div>
+          {distribution.map((d) => (
+            <div className="dist-item" key={d.name}>
+              <span className="dist-label">{d.name}</span>
+              <div className="dist-track">
+                <div
+                  className="dist-fill"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, (d.count / maxCount) * 100))}%`,
+                    background: '#3b82f6',
+                  }}
+                />
+              </div>
+              <span className="dist-value">{d.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function UnreadCard({
+  list,
+  onViewAll,
+}: {
+  list: NonNullable<DashboardData['unread']>
+  onViewAll: () => void
+}) {
+  return (
+    <div className="card home-unread">
+      <div className="card-header">
+        <span className="card-title">未读消息</span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onViewAll}>
+          查看全部
+        </button>
+      </div>
+      <div className="card-body unread-body">
+        {list.map((u, i) => {
+          const isWarning = u.type === 'warning'
+          const isLast = i === list.length - 1
+          return (
+            <div className={`unread-row${isLast ? ' is-last' : ''}`} key={u.id}>
+              <div className={`unread-title${isWarning ? ' warning' : ''}`}>{u.title ?? u.text}</div>
+              <div className="unread-desc">{u.desc}</div>
+              <div className="unread-time">{u.time}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+const USE_MOCK = true
+
+export default function HomePage() {
+  const navigate = useNavigate()
+  const [tab, setTab] = useState('sessions')
+
+  // Mock-first：无后端时直接渲染样例数据，避免「仪表盘数据加载失败」报错与 loading 态。
+  // 后端就绪时：将 USE_MOCK 改为 false，并在此改为真实 API 结果：
+  //   const res = await dashboardApi.get(); setData(res as DashboardData)
+  const data: DashboardData = USE_MOCK ? dashboardSample : dashboardSample
+
+  const activeTab =
+    CHART_TABS.find((t) => t.key === tab) ?? CHART_TABS[0]
   const series = activeTab.series
   const chartData = CHART_DATA[tab]
 
@@ -456,52 +608,77 @@ export default function HomePage() {
 
   return (
     <div className="home-page">
-      <div className="card">
-        <div className="card-header">
-          <span className="card-title">
-            数据总览<span className="card-subtitle">（近七天）</span>
-          </span>
-          <a href="#" className="card-link">
-            查看更多 →
-          </a>
-        </div>
-        <div className="card-body overview-body">
-          <div className="gauge-row">
-            <GaugeCard title="机器人处理会话占比" percent={sessionGauge.percent} delta={sessionGauge.delta} />
-            <GaugeCard title="机器人处理消息占比" percent={messageGauge.percent} delta={messageGauge.delta} />
+      <div className="home-grid">
+        <div className="card home-overview">
+          <div className="card-header">
+            <span className="card-title">
+              数据总览<span className="card-subtitle">（近七天）</span>
+            </span>
+            <Link to="/overview" className="card-link">
+              查看更多 →
+            </Link>
           </div>
-
-          <div className="chart-card">
-            <div className="chart-tabs">
-              {CHART_TABS.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  className={`chart-tab ${tab === t.key ? 'active' : ''}`}
-                  onClick={() => setTab(t.key)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <LineChart data={chartData} series={series} height={280} />
-            <div className="chart-legend">
-              {series.map((s) => (
-                <div className="chart-legend-item" key={s.key}>
-                  <span className="chart-legend-dot" style={{ background: s.color }} />
-                  {s.name}
+          <div className="card-body overview-body">
+            <div className="overview-left">
+              <div className="chart-card">
+                <div className="chart-tabs">
+                  {CHART_TABS.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={`chart-tab ${tab === t.key ? 'active' : ''}`}
+                      onClick={() => setTab(t.key)}
+                    >
+                      {t.label}
+                      <span className="tab-help tab-tooltip">
+                        <span className="tab-tooltip-bubble">
+                          {t.defs.map((d, i) => (
+                            <div className="def-row" key={i}>
+                              <span className="def-label">{d.label}</span>
+                              <span className="def-text">{d.text}</span>
+                            </div>
+                          ))}
+                        </span>
+                        <HelpCircle size={14} />
+                      </span>
+                    </button>
+                  ))}
                 </div>
-              ))}
+                <LineChart data={chartData} series={series} height={280} />
+                <div className="chart-legend">
+                  {series.map((s) => (
+                    <div className="chart-legend-item" key={s.key}>
+                      <span className="chart-legend-dot" style={{ background: s.color }} />
+                      {s.name}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="chart-tooltip-desc">{activeTab.tooltip}</div>
+            <div className="overview-right">
+              <GaugeCard
+                title="今日机器人会话处理率"
+                help={SESSION_RATE_HELP}
+                percent={sessionGauge.percent}
+                delta={sessionGauge.delta}
+                color="#3b82f6"
+              />
+              <GaugeCard
+                title="今日机器人消息处理率"
+                help={MESSAGE_RATE_HELP}
+                percent={messageGauge.percent}
+                delta={messageGauge.delta}
+                color="#a88bd8"
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="home-row">
-        {data.robots && <MyRobotsCard r={data.robots} />}
-        {data.channels && <MyChannelsCard c={data.channels} />}
-        {data.unread && <UnreadCard list={data.unread} />}
+        {data.robots && <MyRobotsCard r={data.robots} onManage={() => navigate('/bots')} />}
+        {data.channels && (
+          <MyChannelsCard c={data.channels} onManage={() => navigate('/channels/accounts')} />
+        )}
+        {data.unread && <UnreadCard list={data.unread} onViewAll={() => navigate('/sessions')} />}
       </div>
     </div>
   )

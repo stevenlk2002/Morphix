@@ -1,0 +1,76 @@
+/* 授权用户管理页样式（仅补充 proto 设计体系未覆盖的局部布局） */
+
+.auth-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+  flex-wrap: wrap;
+}
+
+.auth-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-filter-label {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.auth-filter-field .input {
+  width: 220px;
+}
+
+.auth-filter-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 删除按钮（ghost）文字置红，hover 加深 */
+.auth-action-danger,
+.auth-action-danger .btn-label {
+  color: var(--error);
+}
+
+.auth-action-danger:hover,
+.auth-action-danger:hover .btn-label {
+  color: var(--error);
+}
+
+.auth-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  padding: 48px 20px;
+}
+
+.auth-empty svg {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  display: block;
+  opacity: 0.55;
+}
+
+.auth-notice {
+  margin-top: 16px;
+}
+
+.auth-confirm-text {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}

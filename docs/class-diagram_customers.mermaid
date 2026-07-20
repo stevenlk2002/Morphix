@@ -1,0 +1,122 @@
+classDiagram
+    direction TB
+
+    class ChannelContact {
+        +String id PK
+        +String account_id
+        +String channel
+        +String channel_type
+        +String name
+        +String nickname
+        +String type
+        +String status
+        +String remark
+        +String description
+        +String add_time
+        +String source
+    }
+
+    class CustomerProfile {
+        +String id PK
+        +String contact_id FK
+        +String phone
+        +String email
+        +String company
+        +String position
+        +String region
+        +Int age
+        +String birthday
+        +String remark
+        +String add_time
+        +String add_channel
+        +String signature
+        +Int ai_summary_enabled
+        +String created_at
+    }
+
+    class CommunicationRecord {
+        +String id PK
+        +String customer_id FK
+        +String content
+        +String ai_summary
+        +String type
+        +String created_at
+    }
+
+    class CustomAttribute {
+        +String id PK
+        +String customer_id FK
+        +String name
+        +String value
+        +String created_at
+    }
+
+    class CustomerTagGroup {
+        +String id PK
+        +String name
+        +Int is_hot
+        +String created_at
+    }
+
+    class CustomerTag {
+        +String id PK
+        +String group_id FK
+        +String name
+        +String color
+        +String rule
+        +String created_at
+    }
+
+    class CustomerTagRelation {
+        +String customer_id PK FK
+        +String tag_id PK FK
+    }
+
+    class CustomerGroup {
+        +String id PK
+        +String name
+        +String type
+        +Int count
+        +String created_at
+        +String updated_at
+        +String editor
+    }
+
+    class CustomerGroupMember {
+        +String group_id PK FK
+        +String customer_id PK FK
+    }
+
+    ChannelContact "1" --> "0..1" CustomerProfile : contact_id → id
+    CustomerProfile "1" --> "0..*" CommunicationRecord : id → customer_id
+    CustomerProfile "1" --> "0..*" CustomAttribute : id → customer_id
+    CustomerProfile "1" --> "0..*" CustomerTagRelation : id → customer_id
+    CustomerTag "1" --> "0..*" CustomerTagRelation : id → tag_id
+    CustomerTagGroup "1" --> "0..*" CustomerTag : id → group_id
+    CustomerGroup "1" --> "0..*" CustomerGroupMember : id → group_id
+    CustomerProfile "1" --> "0..*" CustomerGroupMember : id → customer_id
+
+    class CustomerRepository {
+        +list_customers(type, account_id, channel, keyword, tag_ids, start_date, end_date, page, page_size) Paged
+        +update_customer_profile(contact_id, fields) None
+        +create_communication(customer_id, content, type, ai_summary) Dict
+        +list_communications(customer_id) List
+        +create_attribute(customer_id, name, value) Dict
+        +list_attributes(customer_id) List
+        +get_customer_tags(customer_id) List
+        +set_customer_tags(customer_id, tag_ids) None
+        +list_tag_groups() List
+        +create_tag_group(name, is_hot, tags) Dict
+        +update_tag_group(id, name, is_hot, tags) Dict
+        +delete_tag_group(id) None
+        +list_customer_groups(name, type) List
+        +create_customer_group(name, type, customer_ids) Dict
+        +update_customer_group(id, name, customer_ids) Dict
+        +delete_customer_group(id) None
+    }
+
+    note for CustomerRepository "新增 Repository；list_customers 为核心 JOIN 聚合"
+    note for CustomerProfile "扩展列: ai_summary_enabled (INTEGER 0/1)"
+    note for CustomerTag "约束: (group_id, name) UNIQUE"
+    note for CustomerTagGroup "新增表；is_hot 为热标签标志"
+    note for CustomerTagRelation "新增表；(customer_id, tag_id) 联合主键"

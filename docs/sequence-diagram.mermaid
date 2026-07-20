@@ -1,0 +1,127 @@
+%% ===== 流程1：渠道会话管理 - 会话列表加载 =====
+sequenceDiagram
+    autonumber
+    actor U as 用户(客服)
+    participant P as ChannelSessionsPage (前端)
+    participant A as channelsApi (client.ts)
+    participant R as ChannelMgmtRouter
+    participant Repo as ChannelMgmtRepository
+    participant DB as SQLite
+
+    U->>P: 进入 /channels/sessions
+    par 并行加载上下文
+        P->>A: GET /channels/teams
+        A->>R: GET /channels/teams
+        R->>Repo: list_teams()
+        Repo->>DB: SELECT * FROM teams
+        DB-->>Repo: team-initial(剩余席位1, 动能值908)
+        Repo-->>R: [TeamDTO]
+        R-->>A: [TeamDTO]
+        A-->>P: 团队条渲染
+    and
+        P->>A: GET /channels/accounts
+        A->>R: GET /channels/accounts
+        R->>Repo: list_accounts_enriched()
+        Repo->>DB: JOIN channel_accounts+channel_seats+teams
+        DB-->>Repo: 3 个原型账号
+        Repo-->>R: [AccountDTO]
+        R-->>A: [AccountDTO]
+        A-->>P: 左栏账号列表
+    end
+    U->>P: 选择账号「竹绿-健康」
+    P->>A: GET /channels/sessions?accountId=acc-zhulu
+    A->>R: GET /channels/sessions
+    R->>Repo: list_sessions(account_id='acc-zhulu')
+    Repo->>DB: SELECT * FROM channel_sessions WHERE account_id=?
+    DB-->>Repo: 4 条会话(Dr.Jack/通天草/知足常乐/福寿康VIP)
+    Repo-->>R: [SessionDTO]
+    R-->>A: [SessionDTO]
+    A-->>P: 中栏会话列表渲染
+    U->>P: 点击会话行
+    P->>A: GET /channels/sessions/{id}/messages
+    A->>R: GET /channels/sessions/{id}/messages
+    R->>Repo: list_session_messages(id)
+    Repo->>DB: SELECT * FROM messages WHERE conversation_id=id
+    DB-->>Repo: 气泡消息
+    Repo-->>R: [Message]
+    R-->>A: [Message]
+    A-->>P: 右栏聊天面板渲染
+
+%% ===== 流程2：开启/关闭机器人托管 =====
+sequenceDiagram
+    autonumber
+    actor U as 用户(运营)
+    participant P as SessionChatPanel (前端)
+    participant A as channelsApi
+    participant R as ChannelMgmtRouter
+    participant Repo as ChannelMgmtRepository
+    participant DB as SQLite
+
+    U->>P: 切换「机器人托管」开关 (hosted=true, botId=yefengqiu)
+    P->>A: POST /channels/sessions/{id}/hosting {hosted:true, botId:'yefengqiu'}
+    A->>R: POST /channels/sessions/{id}/hosting
+    R->>Repo: set_session_hosting(id, hosted=true, bot_id='yefengqiu')
+    Repo->>DB: UPDATE channel_sessions SET hosted_status='hosted', hosted_bot_id=? WHERE id=?
+    DB-->>Repo: ok
+    Repo-->>R: 更新后的 SessionDTO
+    R-->>A: SessionDTO(hostedStatus='hosted')
+    A-->>P: 返回更新
+    P->>P: 输入框 disabled + 显示遮罩「已开启机器人托管，请关闭托管后再手动回复」
+
+%% ===== 流程3：渠道联系人 - 详情加载 =====
+sequenceDiagram
+    autonumber
+    actor U as 用户(运营)
+    participant P as ChannelContactsPage (前端)
+    participant A as channelsApi
+    participant R as ChannelMgmtRouter
+    participant Repo as ChannelMgmtRepository
+    participant DB as SQLite
+
+    U->>P: 进入 /channels/contacts
+    P->>A: GET /channels/contacts?accountId=acc-zhulu
+    A->>R: GET /channels/contacts
+    R->>Repo: list_contacts(account_id='acc-zhulu')
+    Repo->>DB: SELECT * FROM channel_contacts WHERE account_id=?
+    DB-->>Repo: 12 条联系人
+    Repo-->>R: [ContactDTO]
+    R-->>A: [ContactDTO]
+    A-->>P: 中栏联系人列表(按类型/状态Tab过滤)
+    U->>P: 点击联系人「didi」
+    P->>A: GET /channels/contacts/c-didi
+    A->>R: GET /channels/contacts/{id}
+    R->>Repo: get_contact_detail('c-didi')
+    Repo->>DB: SELECT contact + customer_profiles + communication_records + custom_attributes
+    DB-->>Repo: 聚合数据
+    Repo-->>R: ContactDetailDTO{contact, profile, communications, attributes}
+    R-->>A: ContactDetailDTO
+    A-->>P: 右栏详情渲染(归属账号/备注/描述/添加时间/来源/发消息)
+
+%% ===== 流程4：托管管理 - 批量更新托管状态 =====
+sequenceDiagram
+    autonumber
+    actor U as 用户(运营)
+    participant P as ChannelHosting (前端)
+    participant A as channelsApi
+    participant R as ChannelMgmtRouter
+    participant Repo as ChannelMgmtRepository
+    participant DB as SQLite
+
+    U->>P: 进入 /channels/accounts/acc-zhulu/hosting (按账号预筛)
+    P->>A: GET /channels/hosting-sessions?accountId=acc-zhulu
+    A->>R: GET /channels/hosting-sessions
+    R->>Repo: list_hosting_sessions(account_id='acc-zhulu')
+    Repo->>DB: SELECT * FROM hosting_sessions WHERE account_id=?
+    DB-->>Repo: 6 条(洋洋/Min/xıngyue/文/丽丽/Cloud)
+    Repo-->>R: [HostingSessionDTO]
+    R-->>A: [HostingSessionDTO]
+    A-->>P: 批量托管表格渲染
+    U->>P: 勾选多行 → 批量编辑托管链/状态
+    P->>A: POST /channels/hosting-sessions/batch-update {ids:[...], hostedStatus:'hosted', hostingChain:'A->B'}
+    A->>R: POST /channels/hosting-sessions/batch-update
+    R->>Repo: batch_update_hosting(ids, hosted_status='hosted', hosting_chain='A->B')
+    Repo->>DB: UPDATE hosting_sessions SET hosted_status=?, hosting_chain=? WHERE id IN (...)
+    DB-->>Repo: 影响行数 n
+    Repo-->>R: {updated: n}
+    R-->>A: {updated: n}
+    A-->>P: toast 成功 + 刷新表格

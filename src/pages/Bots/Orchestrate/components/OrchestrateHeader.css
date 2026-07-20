@@ -1,0 +1,62 @@
+/* ──── OrchestrateHeader ──── */
+
+.orchestrate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 var(--spacing-lg);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.orchestrate-header__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.orchestrate-header__bot-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.orchestrate-header__bot-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orchestrate-header__bot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.orchestrate-header__bot-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.orchestrate-header__bot-time {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
+.orchestrate-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -1,0 +1,537 @@
+/* ---- 流程编辑器容器 ---- */
+.flow-editor {
+  display: flex;
+  height: calc(100vh - 140px);
+  background: #f8fafc;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  margin-top: 16px;
+}
+
+/* ---- 左侧工具栏 ---- */
+.flow-toolbar {
+  width: 160px;
+  min-width: 160px;
+  background: #fff;
+  border-right: 1px solid #e2e8f0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flow-toolbar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.flow-toolbar-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flow-toolbar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #475569;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.flow-toolbar-item:hover {
+  background: #f1f5f9;
+}
+
+.flow-toolbar-icon {
+  font-size: 16px;
+}
+
+/* ---- 中间画布 ---- */
+.flow-canvas {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: auto;
+  padding: 32px 24px;
+  display: flex;
+  align-items: center;
+}
+
+.flow-canvas-empty {
+  width: 100%;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.flow-canvas-nodes {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 200px;
+  padding: 20px 0;
+}
+
+/* ---- 节点 ---- */
+.flow-node-wrapper {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.flow-node {
+  width: 220px;
+  min-width: 220px;
+  background: #fff;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  text-align: center;
+}
+
+.flow-node:hover {
+  border-color: #818cf8;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+}
+
+.flow-node--selected {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.flow-node--settings {
+  border-style: dashed;
+  border-color: #818cf8;
+}
+
+.flow-node-delete {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.flow-node:hover .flow-node-delete {
+  opacity: 1;
+}
+
+.flow-node-icon {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.flow-node-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.flow-node-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* ---- 连线 ---- */
+.flow-connector {
+  width: 60px;
+  min-width: 60px;
+  height: 2px;
+  background: #cbd5e1;
+  position: relative;
+}
+
+.flow-connector::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid #cbd5e1;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+/* ---- "+" 按钮 ---- */
+.flow-add-wrapper {
+  position: relative;
+  margin: 0 4px;
+}
+
+.flow-add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px dashed #94a3b8;
+  background: #fff;
+  color: #6366f1;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.flow-add-btn:hover {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.flow-add-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+}
+
+.flow-add-menu {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  z-index: 10;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  min-width: 180px;
+  padding: 4px;
+}
+
+.flow-add-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.flow-add-menu-item:hover {
+  background: #f1f5f9;
+}
+
+/* ---- 右侧配置面板 ---- */
+.flow-config-panel {
+  width: 320px;
+  min-width: 320px;
+  background: #fff;
+  border-left: 1px solid #e2e8f0;
+  overflow-y: auto;
+}
+
+.flow-config-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.flow-config-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.flow-config-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.flow-config-content {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---- 配置区段 ---- */
+.config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.config-input,
+.config-select,
+.config-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #334155;
+  background: #fff;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.config-input:focus,
+.config-select:focus,
+.config-textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
+.config-textarea {
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+}
+
+.config-select[multiple] {
+  min-height: 90px;
+}
+
+/* ---- 按钮组 ---- */
+.config-btn-group {
+  display: flex;
+  gap: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.config-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  background: #fff;
+  font-size: 12px;
+  color: #64748b;
+  cursor: pointer;
+  border-right: 1px solid #e2e8f0;
+  transition: all 0.15s;
+}
+
+.config-btn:last-child {
+  border-right: none;
+}
+
+.config-btn:hover {
+  background: #f8fafc;
+}
+
+.config-btn--active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.config-btn--active:hover {
+  background: #4f46e5;
+}
+
+/* ---- Tab ---- */
+.config-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0;
+}
+
+.config-tab {
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: #94a3b8;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+
+.config-tab:hover {
+  color: #475569;
+}
+
+.config-tab--active {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
+  font-weight: 600;
+}
+
+/* ---- 筛选框 ---- */
+.config-filter-box,
+.config-trigger-box {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---- 条件行 ---- */
+.config-condition-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ---- 输入行 ---- */
+.config-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-input-suffix {
+  font-size: 13px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* ---- checkbox ---- */
+.config-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+}
+
+.config-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- 添加按钮 ---- */
+.config-add-condition {
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: none;
+  font-size: 12px;
+  color: #6366f1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.config-add-condition:hover {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+/* ---- 占位上传区 ---- */
+.config-placeholder-upload {
+  border: 2px dashed #e2e8f0;
+  border-radius: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.config-placeholder-upload p {
+  margin: 0;
+}
+
+/* ---- 编辑器头部 ---- */
+.sop-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.sop-editor-back {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #475569;
+  transition: all 0.15s;
+}
+
+.sop-editor-back:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.sop-editor-name {
+  flex: 1;
+}
+
+.sop-editor-name-input {
+  width: 100%;
+  max-width: 360px;
+  padding: 8px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  transition: border-color 0.15s;
+}
+
+.sop-editor-name-input:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.sop-editor-name-input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}

@@ -71,7 +71,9 @@ class SQLiteBackend:
         conn = self._conn()
         cursor = conn.execute(sql, tuple(params))
         conn.commit()
-        return cursor.lastrowid if cursor.lastrowid else cursor.rowcount
+        # 返回受影响行数（rowcount）。lastrowid 仅对 INSERT 自增列有意义，
+        # 且会残留上一条 INSERT 的值，对 DELETE/UPDATE 计数不可靠，故统一返回 rowcount。
+        return cursor.rowcount
 
     def executescript(self, script: str) -> None:
         conn = self._conn()

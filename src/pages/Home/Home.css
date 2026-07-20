@@ -50,7 +50,97 @@
   padding: 20px;
 }
 
-/* 数据总览 */
+/* ===================== 首页整体栅格 ===================== */
+/* overview 置顶横跨两列；左列 bot / channel；右列 unread 跨两行、与左列等高 */
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  grid-template-rows: auto auto auto;
+  column-gap: 4px;
+  row-gap: 16px;
+  grid-template-areas:
+    "overview overview"
+    "bot      unread"
+    "channel  unread";
+  align-items: stretch;
+}
+
+.home-grid .card {
+  margin-bottom: 0;
+}
+
+.home-overview {
+  grid-area: overview;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-bot {
+  grid-area: bot;
+}
+
+.home-channel {
+  grid-area: channel;
+}
+
+.home-unread {
+  grid-area: unread;
+}
+
+/* 数据总览内部：左图表 / 右 gauge 纵向堆叠 */
+.home-overview .card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  padding: 14px 0 0 20px;
+  gap: 0;
+  min-height: 0;
+}
+
+.home-overview .overview-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 4px 0 0;
+}
+
+.home-overview .overview-right {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 0 20px 16px 0;
+}
+
+.home-overview .chart-container {
+  flex: 1;
+  min-height: 300px;
+}
+
+.home-unread .card-body {
+  overflow-y: auto;
+}
+
+@media (max-width: 1200px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas: "overview" "bot" "channel" "unread";
+  }
+  .home-overview .card-body {
+    flex-direction: column;
+  }
+  .home-overview .overview-right {
+    width: 100%;
+    flex-direction: row;
+    padding: 16px 20px 0 0;
+  }
+}
+
+/* 通用区块标题（副标题） */
 .card-subtitle {
   font-weight: 400;
   font-size: var(--text-sm);
@@ -58,64 +148,67 @@
   margin-left: 4px;
 }
 
-.overview-body {
+/* ===================== Gauge 卡片 ===================== */
+.gauge-card {
+  width: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 12px;
+  background: #ffffff;
+  border: 1.5px solid var(--gauge-color, #3b82f6);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.06);
+  text-align: center;
 }
 
-.gauge-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.gauge-card {
+.gauge-card-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-}
-
-.gauge-meta {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
+  justify-content: center;
+  white-space: nowrap;
 }
 
-.gauge-percent {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.1;
+.gauge-card-change {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
 }
 
-.gauge-delta {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.gauge-delta.up {
+.gauge-card-change .up {
   color: var(--success);
 }
 
-.gauge-delta.down {
+.gauge-card-change .down {
   color: var(--error);
 }
 
-.gauge-delta-label {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  font-weight: 400;
+/* 环形仪表盘（总览使用） */
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-/* 图表 */
+.donut-value {
+  font-size: 16px;
+  font-weight: 700;
+  fill: var(--text);
+}
+
+.donut-label {
+  font-size: 9px;
+  fill: var(--text-tertiary);
+}
+
+/* ===================== 图表 ===================== */
 .chart-card {
   flex: 1;
   min-width: 320px;
@@ -228,260 +321,299 @@
   border-radius: 50%;
 }
 
-.chart-tooltip-desc {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-top: 4px;
+/* ===================== 帮助气泡（「?」hover 显示定义） ===================== */
+/* 通用：相对定位父级 + 悬浮显示的暗色气泡 */
+.tab-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
-/* 三栏布局 */
-.home-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16px;
+.tab-tooltip .tab-tooltip-bubble {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  transform: translateY(-4px);
+  width: 320px;
+  max-width: 90vw;
+  padding: 12px 16px;
+  background: rgba(30, 41, 59, 0.96);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 150ms ease;
+  z-index: 100;
+  text-align: left;
+  white-space: normal;
 }
 
-@media (max-width: 1100px) {
-  .home-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  .gauge-row {
-    grid-template-columns: 1fr;
-  }
+.tab-tooltip:hover .tab-tooltip-bubble {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
-@media (max-width: 768px) {
-  .home-row {
-    grid-template-columns: 1fr;
-  }
+.tab-tooltip-bubble::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 32px;
+  border-width: 0 6px 6px 6px;
+  border-style: solid;
+  border-color: transparent transparent rgba(30, 41, 59, 0.96) transparent;
 }
 
-/* 通用区块标题 */
-.block-title {
-  font-size: var(--text-sm);
+.tab-tooltip-bubble .def-label {
   font-weight: 600;
+  color: #fff;
+}
+
+.tab-tooltip-bubble .def-text {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.tab-tooltip-bubble .def-row + .def-row {
+  margin-top: 10px;
+}
+
+/* 图表 tab 旁的「?」图标 */
+.chart-tabs .tab-help {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
   color: var(--text-secondary);
-  margin: 4px 0 10px;
+  opacity: 0.75;
+  transition: opacity var(--transition), color var(--transition);
 }
 
-/* 机器人卡片列表 */
-.bot-list,
-.channel-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.chart-tabs .chart-tab:hover .tab-help,
+.chart-tabs .chart-tab.active .tab-help {
+  opacity: 1;
+  color: var(--primary);
 }
 
-.mini-card {
+.chart-tabs .tab-help svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* gauge 标题旁的「?」图标：气泡靠右对齐，避免超出视口 */
+.gauge-help {
+  color: var(--text-secondary);
+  cursor: help;
+  transition: color var(--transition);
+}
+
+.gauge-help:hover {
+  color: var(--primary);
+}
+
+.gauge-help .tab-tooltip-bubble {
+  left: auto;
+  right: 0;
+  transform: translateY(-4px);
+  width: 240px;
+  word-break: break-all;
+}
+
+.gauge-help:hover .tab-tooltip-bubble {
+  transform: translateY(0);
+}
+
+.gauge-help .tab-tooltip-bubble::before {
+  left: auto;
+  right: 10px;
+  transform: none;
+}
+
+.gauge-help svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ===================== 带图标 mini-stat ===================== */
+.mini-stat {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
+  background: #f1f6fd;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-light);
-  background: var(--surface);
-  transition: border-color var(--transition), box-shadow var(--transition);
 }
 
-.mini-card:hover {
-  border-color: var(--primary-light);
-  box-shadow: var(--shadow-sm);
-}
-
-.mini-avatar {
-  width: 36px;
-  height: 36px;
+.mini-stat-icon {
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
-  background: var(--primary-light);
-  color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--primary-light);
+  color: var(--primary);
   flex-shrink: 0;
 }
 
-.mini-info {
+.mini-stat-info {
   flex: 1;
   min-width: 0;
 }
 
-.mini-name {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text);
-  margin-bottom: 2px;
+.mini-stat-title {
+  font-size: 12px;
+  color: var(--text-secondary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.mini-project {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mini-right {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-
-.stat-row {
-  display: flex;
-  gap: 14px;
-}
-
-.stat-cell {
-  text-align: right;
-}
-
-.stat-value {
-  font-size: var(--text-md);
+.mini-stat-value {
+  font-size: 18px;
   font-weight: 600;
+  margin-top: 2px;
   color: var(--text);
   line-height: 1.2;
 }
 
-.stat-label {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.dot.online {
-  background: var(--success);
-}
-
-.dot.training {
-  background: var(--warning);
-}
-
-.dot.offline {
-  background: var(--error);
-}
-
-.status-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-/* 渠道分布 */
-.channel-dist {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.dist-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.dist-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--text-sm);
-}
-
-.dist-name {
-  color: var(--text);
-  font-weight: 500;
-}
-
-.dist-count {
-  color: var(--text-secondary);
-}
-
-.dist-count strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.dist-bar {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.dist-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-}
-
-/* 未读消息 */
-.unread-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.unread-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.mini-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  padding: 10px 12px;
+}
+
+.channel-mini-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ===================== 我的机器人 ===================== */
+.robots-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-footnote {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* ===================== 我的渠道账号 ===================== */
+.channel-body {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+}
+
+.channel-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.channel-footnote {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 40px;
+}
+
+/* 渠道分布进度条面板 */
+.dist-panel {
+  background: var(--bg);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-light);
+  padding: 12px 16px;
 }
 
-.unread-item.priority {
-  border-color: var(--error-bg);
-  background: var(--error-bg);
-}
-
-.unread-info {
-  min-width: 0;
-}
-
-.unread-name {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.unread-sub {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-top: 2px;
-}
-
-.unread-badge {
-  flex-shrink: 0;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 12px;
-  background: var(--error);
-  color: #fff;
-  font-size: var(--text-xs);
+.dist-panel-title {
+  font-size: 13px;
   font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.dist-item {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
 }
 
-/* 加载态 */
+.dist-item:last-child {
+  margin-bottom: 0;
+}
+
+.dist-label {
+  width: 100px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dist-track {
+  flex: 1;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.dist-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.dist-value {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* ===================== 未读消息（三行块，无圆点） ===================== */
+.unread-body {
+  padding: 4px 0;
+}
+
+.unread-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.unread-row.is-last {
+  border-bottom: none;
+}
+
+.unread-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.unread-title.warning {
+  color: var(--warning);
+}
+
+.unread-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.unread-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* 徽标（默认） */
+.badge-default {
+  background: #f1f5f9;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* ===================== 加载态 ===================== */
 .page-loading {
   display: flex;
   flex-direction: column;
@@ -519,23 +651,4 @@
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-/* 环形仪表盘（总览使用） */
-.donut-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.donut-value {
-  font-size: 16px;
-  font-weight: 700;
-  fill: var(--text);
-}
-
-.donut-label {
-  font-size: 9px;
-  fill: var(--text-tertiary);
 }

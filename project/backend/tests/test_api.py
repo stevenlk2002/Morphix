@@ -71,3 +71,119 @@ def test_update_workflow_node():
     response = client.patch("/api/workflows/w-1/nodes/wn-2", json={"label": "客户分层筛选", "nodeType": "condition", "config": {"field": "level"}})
     assert response.status_code == 200
     assert response.json()["label"] == "客户分层筛选"
+
+
+# ---- 编排工作流持久化测试 ----
+
+
+def test_orchestration_save_workflow():
+    """PUT 保存编排工作流 → 200"""
+    payload = {
+        "botId": "yefengqiu",
+        "version": 1,
+        "lastEdited": "2026-07-19T12:00:00.000Z",
+        "nodes": [{"id": "n1", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {}}],
+        "edges": [{"id": "e1", "source": "n1", "target": "n2", "sourceHandle": "out", "targetHandle": "in"}],
+    }
+    response = client.put("/api/orchestration/workflows/yefengqiu", json=payload)
+    assert response.status_code == 200
+    assert response.json()["botId"] == "yefengqiu"
+    assert response.json()["saved"] is True
+
+
+def test_orchestration_load_workflow():
+    """GET 加载刚保存的工作流 → 200，data 完整恢复"""
+    # 先保存
+    payload = {
+        "botId": "testbot",
+        "version": 2,
+        "lastEdited": "2026-07-19T14:00:00.000Z",
+        "nodes": [{"id": "n1", "type": "action", "position": {"x": 100, "y": 200}, "data": {"label": "step1"}}],
+        "edges": [],
+    }
+    client.put("/api/orchestration/workflows/testbot", json=payload)
+
+    # 再加载
+    response = client.get("/api/orchestration/workflows/testbot")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["botId"] == "testbot"
+    assert data["version"] == 2
+    assert data["lastEdited"] == "2026-07-19T14:00:00.000Z"
+    assert len(data["nodes"]) == 1
+    assert data["nodes"][0]["id"] == "n1"
+    assert data["nodes"][0]["data"]["label"] == "step1"
+    assert "updatedAt" in data
+
+
+def test_orchestration_load_not_found():
+    """GET 不存在的工作流 → 404"""
+    response = client.get("/api/orchestration/workflows/nonexistent")
+    assert response.status_code == 404
+
+
+def test_orchestration_delete_workflow():
+    """DELETE 删除已存在工作流 → 200"""
+    # 先保存
+    payload = {
+        "botId": "todelete",
+        "version": 1,
+        "lastEdited": "2026-07-19T10:00:00.000Z",
+        "nodes": [],
+        "edges": [],
+    }
+    client.put("/api/orchestration/workflows/todelete", json=payload)
+
+    # 再删除
+    response = client.delete("/api/orchestration/workflows/todelete")
+    assert response.status_code == 200
+    assert response.json()["botId"] == "todelete"
+    assert response.json()["deleted"] is True
+
+    # 再次 GET 应返回 404
+    get_response = client.get("/api/orchestration/workflows/todelete")
+    assert get_response.status_code == 404
+
+
+def test_orchestration_delete_not_found():
+    """DELETE 不存在的工作流 → 404"""
+    response = client.delete("/api/orchestration/workflows/nonexistent")
+    assert response.status_code == 404
+
+
+# ---- 训练模块：total_count 持久化回归测试 ----
+# 覆盖 create_message 的 recompute 分支（此前 14 用例均未走到该路径，掩盖了 Bug）。
+
+
+def test_training_message_total_count_persist():
+    """POST user+ai 消息后，GET records 读到的 totalCount 应持久化为 1（仅统计 role='ai'）。
+
+    顺带覆盖 _recompute_record_counts 在 create_message 后被调用（不再 500 / AttributeError）。
+    """
+    # 1) 新建训练记录（totalCount 初始为 0）
+    rec = client.post("/api/bots/yefengqiu/training/records", json={"title": "回归测试-totalCount"})
+    assert rec.status_code == 200, rec.text
+    record_id = rec.json()["id"]
+    assert rec.json()["totalCount"] == 0
+
+    try:
+        # 2) 写入 1 条 user + 1 条 ai 消息
+        u = client.post(
+            f"/api/training/records/{record_id}/messages",
+            json={"role": "user", "content": "你好"},
+        )
+        assert u.status_code == 200, u.text
+        a = client.post(
+            f"/api/training/records/{record_id}/messages",
+            json={"role": "ai", "content": "您好", "recordRef": "ref-1"},
+        )
+        assert a.status_code == 200, a.text
+
+        # 3) 刷新 GET records → totalCount 持久化为 1，good/bad 仍为 0
+        recs = client.get(f"/api/bots/yefengqiu/training/records").json()
+        target = next(r for r in recs if r["id"] == record_id)
+        assert target["totalCount"] == 1, target
+        assert target["goodCount"] == 0 and target["badCount"] == 0, target
+    finally:
+        # 4) 清理：删除该记录，避免污染种子库
+        client.delete(f"/api/training/records/{record_id}")

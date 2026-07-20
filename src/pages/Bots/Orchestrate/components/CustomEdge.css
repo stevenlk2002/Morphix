@@ -1,0 +1,21 @@
+/* ──── CustomEdge ──── */
+
+.custom-edge {
+  cursor: pointer;
+}
+
+.custom-edge__hitarea {
+  cursor: pointer;
+}
+
+.custom-edge__delete circle {
+  transition: fill var(--transition);
+}
+
+.custom-edge__delete:hover circle {
+  fill: #fef2f2;
+}
+
+.custom-edge__delete line {
+  pointer-events: none;
+}

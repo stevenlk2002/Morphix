@@ -1,22 +1,33 @@
 import { useState, useEffect } from 'react'
-import { Upload, Search, Trash2, Download, Eye } from 'lucide-react'
-import Button from '../../components/common/Button'
-import { materialsApi } from '../../api/client'
+import { Upload, Trash2, Download, Eye, ChevronDown } from 'lucide-react'
+import { toast } from '../../utils/toast'
+import { materialsApi, MaterialItemDTO, Paged } from '../../api/client'
 import './MaterialTab.css'
 
 interface BotRef {
   id: string
+  name?: string
 }
 
 interface MaterialItem {
   id: string
   name: string
   type: string
-  category?: string
-  size?: number
-  url?: string | null
+  size: number
+  category: string
+  url: string | null
+  source: string
+  usageCount: number
+  uploadedAt: string
+  updatedAt: string
 }
 
+/** 来源筛选选项（与种子 source 对齐）。 */
+const SOURCE_OPTIONS = ['请选择', '知识中心', '上传']
+
+const PAGE_SIZES = [10, 20, 50, 100]
+
+/** 将字节数格式化为可读大小。 */
 function formatSize(bytes: number): string {
   if (typeof bytes !== 'number' || bytes <= 0) return '—'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -33,6 +44,7 @@ function getTypeName(type: string): string {
   if (type === 'image') return '图片'
   if (type === 'video') return '视频'
   if (type === 'document') return '文档'
+  if (type === 'audio') return '音频'
   return '其他'
 }
 
@@ -44,359 +56,354 @@ function getTypeIcon(type: string): string {
       return '🎥'
     case 'document':
       return '📄'
+    case 'audio':
+      return '🎵'
     default:
       return '📎'
   }
 }
 
-const MATERIAL_TYPES = [
-  { value: 'image', label: '图片' },
-  { value: 'video', label: '视频' },
-  { value: 'document', label: '文档' },
-]
+/** 后端 DTO → 前端结构。 */
+function toItem(dto: MaterialItemDTO): MaterialItem {
+  return {
+    id: dto.id,
+    name: dto.name,
+    type: dto.type,
+    size: dto.size,
+    category: dto.category ?? '未分类',
+    url: dto.url ?? null,
+    source: dto.source ?? '上传',
+    usageCount: dto.usageCount ?? 0,
+    uploadedAt: dto.uploadedAt,
+    updatedAt: dto.updatedAt,
+  }
+}
 
+/**
+ * 素材内容 Tab（对齐 prototype robot-train 的 material-pane）。
+ * 顶部筛选（文件名 / 上传时间 / 来源）+ 操作（上传 / 批量删除）+ 列表 + 分页。
+ * 列表走后端分页接口（materialsApi.listByBot → {items, total, page, pageSize, hasMore}）。
+ */
 export default function MaterialTab({ bot }: { bot: BotRef }) {
-  const [materials, setMaterials] = useState<MaterialItem[]>([])
-  const [searchTerm, setSearchTerm] = useState('')
+  const [items, setItems] = useState<MaterialItem[]>([])
+  const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showUpload, setShowUpload] = useState(false)
 
-  useEffect(() => {
-    loadMaterials()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bot.id])
+  const [fileName, setFileName] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [source, setSource] = useState('请选择')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
-  const loadMaterials = async () => {
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const [pageSizeOpen, setPageSizeOpen] = useState(false)
+
+  const [total, setTotal] = useState(0)
+
+  /** 拉取素材（分页 + 筛选）。nextPageSize 用于切换每页条数时避免闭包取到旧值。 */
+  const loadMaterials = async (nextPage?: number, nextPageSize?: number) => {
+    const usePage = nextPage ?? page
+    const useSize = nextPageSize ?? pageSize
     try {
-      const data = await materialsApi.listByBot(bot.id)
-      setMaterials(data as MaterialItem[])
-    } catch (error) {
-      console.error('加载素材库失败:', error)
+      setLoading(true)
+      const res = (await materialsApi.listByBot(bot.id, {
+        name: fileName || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        source: source !== '请选择' ? source : undefined,
+        page: usePage,
+        pageSize: useSize,
+      })) as Paged<MaterialItemDTO>
+      setItems(res.items.map(toItem))
+      setTotal(res.total)
+      setSelectedIds([])
+    } catch (e) {
+      toast(`加载素材失败：${(e as Error).message}`)
     } finally {
       setLoading(false)
     }
   }
 
-  const filteredMaterials = materials.filter(
-    (item) => item.name.includes(searchTerm) || (item.category ?? '').includes(searchTerm)
-  )
+  useEffect(() => {
+    loadMaterials(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id])
 
-  const handleSelectAll = (checked: boolean) => {
-    setSelectedIds(checked ? filteredMaterials.map((m) => m.id) : [])
+  /** 查询（筛选）。 */
+  const handleQuery = () => {
+    setPage(1)
+    loadMaterials(1)
   }
 
-  const handleSelect = (id: string, checked: boolean) => {
-    setSelectedIds(
-      checked ? [...selectedIds, id] : selectedIds.filter((sid) => sid !== id)
-    )
+  /** 重置筛选。 */
+  const handleReset = () => {
+    setFileName('')
+    setStartDate('')
+    setEndDate('')
+    setSource('请选择')
+    setPage(1)
+    loadMaterials(1)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('确定删除这个素材吗？')) return
-    try {
-      await materialsApi.delete(id)
-      setMaterials(materials.filter((m) => m.id !== id))
-      setSelectedIds(selectedIds.filter((sid) => sid !== id))
-    } catch (error) {
-      console.error('删除失败:', error)
-      alert('删除失败，请重试')
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEnd = Math.min(page * pageSize, total)
+
+  const goPrev = () => {
+    if (page > 1) {
+      const p = page - 1
+      setPage(p)
+      loadMaterials(p)
+    }
+  }
+  const goNext = () => {
+    if (page < totalPages) {
+      const p = page + 1
+      setPage(p)
+      loadMaterials(p)
     }
   }
 
-  const handleDeleteSelected = async () => {
-    if (
-      selectedIds.length === 0 ||
-      !confirm(`确定删除选中的 ${selectedIds.length} 个素材吗？`)
-    ) {
-      return
-    }
-    try {
-      await Promise.all(selectedIds.map((id) => materialsApi.delete(id)))
-      setMaterials(materials.filter((m) => !selectedIds.includes(m.id)))
-      setSelectedIds([])
-    } catch (error) {
-      console.error('批量删除失败:', error)
-      alert('部分素材删除失败，请重试')
-    }
+  const changePageSize = (size: number) => {
+    setPageSizeOpen(false)
+    setPageSize(size)
+    setPage(1)
+    loadMaterials(1, size)
   }
 
-  if (loading) {
-    return <div className="material-loading">加载中...</div>
+  const allChecked = items.length > 0 && selectedIds.length === items.length
+  const toggleSelectAll = () => {
+    setSelectedIds(allChecked ? [] : items.map((i) => i.id))
+  }
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const handleDelete = (item: MaterialItem) => {
+    if (!window.confirm(`确定删除素材「${item.name}」吗？`)) return
+    materialsApi
+      .delete(item.id)
+      .then(() => {
+        toast('已删除素材')
+        loadMaterials(page)
+      })
+      .catch((e) => toast(`删除失败：${(e as Error).message}`))
+  }
+
+  const handleBatchDelete = () => {
+    if (selectedIds.length === 0) return
+    if (!window.confirm(`确定删除选中的 ${selectedIds.length} 个素材吗？`)) return
+    materialsApi
+      .batchDelete(bot.id, selectedIds)
+      .then((res) => {
+        toast(`已批量删除 ${res.deleted} 个素材`)
+        loadMaterials(page)
+      })
+      .catch((e) => toast(`批量删除失败：${(e as Error).message}`))
   }
 
   return (
-    <div className="material-tab">
-      <div className="material-header">
-        <div className="material-search">
-          <Search size={16} className="search-icon" />
+    <div className="material-pane">
+      {/* 筛选区 */}
+      <div className="material-filter">
+        <div className="material-filter-item">
+          <label>文件名称：</label>
           <input
             type="text"
-            placeholder="搜索素材..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="请输入"
+            value={fileName}
+            style={{ width: 180 }}
+            onChange={(e) => setFileName(e.target.value)}
           />
         </div>
-        <div className="material-actions">
-          {selectedIds.length > 0 && (
-            <Button
-              variant="danger"
-              size="sm"
-              icon={<Trash2 size={16} />}
-              onClick={handleDeleteSelected}
+        <div className="material-filter-item">
+          <label>上传时间：</label>
+          <div className="date-range">
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <span>至</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </div>
+        </div>
+        <div className="material-filter-item">
+          <label>来源：</label>
+          <div className={`material-select ${sourceOpen ? 'open' : ''}`}>
+            <div
+              className="material-select-trigger"
+              onClick={() => setSourceOpen((v) => !v)}
             >
-              删除 ({selectedIds.length})
-            </Button>
-          )}
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Upload size={16} />}
-            onClick={() => setShowUpload(true)}
-          >
-            上传素材
-          </Button>
+              {source}
+              <ChevronDown size={14} />
+            </div>
+            <div className="material-select-dropdown">
+              {SOURCE_OPTIONS.map((opt) => (
+                <div
+                  key={opt}
+                  className={`material-select-option ${source === opt ? 'active' : ''}`}
+                  onClick={() => {
+                    setSource(opt)
+                    setSourceOpen(false)
+                  }}
+                >
+                  {opt}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="material-filter-actions">
+          <button className="btn-material-reset" onClick={handleReset}>
+            重置
+          </button>
+          <button className="btn-material-query" onClick={handleQuery}>
+            查询
+          </button>
         </div>
       </div>
 
-      <div className="material-stats">
-        <div className="stat-badge">
-          <span className="stat-badge-label">总素材</span>
-          <span className="stat-badge-value">{materials.length}</span>
-        </div>
-        <div className="stat-badge">
-          <span className="stat-badge-label">总大小</span>
-          <span className="stat-badge-value">
-            {formatSize(materials.reduce((sum, m) => sum + (m.size || 0), 0))}
-          </span>
-        </div>
-        <div className="stat-badge">
-          <span className="stat-badge-label">总引用</span>
-          <span className="stat-badge-value">—</span>
-        </div>
+      {/* 操作区 */}
+      <div className="material-actions">
+        <button
+          className="btn-material-upload"
+          onClick={() => toast('上传素材（演示环境暂未开放）')}
+        >
+          <Upload size={14} /> 上传
+        </button>
+        {selectedIds.length > 0 && (
+          <button className="btn-material-batch-delete" onClick={handleBatchDelete}>
+            <Trash2 size={14} /> 批量删除 ({selectedIds.length})
+          </button>
+        )}
       </div>
 
-      <div className="material-table-wrapper">
-        <table className="material-table">
-          <thead>
-            <tr>
-              <th style={{ width: '40px' }}>
-                <input
-                  type="checkbox"
-                  checked={
-                    selectedIds.length === filteredMaterials.length &&
-                    filteredMaterials.length > 0
-                  }
-                  onChange={(e) => handleSelectAll(e.target.checked)}
-                />
-              </th>
-              <th>素材</th>
-              <th>类型</th>
-              <th>分类</th>
-              <th>大小</th>
-              <th>引用次数</th>
-              <th>上传时间</th>
-              <th style={{ width: '120px' }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredMaterials.map((item) => (
-              <tr key={item.id}>
-                <td>
+      {/* 列表 */}
+      <div className="material-list">
+        {loading ? (
+          <div className="material-loading">加载中…</div>
+        ) : items.length === 0 ? (
+          <div className="material-empty">
+            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <rect x="25" y="18" width="46" height="56" rx="4" fill="currentColor" fillOpacity="0.06" transform="rotate(8 48 46)" />
+              <rect x="42" y="36" width="46" height="56" rx="4" fill="currentColor" fillOpacity="0.08" transform="rotate(-6 65 64)" />
+              <path d="M35 38 L45 48 L55 34 L69 52 L81 40" strokeLinecap="round" strokeLinejoin="round" transform="rotate(8 48 46)" />
+              <circle cx="62" cy="34" r="4" transform="rotate(8 48 46)" />
+              <path d="M55 70 L75 90" strokeLinecap="round" />
+              <path d="M75 70 L55 90" strokeLinecap="round" />
+            </svg>
+            <div className="material-empty-text">暂无素材</div>
+          </div>
+        ) : (
+          <table className="material-list-table">
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>
                   <input
                     type="checkbox"
-                    checked={selectedIds.includes(item.id)}
-                    onChange={(e) => handleSelect(item.id, e.target.checked)}
+                    checked={allChecked}
+                    onChange={toggleSelectAll}
                   />
-                </td>
-                <td>
-                  <div className="material-name-cell">
-                    <span className="material-type-icon">{getTypeIcon(item.type)}</span>
-                    {item.url && (
-                      <img
-                        src={item.url}
-                        alt={item.name}
-                        className="material-thumb"
-                      />
-                    )}
-                    <span className="material-name">{item.name}</span>
-                  </div>
-                </td>
-                <td>
-                  <span className="material-type-badge">{getTypeName(item.type)}</span>
-                </td>
-                <td>{item.category || '未分类'}</td>
-                <td className="text-muted">{formatSize(item.size ?? 0)}</td>
-                <td className="text-muted">—</td>
-                <td className="text-muted">—</td>
-                <td>
-                  <div className="table-actions">
-                    <button type="button" className="table-action-btn" title="预览">
-                      <Eye size={14} />
-                    </button>
-                    <button type="button" className="table-action-btn" title="下载">
-                      <Download size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="table-action-btn table-action-btn-danger"
-                      title="删除"
-                      onClick={() => handleDelete(item.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
+                </th>
+                <th>素材名称</th>
+                <th>类型</th>
+                <th>来源</th>
+                <th>大小</th>
+                <th>引用次数</th>
+                <th>上传时间</th>
+                <th style={{ width: 120 }}>操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                    />
+                  </td>
+                  <td>
+                    <div className="material-name-cell">
+                      <span className="material-type-icon">{getTypeIcon(item.type)}</span>
+                      {item.url && <img src={item.url} alt={item.name} className="material-thumb" />}
+                      <span className="material-name">{item.name}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="material-type-badge">{getTypeName(item.type)}</span>
+                  </td>
+                  <td>{item.source}</td>
+                  <td className="text-muted">{formatSize(item.size)}</td>
+                  <td className="text-muted">{item.usageCount}</td>
+                  <td className="text-muted">{item.uploadedAt}</td>
+                  <td>
+                    <div className="table-actions">
+                      <button
+                        type="button"
+                        className="table-action-btn"
+                        title="预览"
+                        onClick={() => toast('演示环境：预览未接入')}
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="table-action-btn"
+                        title="下载"
+                        onClick={() => toast('演示环境：下载未接入')}
+                      >
+                        <Download size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="table-action-btn table-action-btn-danger"
+                        title="删除"
+                        onClick={() => handleDelete(item)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {filteredMaterials.length === 0 && (
-        <div className="material-empty">
-          <p>未找到匹配的素材</p>
+      {/* 分页 */}
+      <div className="material-pagination">
+        <div className="material-pagination-info">
+          第 {rangeStart}-{rangeEnd} 条/总共 {total} 条
         </div>
-      )}
-
-      {showUpload && (
-        <UploadModal
-          botId={bot.id}
-          onClose={() => setShowUpload(false)}
-          onCreated={(created) => {
-            setMaterials([created, ...materials])
-            setShowUpload(false)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-interface UploadForm {
-  name: string
-  type: string
-  size: string
-  category: string
-  url: string
-}
-
-function UploadModal({
-  botId,
-  onClose,
-  onCreated,
-}: {
-  botId: string
-  onClose: () => void
-  onCreated: (created: MaterialItem) => void
-}) {
-  const [form, setForm] = useState<UploadForm>({
-    name: '',
-    type: 'image',
-    size: '',
-    category: '未分类',
-    url: '',
-  })
-  const [submitting, setSubmitting] = useState(false)
-
-  const handleChange = (field: keyof UploadForm) => (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
-    setForm({ ...form, [field]: e.target.value })
-  }
-
-  const handleSubmit = async () => {
-    if (!form.name.trim()) {
-      alert('请填写素材名称')
-      return
-    }
-    const sizeNum = Number(form.size)
-    if (!Number.isFinite(sizeNum) || sizeNum < 0) {
-      alert('请填写有效的文件大小（字节数）')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const payload = {
-        name: form.name.trim(),
-        type: form.type,
-        size: sizeNum,
-        category: form.category.trim() || '未分类',
-        url: form.url.trim() || null,
-      }
-      const created = await materialsApi.create(botId, payload)
-      onCreated(created as MaterialItem)
-    } catch (error) {
-      console.error('上传素材失败:', error)
-      alert('上传失败，请重试')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <h3 className="modal-title">上传素材</h3>
-        <div className="modal-field">
-          <label>素材名称 *</label>
-          <input
-            type="text"
-            value={form.name}
-            onChange={handleChange('name')}
-            placeholder="例如：产品宣传图.png"
-          />
+        <div className="material-pagination-pages">
+          <button disabled={page <= 1} onClick={goPrev}>
+            &lt;
+          </button>
+          <button className="active">{page}</button>
+          <button disabled={page >= totalPages} onClick={goNext}>
+            &gt;
+          </button>
         </div>
-        <div className="modal-field">
-          <label>类型</label>
-          <select value={form.type} onChange={handleChange('type')}>
-            {MATERIAL_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="modal-field">
-          <label>文件大小（字节）*</label>
-          <input
-            type="number"
-            min="0"
-            value={form.size}
-            onChange={handleChange('size')}
-            placeholder="例如：2400000 表示约 2.3 MB"
-          />
-        </div>
-        <div className="modal-field">
-          <label>分类</label>
-          <input
-            type="text"
-            value={form.category}
-            onChange={handleChange('category')}
-            placeholder="例如：产品图片"
-          />
-        </div>
-        <div className="modal-field">
-          <label>URL（可选）</label>
-          <input
-            type="text"
-            value={form.url}
-            onChange={handleChange('url')}
-            placeholder="素材访问地址，可留空"
-          />
-        </div>
-        <div className="modal-actions">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleSubmit}
-            disabled={submitting}
+        <div className={`material-page-size ${pageSizeOpen ? 'open' : ''}`}>
+          <div
+            className="material-page-size-trigger"
+            onClick={() => setPageSizeOpen((v) => !v)}
           >
-            {submitting ? '上传中...' : '确认上传'}
-          </Button>
+            {pageSize}条/页
+            <ChevronDown size={14} />
+          </div>
+          <div className="material-page-size-dropdown">
+            {PAGE_SIZES.map((size) => (
+              <div
+                key={size}
+                className={`material-page-size-option ${pageSize === size ? 'active' : ''}`}
+                onClick={() => changePageSize(size)}
+              >
+                {size}条/页
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

@@ -1,0 +1,171 @@
+/* ──── SubflowPreviewModal ──── */
+
+.subflow-preview-modal__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.subflow-preview-modal {
+  width: 800px;
+  height: 600px;
+  max-width: 90vw;
+  max-height: 85vh;
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.subflow-preview-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.subflow-preview-modal__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.subflow-preview-modal__desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 4px 0 0 0;
+}
+
+.subflow-preview-modal__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  flex-shrink: 0;
+}
+
+.subflow-preview-modal__close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* ──── Interface badges ──── */
+
+.subflow-preview-modal__interface {
+  display: flex;
+  gap: 8px;
+  padding: 8px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.subflow-preview-modal__interface-badge {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 10px;
+}
+
+/* ──── Canvas ──── */
+
+.subflow-preview-modal__canvas {
+  flex: 1;
+  position: relative;
+  background: var(--bg);
+}
+
+.subflow-preview-modal__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+/* ──── Mini Node (只读) ──── */
+
+.subflow-preview-node {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 140px;
+  max-width: 200px;
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+}
+
+.subflow-preview-node__header {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-light);
+  font-weight: 600;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.subflow-preview-node__type {
+  color: var(--text-secondary);
+}
+
+.subflow-preview-node__ports {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 6px;
+  gap: 8px;
+}
+
+.subflow-preview-node__ports-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subflow-preview-node__ports-col--right {
+  align-items: flex-end;
+}
+
+.subflow-preview-node__port {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.subflow-preview-node__port-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.subflow-preview-node__port-name {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+
+.subflow-preview-node__port-more {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}

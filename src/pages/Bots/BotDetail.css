@@ -69,6 +69,16 @@
   font-weight: 500;
 }
 
+.status-online {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status-training {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
 .detail-actions {
   display: flex;
   gap: 8px;
