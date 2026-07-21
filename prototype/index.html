@@ -1785,6 +1785,140 @@
     .channel-account-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .channel-account-actions .btn { padding: 7px 0; font-size: 13px; }
 
+    /* ============== 添加渠道账号 流程样式 ============== */
+    .channel-add-seats {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
+      border: 1px solid #fde6c4;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin: 8px 0 14px;
+    }
+    .channel-add-seats-text { color: #92400e; font-size: 13px; }
+    .channel-add-seats-text em { color: #c2410c; font-style: normal; font-weight: 600; font-size: 14px; margin-left: 4px; }
+    .channel-add-seats-buy { color: #c2410c; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .channel-add-seats-buy:hover { text-decoration: underline; }
+
+    .channel-type-list { display: flex; flex-direction: column; gap: 10px; }
+    .channel-type-card {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+    .channel-type-card:hover { border-color: #93c5fd; background: #f8fbff; }
+    .channel-type-card.selected { border-color: var(--primary); background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%); box-shadow: 0 6px 18px rgba(59,130,246,0.10); }
+    .channel-type-icon { width: 36px; height: 36px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .channel-type-info { flex: 1; min-width: 0; }
+    .channel-type-name { font-size: 14px; font-weight: 600; color: #0f172a; }
+    .channel-type-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .channel-type-arrow { color: #94a3b8; }
+
+    /* 协议选择 */
+    .channel-protocol-select { position: relative; }
+    .channel-protocol-trigger {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+    .channel-protocol-trigger:hover { border-color: #93c5fd; }
+    .channel-protocol-icon { color: #64748b; display: inline-flex; }
+    .channel-protocol-value { flex: 1; font-size: 14px; color: #0f172a; }
+    .channel-protocol-caret { color: #94a3b8; }
+    .channel-protocol-dropdown {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 12px 28px rgba(15,23,42,0.12);
+      padding: 6px;
+      z-index: 10;
+      display: none;
+    }
+    .channel-protocol-select.open .channel-protocol-dropdown { display: block; }
+    .channel-protocol-option { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+    .channel-protocol-option:hover { background: #f1f5f9; }
+    .channel-protocol-radio { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #cbd5e1; flex-shrink: 0; position: relative; }
+    .channel-protocol-option.selected .channel-protocol-radio { border-color: var(--primary); }
+    .channel-protocol-option.selected .channel-protocol-radio::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--primary); }
+    .channel-protocol-text { display: flex; flex-direction: column; gap: 2px; }
+    .channel-protocol-name { font-size: 14px; color: #0f172a; font-weight: 500; }
+    .channel-protocol-hint { font-size: 12px; color: var(--text-secondary); }
+    .channel-protocol-tip { margin-top: 10px; font-size: 12px; color: #64748b; }
+
+    /* 扫码页 */
+    .channel-qr-prompt { font-size: 14px; color: #0f172a; margin-bottom: 16px; }
+    .channel-qr-scan { color: var(--primary); font-weight: 600; cursor: pointer; }
+    .channel-qr-arrow { display: inline-block; margin-left: 2px; transition: transform 200ms ease; }
+    .channel-qr-scan:hover .channel-qr-arrow { transform: translateX(2px); }
+    .channel-qr-img { width: 200px; height: 200px; margin: 0 auto 12px; background: #fff; border: 1px solid #f1f5f9; border-radius: 12px; padding: 10px; }
+    .channel-qr-img svg, .channel-qr-img img { width: 100%; height: 100%; display: block; }
+    .channel-qr-caption { font-size: 12px; color: var(--text-secondary); }
+    .channel-qr-hint { font-size: 11px; color: #94a3b8; margin-top: 8px; }
+
+    /* 等待手机确认 */
+    .channel-waiting-title { font-size: 16px; font-weight: 600; color: #0f172a; }
+    .channel-waiting-sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+    .channel-phone-mock {
+      width: 220px; height: 380px; margin: 20px auto 12px;
+      background: #0f172a; border-radius: 28px; padding: 10px 8px;
+      position: relative; box-shadow: 0 18px 50px rgba(0,0,0,0.18);
+    }
+    .channel-phone-notch { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 60px; height: 12px; background: #0f172a; border-radius: 0 0 10px 10px; z-index: 2; }
+    .channel-phone-screen { width: 100%; height: 100%; background: #0a0a0a; border-radius: 20px; padding: 22px 18px 16px; color: #fff; display: flex; flex-direction: column; position: relative; }
+    .channel-phone-statusbar { display: flex; justify-content: space-between; font-size: 10px; color: #e2e8f0; margin-bottom: 8px; }
+    .channel-phone-statusicons { display: inline-flex; gap: 4px; }
+    .channel-phone-chevron { text-align: left; color: #cbd5e1; font-size: 18px; margin-bottom: 14px; }
+    .channel-phone-pad { display: flex; justify-content: center; margin: 30px 0 18px; color: #3b82f6; }
+    .channel-phone-title { text-align: center; font-size: 16px; font-weight: 500; color: #f8fafc; }
+    .channel-phone-spacer { flex: 1; }
+    .channel-phone-btn {
+      background: #3b82f6; color: #fff; border-radius: 999px; padding: 12px 0;
+      font-size: 15px; font-weight: 500; text-align: center; margin-bottom: 14px;
+    }
+    .channel-phone-cancel { text-align: center; font-size: 14px; color: #f8fafc; padding: 8px 0; }
+    .channel-waiting-progress { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+    .channel-pulse { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; position: relative; }
+    .channel-pulse::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #3b82f6; animation: channel-pulse 1.4s ease-out infinite; opacity: 0.6; }
+    @keyframes channel-pulse { 0% { transform: scale(0.6); opacity: 0.8; } 100% { transform: scale(1.6); opacity: 0; } }
+
+    /* 验证码输入 */
+    .channel-verify-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: stretch; }
+    .channel-verify-left {
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      padding: 24px 16px;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      border-radius: 12px;
+      border: 1px solid #eef2f7;
+    }
+    .channel-verify-tag { background: #fde68a; color: #92400e; font-size: 12px; padding: 4px 10px; border-radius: 999px; font-weight: 500; }
+    .channel-verify-profile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; }
+    .channel-verify-avatar { width: 56px; height: 56px; border-radius: 50%; background: #4A90D9; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; box-shadow: 0 4px 12px rgba(74,144,217,0.28); }
+    .channel-verify-name { font-size: 16px; font-weight: 600; color: #0f172a; }
+    .channel-verify-meta { font-size: 12px; color: var(--text-secondary); }
+    .channel-verify-back { font-size: 12px; color: #c2410c; background: transparent; border: none; cursor: pointer; padding: 6px 12px; }
+    .channel-verify-back:hover { text-decoration: underline; }
+    .channel-verify-right { display: flex; flex-direction: column; align-items: center; padding: 12px 8px; }
+    .channel-verify-title { font-size: 16px; font-weight: 600; color: #0f172a; }
+    .channel-verify-subtitle { font-size: 12px; color: var(--text-secondary); margin: 4px 0 18px; }
+    .channel-verify-inputs { display: flex; align-items: center; gap: 8px; }
+    .channel-verify-box { width: 38px; height: 44px; text-align: center; font-size: 18px; font-weight: 600; color: #0f172a; border: 1px solid var(--border); border-radius: 8px; background: #fff; outline: none; transition: all 150ms ease; font-family: inherit; }
+    .channel-verify-box:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
+    .channel-verify-sep { font-size: 20px; color: #cbd5e1; font-weight: 600; }
+    .channel-verify-hint { font-size: 12px; color: var(--text-secondary); margin-top: 12px; }
+    .channel-verify-back-link { margin-top: 18px; font-size: 12px; color: var(--primary); background: transparent; border: none; cursor: pointer; }
+    .channel-verify-back-link:hover { text-decoration: underline; }
+    @media (max-width: 720px) { .channel-verify-grid { grid-template-columns: 1fr; } }
+
     .bot-card-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -2938,6 +3072,221 @@
       if (page === 'sop-create-group') setTimeout(initGroupFlow, 50);
       if (page === 'robot-orchestrate') setTimeout(initOrchestratePage, 50);
       if (page === 'mobile-session-hosting') setTimeout(initMiniappHostingPage, 50);
+      if (page === 'channel-account-add') initChannelAccountAdd();
+      if (page === 'channel-account-protocol') initChannelAccountProtocol();
+      if (page === 'channel-account-qr') initChannelAccountQr();
+      if (page === 'channel-account-waiting') initChannelAccountWaiting();
+      if (page === 'channel-account-verify') initChannelAccountVerify();
+      if (page === 'channel-sessions' && channelAddState.justAdded) {
+        channelAddState.justAdded = false;
+        setTimeout(renderChannelSessionsAfterAdd, 30);
+      }
+    }
+
+    // ============== 添加渠道账号 流程控制 ==============
+    const channelAddState = { type: '', protocol: 'ipod', waitTimer: null, waitSec: 0, justAdded: false };
+
+    function initChannelAccountAdd() {
+      channelAddState.type = '';
+      const nextBtn = document.getElementById('channelTypeNextBtn');
+      if (nextBtn) nextBtn.disabled = true;
+      document.querySelectorAll('.channel-type-card').forEach(c => c.classList.remove('selected'));
+    }
+
+    function selectChannelType(el) {
+      document.querySelectorAll('.channel-type-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      channelAddState.type = el.getAttribute('data-channel');
+      const nextBtn = document.getElementById('channelTypeNextBtn');
+      if (nextBtn) nextBtn.disabled = false;
+    }
+
+    function goChannelProtocol() {
+      if (!channelAddState.type) return;
+      navigate('channel-account-protocol');
+    }
+
+    function initChannelAccountProtocol() {
+      const select = document.getElementById('channelProtocolSelect');
+      if (select) select.classList.remove('open');
+      applyProtocolSelection();
+    }
+
+    function toggleProtocolSelect() {
+      const select = document.getElementById('channelProtocolSelect');
+      if (select) select.classList.toggle('open');
+    }
+
+    function selectProtocolOption(el) {
+      document.querySelectorAll('.channel-protocol-option').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      channelAddState.protocol = el.getAttribute('data-value');
+      const select = document.getElementById('channelProtocolSelect');
+      if (select) select.classList.remove('open');
+      applyProtocolSelection();
+    }
+
+    function applyProtocolSelection() {
+      const valueEl = document.getElementById('channelProtocolValue');
+      const tipEl = document.getElementById('channelProtocolTip');
+      if (valueEl) {
+        const labels = { ipod: 'ipod (推荐)', pc: 'pc' };
+        valueEl.textContent = labels[channelAddState.protocol] || 'ipod (推荐)';
+      }
+      if (tipEl) {
+        const tips = {
+          ipod: '基于 iPad 协议登录，账号更稳定，掉线率低',
+          pc: '基于 PC 端协议登录，兼容性更广但稳定性略低'
+        };
+        tipEl.textContent = tips[channelAddState.protocol] || '';
+      }
+    }
+
+    function startChannelScan() {
+      navigate('channel-account-qr');
+    }
+
+    function initChannelAccountQr() {
+      const img = document.getElementById('channelQrImg');
+      if (img && !img.dataset.rendered) {
+        img.innerHTML = svgIllustration('qr');
+        img.dataset.rendered = '1';
+      }
+    }
+
+    function initChannelAccountWaiting() {
+      const sec = document.getElementById('channelWaitSec');
+      if (sec) sec.textContent = '0';
+      channelAddState.waitSec = 0;
+      if (channelAddState.waitTimer) clearInterval(channelAddState.waitTimer);
+      channelAddState.waitTimer = setInterval(() => {
+        channelAddState.waitSec += 1;
+        const el = document.getElementById('channelWaitSec');
+        if (el) el.textContent = String(channelAddState.waitSec);
+        if (channelAddState.waitSec >= 4) {
+          clearInterval(channelAddState.waitTimer);
+          channelAddState.waitTimer = null;
+          navigate('channel-account-verify');
+        }
+      }, 1000);
+    }
+
+    function initChannelAccountVerify() {
+      const inputs = document.querySelectorAll('.channel-verify-box');
+      inputs.forEach(i => { i.value = ''; });
+      const demo = '177108';
+      demo.split('').forEach((d, idx) => {
+        const i = document.querySelector('.channel-verify-box[data-idx="' + idx + '"]');
+        if (i) i.value = d;
+      });
+      setTimeout(() => { if (inputs[0]) inputs[0].focus(); }, 80);
+    }
+
+    function onVerifyBox(el) {
+      el.value = el.value.replace(/\D/g, '').slice(0, 1);
+      const idx = parseInt(el.getAttribute('data-idx'), 10);
+      if (el.value && idx < 5) {
+        const next = document.querySelector('.channel-verify-box[data-idx="' + (idx + 1) + '"]');
+        if (next) next.focus();
+      }
+      const all = document.querySelectorAll('.channel-verify-box');
+      const code = Array.from(all).map(i => i.value).join('');
+      if (code.length === 6) {
+        finishChannelVerify();
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (!e.target.classList || !e.target.classList.contains('channel-verify-box')) return;
+      if (e.key === 'Backspace' && !e.target.value) {
+        const idx = parseInt(e.target.getAttribute('data-idx'), 10);
+        if (idx > 0) {
+          const prev = document.querySelector('.channel-verify-box[data-idx="' + (idx - 1) + '"]');
+          if (prev) { prev.focus(); prev.value = ''; }
+        }
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      const sel = document.getElementById('channelProtocolSelect');
+      if (sel && !sel.contains(e.target)) sel.classList.remove('open');
+    });
+
+    function finishChannelVerify() {
+      channelAddState.justAdded = true;
+      if (channelAddState.waitTimer) { clearInterval(channelAddState.waitTimer); channelAddState.waitTimer = null; }
+      toast('已成功添加渠道账号，正在拉取会话列表…');
+      setTimeout(() => navigate('channel-sessions'), 700);
+    }
+
+    function renderChannelSessionsAfterAdd() {
+      // 在左侧账号栏追加"医补通"，并切换为当前选中
+      const list = document.querySelector('.channel-sessions-page .session-account-list, .session-mgmt .session-account-list');
+      if (list) {
+        const items = list.querySelectorAll('.session-account');
+        items.forEach(i => i.classList.remove('active'));
+        // 把医补通插入到最前
+        if (!list.querySelector('[data-account="yibutong"]')) {
+          const yibutong = document.createElement('div');
+          yibutong.className = 'session-account active';
+          yibutong.setAttribute('data-status', 'online');
+          yibutong.setAttribute('data-account', 'yibutong');
+          yibutong.setAttribute('data-tooltip', '医补通 · 企业微信 · 在线');
+          yibutong.setAttribute('onclick', 'selectSessionAccount(this)');
+          yibutong.innerHTML = `
+            <div class="session-account-avatar" style="background:#4A90D9;">医</div>
+            <div class="session-account-info">
+              <div class="session-account-name">医补通</div>
+              <div class="session-account-status"><span class="dot online"></span><span>[ipad在线]</span></div>
+            </div>`;
+          list.insertBefore(yibutong, list.firstChild);
+        } else {
+          list.querySelector('[data-account="yibutong"]').classList.add('active');
+        }
+      }
+      // 替换中间会话列表为"医补通"账号下的好友/群
+      const listEl = document.querySelector('.channel-sessions-page .session-list, .session-mgmt .session-list');
+      if (listEl) {
+        const contacts = [
+          { name: '医补@新民', tag: '外部', time: '10:28', msg: '医补通好友请求添加联系人验证', online: true, color: '#4A90D9', letter: '医', badge: 1, host: '医' },
+          { name: 'Cloud@新民', tag: '外部', time: '10:31', msg: 'Cloud 开启了陌生人添加...', online: true, color: '#7fb069', letter: 'C', host: '医' },
+          { name: '聚主白银做营顾', tag: '外部', time: '9:58', msg: '对方开启了好友验证...', online: false, color: '#e8a649', letter: '聚', host: '医' },
+          { name: '远志-洪创意', tag: '内部', time: '9:32', msg: '用例：对方开启...', online: true, color: '#a88bd8', letter: '远', host: '医' },
+          { name: 'Dr.Jack 恒康倍力', tag: '外部', time: '9:18', msg: '医补通的联系人...', online: true, color: '#25D366', letter: 'D', host: '医' },
+          { name: '竹绿-健康-巴...', tag: '群聊', time: '8:55', msg: 'Enter a group name to...', online: true, color: '#4A90D9', letter: '竹', host: '医' },
+          { name: '钉钉', tag: '群聊', time: '8:24', msg: '钉', online: true, color: '#1976ff', letter: '钉', host: '医' },
+          { name: '客户联系', tag: '群聊', time: '7:48', msg: '客户', online: true, color: '#a88bd8', letter: '客', host: '医' },
+          { name: '希犬-林瞰', tag: '群聊', time: '7:12', msg: '本群研究的好好，该能上浪...', online: false, color: '#4A90D9', letter: '希', host: '医' },
+          { name: '钉钉会话', tag: '群聊', time: '6:30', msg: 'This type of message...', online: true, color: '#1976ff', letter: '钉', host: '医' }
+        ];
+        listEl.innerHTML = contacts.map((c, i) => `
+          <div class="session-row ${i === 0 ? 'active' : ''}" data-id="yibutong-${i}" data-online="${c.online ? 1 : 0}" data-unread="${i === 0 ? 1 : 0}" data-name="${c.name}" onclick="selectSessionRow(this)">
+            <div class="session-row-avatar" style="background:${c.color};">${c.letter}</div>
+            <div class="session-row-body">
+              <div class="session-row-top">
+                <div class="session-row-name-wrap">
+                  <span class="session-row-name">${c.name}</span>
+                  <span class="session-row-tag">${c.tag}</span>
+                </div>
+                <span class="session-row-time">${c.time}</span>
+              </div>
+              <div class="session-row-bottom">
+                <span class="session-row-msg">${c.msg}</span>
+                <span class="session-row-status ${c.online ? 'online' : 'offline'}"><span class="dot"></span>${c.online ? '在线' : '离线'}</span>
+              </div>
+            </div>
+            <div class="session-row-right">
+              ${c.badge ? `<span class="unread-badge">${c.badge}</span>` : ''}
+              <span class="session-row-owner">${c.host}</span>
+            </div>
+          </div>
+        `).join('');
+      }
+      // 把顶栏的"剩余席位 1"改为 0，添加新账号已耗尽一个席位
+      const seats = document.getElementById('currentTeamSeats');
+      if (seats) seats.textContent = '0';
+      const seatsLabels = document.querySelectorAll('.channel-team-info .badge');
+      seatsLabels.forEach(b => { if (b.textContent.indexOf('剩余席位') >= 0) b.textContent = '剩余席位 0'; });
     }
 
     const miniappHostingState = { scene: 'all' };
@@ -7846,31 +8195,156 @@
       </div>`,
 
       'channel-account-add': `<div class="stepper"><div class="step active"><div class="step-num">1</div>选择渠道类型</div><div class="step-line"></div><div class="step"><div class="step-num">2</div>添加渠道账号</div></div>
-      <div class="card" style="max-width:500px;margin:0 auto;">
+      <div class="card" style="max-width:520px;margin:0 auto;">
         <div class="card-body">
-          <div class="form-group"><label class="form-label">渠道类型</label><div style="display:flex;gap:12px;">
-            <div class="bot-card" style="flex:1;text-align:center;padding:20px;" onclick="this.style.borderColor='var(--primary)'"><div style="font-size:32px;color:#4A90D9;margin-bottom:8px;">企</div><div style="font-size:13px;">企业微信</div></div>
-            <div class="bot-card" style="flex:1;text-align:center;padding:20px;" onclick="this.style.borderColor='var(--primary)'"><div style="font-size:32px;color:#07C160;margin-bottom:8px;">微</div><div style="font-size:13px;">微信</div></div>
-            <div class="bot-card" style="flex:1;text-align:center;padding:20px;" onclick="this.style.borderColor='var(--primary)'"><div style="font-size:32px;color:#25D366;margin-bottom:8px;">W</div><div style="font-size:13px;">WhatsApp</div></div>
-          </div></div>
-          <div style="display:flex;justify-content:space-between;"><button class="btn btn-secondary" onclick="navigate('channel-accounts')">取消</button><button class="btn btn-primary" onclick="navigate('channel-account-qr')">下一步</button></div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;font-size:14px;">添加渠道账号</label>
+            <div class="channel-add-seats">
+              <span class="channel-add-seats-text">剩余席位 <em>1个</em></span>
+              <span class="channel-add-seats-buy">购买更多</span>
+            </div>
+            <div class="channel-type-list">
+              <div class="channel-type-card" data-channel="chenwei" onclick="selectChannelType(this)">
+                <div class="channel-type-icon" style="background:#fff5e6;color:#e8a649;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <div class="channel-type-info">
+                  <div class="channel-type-name">尘微</div>
+                  <div class="channel-type-desc">企业内部沟通协作平台</div>
+                </div>
+                <span class="channel-type-arrow">${icons.chevron}</span>
+              </div>
+              <div class="channel-type-card" data-channel="yunuan" onclick="selectChannelType(this)">
+                <div class="channel-type-icon" style="background:#e6f7ff;color:#4A90D9;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                </div>
+                <div class="channel-type-info">
+                  <div class="channel-type-name">邮暖</div>
+                  <div class="channel-type-desc">邮件/IM 多端通讯聚合</div>
+                </div>
+                <span class="channel-type-arrow">${icons.chevron}</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;">
+            <button class="btn btn-secondary" onclick="navigate('channel-accounts')">取消</button>
+            <button class="btn btn-primary" id="channelTypeNextBtn" disabled onclick="goChannelProtocol()">下一步</button>
+          </div>
+        </div>
+      </div>`,
+
+      'channel-account-protocol': `<div class="stepper"><div class="step done"><div class="step-num">✓</div>选择渠道类型</div><div class="step-line"></div><div class="step active"><div class="step-num">2</div>添加渠道账号</div></div>
+      <div class="card" style="max-width:480px;margin:0 auto;">
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;font-size:14px;">协议选择 <span style="color:var(--error);">*</span></label>
+            <div class="channel-protocol-select" id="channelProtocolSelect" onclick="event.stopPropagation()">
+              <div class="channel-protocol-trigger" onclick="toggleProtocolSelect();event.stopPropagation()">
+                <span class="channel-protocol-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg>
+                </span>
+                <span class="channel-protocol-value" id="channelProtocolValue">ipod (推荐)</span>
+                <span class="channel-protocol-caret">${icons.chevron}</span>
+              </div>
+              <div class="channel-protocol-dropdown" onclick="event.stopPropagation()">
+                <div class="channel-protocol-option selected" data-value="ipod" onclick="selectProtocolOption(this);event.stopPropagation()">
+                  <span class="channel-protocol-radio"></span>
+                  <span class="channel-protocol-text">
+                    <span class="channel-protocol-name">ipod (推荐)</span>
+                    <span class="channel-protocol-hint">iPad 协议 · 稳定 · 风险低</span>
+                  </span>
+                </div>
+                <div class="channel-protocol-option" data-value="pc" onclick="selectProtocolOption(this);event.stopPropagation()">
+                  <span class="channel-protocol-radio"></span>
+                  <span class="channel-protocol-text">
+                    <span class="channel-protocol-name">pc</span>
+                    <span class="channel-protocol-hint">PC 协议 · 兼容老系统</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="channel-protocol-tip" id="channelProtocolTip">基于 iPad 协议登录，账号更稳定，掉线率低</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;">
+            <button class="btn btn-secondary" onclick="navigate('channel-account-add')">上一步</button>
+            <button class="btn btn-primary" onclick="startChannelScan()">创建账号</button>
+          </div>
         </div>
       </div>`,
 
       'channel-account-qr': `<div class="stepper"><div class="step done"><div class="step-num">✓</div>选择渠道类型</div><div class="step-line"></div><div class="step active"><div class="step-num">2</div>添加渠道账号</div></div>
-      <div class="card" style="max-width:400px;margin:0 auto;text-align:center;padding:40px;">
-        <div style="margin-bottom:16px;">请使用企业微信扫码</div>
-        <div style="width:200px;height:200px;margin:0 auto;">${svgIllustration('qr')}</div>
-        <div style="margin-top:16px;font-size:12px;color:var(--text-secondary);">扫码添加渠道账号</div>
-        <div style="margin-top:24px;"><button class="btn btn-secondary" onclick="navigate('channel-account-add')">上一步</button></div>
+      <div class="card" style="max-width:480px;margin:0 auto;">
+        <div class="card-body" style="text-align:center;padding:32px 24px;">
+          <div class="channel-qr-prompt">
+            请使用企业微信扫码
+            <span class="channel-qr-scan" onclick="navigate('channel-account-waiting')">扫一扫 <span class="channel-qr-arrow">→</span></span>
+          </div>
+          <div class="channel-qr-img" id="channelQrImg"></div>
+          <div class="channel-qr-caption">扫码添加渠道账号</div>
+          <div class="channel-qr-hint">二维码 2 分钟内有效，过期后请刷新</div>
+        </div>
       </div>`,
 
-      'channel-account-qr': `<div class="stepper"><div class="step done"><div class="step-num">✓</div>选择渠道类型</div><div class="step-line"></div><div class="step active"><div class="step-num">2</div>添加渠道账号</div></div>
-      <div class="card" style="max-width:400px;margin:0 auto;text-align:center;padding:40px;">
-        <div style="margin-bottom:16px;">请使用企业微信扫码</div>
-        <div style="width:200px;height:200px;margin:0 auto;">${svgIllustration('qr')}</div>
-        <div style="margin-top:16px;font-size:12px;color:var(--text-secondary);">扫码添加渠道账号</div>
-        <div style="margin-top:24px;"><button class="btn btn-secondary" onclick="navigate('channel-account-add')">上一步</button></div>
+      'channel-account-waiting': `<div class="stepper"><div class="step done"><div class="step-num">✓</div>选择渠道类型</div><div class="step-line"></div><div class="step active"><div class="step-num">2</div>添加渠道账号</div></div>
+      <div class="card" style="max-width:480px;margin:0 auto;">
+        <div class="card-body" style="text-align:center;padding:32px 24px;">
+          <div class="channel-waiting-title">等待手机端确认</div>
+          <div class="channel-waiting-sub">请在企业微信上点击登录，完成设备授权</div>
+          <div class="channel-phone-mock" id="channelPhoneMock">
+            <div class="channel-phone-notch"></div>
+            <div class="channel-phone-screen">
+              <div class="channel-phone-statusbar"><span>10:19</span><span class="channel-phone-statusicons">●●●●● <i>5G</i> 97</span></div>
+              <div class="channel-phone-chevron">⌄</div>
+              <div class="channel-phone-pad">
+                <svg width="80" height="100" viewBox="0 0 80 100">
+                  <rect x="6" y="2" width="68" height="96" rx="8" fill="none" stroke="#3b82f6" stroke-width="2"/>
+                  <rect x="6" y="6" width="68" height="88" fill="none" stroke="#3b82f6" stroke-width="1" stroke-dasharray="2 2" opacity="0.4"/>
+                  <circle cx="40" cy="50" r="1.5" fill="#3b82f6"/>
+                </svg>
+              </div>
+              <div class="channel-phone-title">其他端 企业微信登录确认</div>
+              <div class="channel-phone-spacer"></div>
+              <div class="channel-phone-btn">登录</div>
+              <div class="channel-phone-cancel">取消登录</div>
+            </div>
+          </div>
+          <div class="channel-waiting-progress">
+            <span class="channel-pulse"></span>
+            正在等待确认…（已等待 <span id="channelWaitSec">0</span> 秒）
+          </div>
+        </div>
+      </div>`,
+
+      'channel-account-verify': `<div class="stepper"><div class="step done"><div class="step-num">✓</div>选择渠道类型</div><div class="step-line"></div><div class="step active"><div class="step-num">2</div>添加渠道账号</div></div>
+      <div class="card" style="max-width:760px;margin:0 auto;">
+        <div class="card-body" style="padding:28px 24px;">
+          <div class="channel-verify-grid">
+            <div class="channel-verify-left">
+              <div class="channel-verify-tag">请在企业微信上确认登录</div>
+              <div class="channel-verify-profile">
+                <div class="channel-verify-avatar">医</div>
+                <div class="channel-verify-name">医补通</div>
+                <div class="channel-verify-meta">通天晕·林建</div>
+              </div>
+              <button class="channel-verify-back" onclick="navigate('channel-account-waiting')">返回</button>
+            </div>
+            <div class="channel-verify-right">
+              <div class="channel-verify-title">请输入验证码</div>
+              <div class="channel-verify-subtitle">请输入扫描后，手机接收到的验证码</div>
+              <div class="channel-verify-inputs" id="channelVerifyInputs">
+                <input class="channel-verify-box" maxlength="1" data-idx="0" oninput="onVerifyBox(this)">
+                <input class="channel-verify-box" maxlength="1" data-idx="1" oninput="onVerifyBox(this)">
+                <input class="channel-verify-box" maxlength="1" data-idx="2" oninput="onVerifyBox(this)">
+                <span class="channel-verify-sep">·</span>
+                <input class="channel-verify-box" maxlength="1" data-idx="3" oninput="onVerifyBox(this)">
+                <input class="channel-verify-box" maxlength="1" data-idx="4" oninput="onVerifyBox(this)">
+                <input class="channel-verify-box" maxlength="1" data-idx="5" oninput="onVerifyBox(this)">
+              </div>
+              <div class="channel-verify-hint">6 位数字，60 秒内有效</div>
+              <button class="channel-verify-back-link" onclick="navigate('channel-account-qr')">返回重新扫码</button>
+            </div>
+          </div>
+        </div>
       </div>`,
 
       'channel-hosting': `<div class="channel-hosting-page">

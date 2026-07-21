@@ -95,3 +95,33 @@
 - 合并后共 33 个 path / 33 个 operation，含 5 个 securityScheme（ControlAuth / RuntimeAuth / DeviceAuth / InternalServiceAuth / DeviceProvisioningAuth）、12 个 tag、115 个 schema。
 - 去重与合并处理：DeviceAuth 合并为一份；`IdempotencyKey` 描述合并覆盖控制面与设备侧写操作；`responses` 5 个统一；`SuccessEnvelope/ErrorEnvelope/ConversationType` 去重；`ChannelType` 取超集（wechat/wecom/qq/unknown）；`ErrorObject.code` 枚举合并两边全部错误码，`details` 采用结构化 `ErrorDetail[]`。
 - 已用 Python 脚本做语法校验与引用完整性检查：33 path 无重复、140 个 `$ref` 全部命中、securityScheme 与 tag 无悬空引用，校验通过。
+
+## 本次继续推进（十五）— 渠道账号添加流程 7 步重构
+依据 8 张参考图（添加渠道账号2~8 + 最终 Clipboard_Screenshot），把"渠道账号管理 → 添加渠道账号"改为完整 7 步流程：
+
+- **Step 1 选择渠道类型**（`channel-account-add`）：保留 stepper，页面顶部为「添加渠道账号」标题 + 剩余席位 1个 [购买更多] 横幅，下方两张渠道类型卡片（尘微 / 邮暖），含图标、名称、描述、右侧箭头；点击后下一步按钮启用。
+- **Step 2 协议选择**（`channel-account-protocol`，新增）：stepper 第 1 步完成、第 2 步 active。协议下拉显示「ipod (推荐) / pc」两选项，含 radio 圆点 + 名称 + 说明（"iPad 协议 · 稳定 · 风险低" / "PC 协议 · 兼容老系统"），底部根据选项动态切换提示。底部按钮：上一步 / 创建账号。
+- **Step 3 扫码页**（`channel-account-qr`）：文案改为「请使用企业微信扫码 [扫一扫→]」+ 嵌入 SVG 二维码 + 「扫码添加渠道账号」+ 2 分钟有效提示；点击「扫一扫」进入等待手机确认态。
+- **Step 4 等待手机确认**（`channel-account-waiting`，新增）：用 CSS + SVG 渲染一个手机外壳 mockup（黑底、刘海、状态栏、chevron、pad SVG、「其他端 企业微信登录确认」标题、登录/取消登录按钮），下方显示「正在等待确认…（已等待 N 秒）」脉冲动画；4 秒后自动跳到验证码输入页（模拟手机端确认完成）。
+- **Step 5 验证码输入**（`channel-account-verify`，新增）：两列布局——左侧「请在企业微信上确认登录」tag + 医补通档案（医补通 / 通天晕·林建）+ 返回；右侧「请输入验证码」+ 6 个分隔输入框（3·3 格式，含中间分隔点）+ 6 位数字 60 秒有效提示 + 返回重新扫码。6 位填满后自动触发完成。
+- **Step 6 成功跳转**：完成时 toast 提示「已成功添加渠道账号，正在拉取会话列表…」，700ms 后跳到 `channel-sessions`。
+- **Step 7 渠道会话管理**：动态注入新账号「医补通」到侧边栏首位并设为 active（ipad在线），替换中间列表为该账号下的 10 个好友/群（医补@新民、Cloud@新民、聚主白银做营顾、远志-洪创意、Dr.Jack 恒康倍力、竹绿-健康-巴...、钉钉、客户联系、希犬-林瞰、钉钉会话），并把顶栏「剩余席位 1」自动降为 0（消耗一个席位）。
+
+### 实现要点
+- 5 个新页面的 CSS 组件族：`.channel-add-seats`、`.channel-type-card`、`.channel-protocol-select`、`.channel-qr-*`、`.channel-phone-mock`、`.channel-verify-*`，沿用品牌色 `--primary` 与金色点缀。
+- JS 状态机 `channelAddState = { type, protocol, waitTimer, waitSec, justAdded }`，串联 5 步流程。
+- 协议下拉点击外部自动关闭（document click 委托）。
+- 验证码输入框：仅数字、自动跳格、Backspace 回退、6 位填满自动完成。
+- 等待计时器在页面切换/完成时清理，避免内存泄漏。
+- 顺带修复：之前 `channel-account-qr` 存在两个重复 key，合并为单一定义。
+
+### 验证
+- `node --check` 语法通过。
+- agent-browser 走通完整 7 步流程，截图保存：
+  - `prototype/shot-channel-add-1-type.png`（Step 1 选择渠道类型）
+  - `prototype/shot-channel-add-2-protocol.png`（Step 2 协议选择默认）
+  - `prototype/shot-channel-add-2b-protocol-open.png`（Step 2 协议下拉打开）
+  - `prototype/shot-channel-add-3-qr.png`（Step 3 二维码）
+  - `prototype/shot-channel-add-4-waiting.png`（Step 4 等待手机确认）
+  - `prototype/shot-channel-add-5-verify.png`（Step 5 验证码输入）
+  - `prototype/shot-channel-add-6-sessions.png`（Step 7 渠道会话管理：医补通账号 + 好友/群列表 + 剩余席位 0）
