@@ -1,258 +1,116 @@
 classDiagram
-    %% ===== 核心数据实体（表） =====
-    class Team {
-        +id: str (PK)
-        +name: str
-        +seats_left: int
-        +energy_value: int
-        +created_at: str
+    %% ===== 后端：iPad 协议客户端（含 mock 兜底） =====
+    class IpadConfig {
+        +base_url : str
+        +mode : str
+        +timeout_sec : float
+    }
+    class MockState {
+        +uuid : str
+        +verified : bool
+    }
+    class IpadClient {
+        +init() IpadInitResult
+        +get_qrcode(uuid) IpadQrResult
+        +check_code(uuid, key, code) IpadCheckResult
+        +get_run_client_info(uuid) IpadClientInfo
+        +start_wecom(team_id, name) dict
+        +verify_wecom(uuid, key, code) dict
+        +poll_wecom(uuid) dict
+        -_call_real(path, payload) dict
+    }
+    class IpadInitResult {
+        +uuid : str
+        +is_login : bool
+    }
+    class IpadQrResult {
+        +qrcode : str
+        +qrcode_data : str
+        +ttl : int
+        +qrcode_key : str
+    }
+    class IpadCheckResult {
+        +ok : bool
+        +skip : bool
+    }
+    class IpadClientInfo {
+        +loginType : int
+        +userInfo : dict
+        +longLinkState : str
     }
 
-    class ChannelAccount {
-        +id: str (PK)
-        +channel: str
-        +account_name: str
-        +status: str
-        +bound_bot: str
-        +daily_quota: int
-        +team_id: str
-        +channel_type: str (wecom|wechat|whatsapp|business_whatsapp)
-        +protocol: str (e.g. 'ipad')
-        +sessions_count: int
-        +created_at: str
-    }
+    IpadClient ..> IpadConfig : reads
+    IpadClient ..> MockState : tracks per uuid
+    IpadClient ..> IpadInitResult : returns
+    IpadClient ..> IpadQrResult : returns
+    IpadClient ..> IpadCheckResult : returns
+    IpadClient ..> IpadClientInfo : returns
 
-    class ChannelSeat {
-        +channel_account_id: str (PK)
-        +seats_left: int
-        +online_sessions: int
+    %% ===== 后端：托管路由 + 仓储 + 请求模型 =====
+    class ChannelHostingRouter {
+        +POST /start(payload) dict
+        +POST /verify(payload) dict
+        +POST /poll(payload) dict
     }
-
-    class ChannelContact {
-        +id: str (PK)
-        +account_id: str (FK)
-        +channel: str (@微信/@企业微信)
-        +channel_type: str
-        +name: str
-        +nickname: str
-        +type: str (customer|internal|customer_group|internal_group)
-        +status: str (online|offline)
-        +remark: str
-        +description: str
-        +add_time: str
-        +source: str
-    }
-
-    class CustomerProfile {
-        +id: str (PK)
-        +contact_id: str (FK)
-        +phone: str
-        +email: str
-        +company: str
-        +position: str
-        +region: str
-        +age: int
-        +birthday: str
-        +remark: str
-        +add_time: str
-        +add_channel: str
-        +signature: str
-    }
-
-    class CommunicationRecord {
-        +id: str (PK)
-        +customer_id: str (FK -> CustomerProfile)
-        +content: str
-        +ai_summary: str
-        +type: str
-        +created_at: str
-    }
-
-    class CustomAttribute {
-        +id: str (PK)
-        +customer_id: str (FK -> CustomerProfile)
-        +name: str
-        +value: str
-    }
-
-    class ChannelSession {
-        +id: str (PK)
-        +account_id: str (FK)
-        +contact_id: str (FK, nullable)
-        +name: str
-        +channel: str
-        +channel_type: str
-        +last_message: str
-        +last_time: str
-        +unread_count: int
-        +read_status: str (read|unread)
-        +hosted_status: str (hosted|unhosted)
-        +hosted_bot_id: str
-        +owner: str
-        +online_status: str (online|offline)
-        +session_type: str (外部联系人|外部群聊)
-        +external_tag: str
-        +add_time: str
-        +hosting_chain: str
-    }
-
-    class HostingSession {
-        +id: str (PK)
-        +session_key: str (-> ChannelSession.id)
-        +account_id: str (FK)
-        +customer_name: str
-        +customer_remark: str
-        +add_time: str
-        +hosted_status: str (hosted|unhosted)
-        +hosting_chain: str
-    }
-
-    class HostingRule {
-        +id: str (PK)
-        +account_id: str (FK, nullable=全局)
-        +auto_resume_seconds: int (nullable)
-        +auto_cancel_enabled: int (0|1)
-    }
-
-    class WechatSubject {
-        +id: str (PK)
-        +full_name: str
-        +short_name: str
-        +corp_id: str
-        +config_json: str
-    }
-
-    class Message {
-        +id: str (PK)
-        +conversation_id: str (= ChannelSession.id)
-        +sender_type: str (bot|user|system)
-        +content: str
-        +created_at: str
-    }
-
-    %% ===== 服务层 =====
     class ChannelMgmtRepository {
-        +list_teams() list
+        +create_account_with_ipad(channel_type, protocol, team_id, name, ipad_uuid, ipad_user_info, host_status) dict
         +list_accounts_enriched() list
-        +create_account(channel_type, protocol, team_id, name) dict
-        +list_contacts(account_id?, type?, status?, search?) list
-        +get_contact_detail(contact_id) dict
-        +list_sessions(account_id?, read?, hosted?, online?, search?) list
-        +list_session_messages(session_id) list
-        +set_session_hosting(session_id, hosted, bot_id) dict
-        +list_hosting_sessions(account_id?, bot_id?, session_type?, nickname?, start?, end?) list
-        +batch_update_hosting(ids, hosted_status?, hosting_chain?) int
-        +get_hosting_rules(account_id?) dict
-        +upsert_hosting_rules(...) dict
-        +list_wechat_subjects() list
-        +create_wechat_subject(...) dict
-        +update_wechat_subject(id, ...) dict
-        +list_hosting_bots() list
-        -row_to_account(row) dict
-        -row_to_contact(row) dict
-        -row_to_session(row) dict
+    }
+    class WecomHostStartRequest {
+        +teamId : str
+        +name : str
+        +channelType : str
+    }
+    class WecomHostVerifyRequest {
+        +uuid : str
+        +qrcodeKey : str
+        +code : str
+    }
+    class WecomHostPollRequest {
+        +uuid : str
     }
 
-    class ChannelMgmtRouter {
-        +GET /channels/teams
-        +GET /channels/accounts
-        +POST /channels/accounts
-        +GET /channels/contacts
-        +GET /channels/contacts/{id}
-        +GET /channels/sessions
-        +POST /channels/sessions/{id}/hosting
-        +GET /channels/hosting-sessions
-        +POST /channels/hosting-sessions/batch-update
-        +GET/PUT /channels/hosting-rules
-        +GET/POST/PUT /channels/wechat-subjects
-        +GET /channels/hosting-bots
-    }
+    ChannelHostingRouter ..> IpadClient : uses
+    ChannelHostingRouter ..> ChannelMgmtRepository : persists on login
+    ChannelHostingRouter ..> WecomHostStartRequest : consumes
+    ChannelHostingRouter ..> WecomHostVerifyRequest : consumes
+    ChannelHostingRouter ..> WecomHostPollRequest : consumes
+    ChannelMgmtRepository ..> IpadClientInfo : stores userInfo
 
-    %% ===== 关键 DTO =====
+    %% ===== 前端 =====
+    class WecomHostingHook {
+        +step : str
+        +start(teamId, name) void
+        +submitCode(code) void
+        +back() void
+        -pollLoop() void
+    }
+    class AccountAddPage {
+        +render() JSX
+    }
+    class ChannelAddSteps {
+        +StepType() JSX
+        +StepProtocol() JSX
+        +StepQr() JSX
+        +StepWaiting() JSX
+        +StepVerify() JSX
+    }
+    class ChannelsApi {
+        +startWecomScan(data) WecomHostStartResp
+        +verifyWecomCode(data) WecomHostVerifyResp
+        +pollWecomLogin(data) WecomHostPollResp
+    }
     class AccountDTO {
-        +id: str
-        +name: str
-        +channelType: str
-        +protocol: str
-        +status: str
-        +online: bool
-        +sessionsCount: int
-        +teamId: str
-        +boundBot: str
-    }
-    class ContactDTO {
-        +id: str
-        +accountId: str
-        +name: str
-        +channel: str
-        +type: str
-        +status: str
-        +remark: str
-        +addTime: str
-    }
-    class ContactDetailDTO {
-        +contact: ContactDTO
-        +profile: CustomerProfileDTO
-        +communications: CommunicationRecordDTO[]
-        +attributes: CustomAttributeDTO[]
-    }
-    class SessionDTO {
-        +id: str
-        +accountId: str
-        +name: str
-        +lastMessage: str
-        +unreadCount: int
-        +readStatus: str
-        +hostedStatus: str
-        +hostedBotId: str
-        +owner: str
-        +onlineStatus: str
-        +externalTag: str
-    }
-    class HostingSessionDTO {
-        +id: str
-        +accountId: str
-        +customerName: str
-        +customerRemark: str
-        +addTime: str
-        +hostedStatus: str
-        +hostingChain: str
-    }
-    class HostingBotDTO {
-        +id: str
-        +name: str
+        +id : str
+        +name : str
+        +channelType : str
+        +ipadUuid : str
+        +ipadUserInfo : dict
+        +hostStatus : str
     }
 
-    %% ===== 关系 =====
-    Team "1" *-- "0..*" ChannelAccount : team_id
-    ChannelAccount "1" *-- "1" ChannelSeat : channel_account_id
-    ChannelAccount "1" *-- "0..*" ChannelContact : account_id
-    ChannelAccount "1" *-- "0..*" ChannelSession : account_id
-    ChannelAccount "1" *-- "0..*" HostingSession : account_id
-    ChannelContact "1" *-- "0..1" CustomerProfile : contact_id
-    CustomerProfile "1" *-- "0..*" CommunicationRecord : customer_id
-    CustomerProfile "1" *-- "0..*" CustomAttribute : customer_id
-    ChannelSession "0..1" *-- "0..1" ChannelContact : contact_id
-    ChannelSession "1" *-- "0..*" Message : conversation_id
-    HostingSession "0..1" --> "0..1" ChannelSession : session_key
-    HostingRule "0..1" --> "0..1" ChannelAccount : account_id
-
-    ChannelMgmtRouter ..> ChannelMgmtRepository : 调用
-    ChannelMgmtRepository ..> Team : reads
-    ChannelMgmtRepository ..> ChannelAccount : reads
-    ChannelMgmtRepository ..> ChannelContact : reads
-    ChannelMgmtRepository ..> CustomerProfile : reads
-    ChannelMgmtRepository ..> ChannelSession : reads
-    ChannelMgmtRepository ..> HostingSession : reads
-    ChannelMgmtRepository ..> HostingRule : reads
-    ChannelMgmtRepository ..> WechatSubject : reads
-    ChannelMgmtRepository ..> Message : reads
-
-    ChannelMgmtRepository ..> AccountDTO : produces
-    ChannelMgmtRepository ..> ContactDTO : produces
-    ChannelMgmtRepository ..> SessionDTO : produces
-    ChannelMgmtRepository ..> HostingSessionDTO : produces
-    ContactDetailDTO o-- "1" ContactDTO : contact
-    ContactDetailDTO o-- "0..1" CustomerProfile : profile
-    ContactDetailDTO o-- "0..*" CommunicationRecord : communications
-    ContactDetailDTO o-- "0..*" CustomAttribute : attributes
+    AccountAddPage *-- WecomHostingHook : uses
+    AccountAddPage *-- ChannelAddSteps : renders
+    WecomHostingHook ..> ChannelsApi : calls
+    ChannelsApi ..> ChannelHostingRouter : HTTP /api/channels/accounts/wecom/*
+    ChannelMgmtRepository ..> AccountDTO : maps via row_to_account

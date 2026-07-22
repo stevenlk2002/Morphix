@@ -1,439 +1,273 @@
-# Morphix「渠道会话」栏目 — 系统架构设计与任务分解
+# 系统架构设计：添加渠道账号（企业微信 iPad 协议托管）
 
-> 设计者：高见远（software-architect）　|　依据：PRD `docs/prd-channels.md` + 原型 `prototype/index.html`（行号溯源）+ 现有前后端代码
-> 后端：FastAPI + 裸 SQL `DatabaseBackend`（SQLite，`database/morphix_mvp.db`，端口 2181）；`MORPHIX_DEV=1` 启动 `init_schema()` + `seed_defaults()`
-> 前端：Vite + React18 + TS(strict) + MUI + Tailwind + lucide-react（端口 5183，代理 `/api` → 2181）
-> 交付物：`docs/system_design.md` / `docs/class-diagram.mermaid` / `docs/sequence-diagram.mermaid`（覆盖旧的 message-logs 文档）
-
----
-
-## 一、实现方案与框架选型
-
-**沿用既有技术栈，不引入任何新框架/依赖（零新增包）。**
-
-- **后端**：FastAPI + `DatabaseBackend`（裸 SQL，占位符 `?`）+ Pydantic v2。沿用 Repository 模式（SQL 集中在 `repositories.py`，Router 只调方法）。新增 `routers/channel_mgmt.py`，在 `routers/__init__.py` 中以 `api_router.include_router(...)` 挂载（统一 `/api` 前缀）。
-- **前端**：React + TS(strict)，复用 `src/api/client.ts` 的封套感知 `api` 客户端；弹窗复用 `src/components/common/Modal.tsx`；图标复用已装的 `lucide-react`（渠道类型角标用 `channelTypeIcon` 映射 SVG）。
-- **架构模式**：经典「Router → Repository → DatabaseBackend」三层；前端采用「页面组件 → 共享子组件 → `channelsApi` → 后端」的单向数据流，三栏布局用受控 state（`selectedAccountId` / `selectedSessionId` / `selectedContactId`）驱动。
-
-**核心策略**
-1. **真实接入**：本期所有列表/详情数据从 DB 获取（`USE_MOCK=false`）；缺失数据用种子填充并同步 DB。
-2. **数据模型**：新建 `channel_sessions` 表承载「渠道会话管理」IM 收件箱（不复用已 DEPRECATED 的 `conversations`）；新建 `hosting_sessions` 投影表承载「托管管理」批量页（与原型两个屏幕数据天然不同，见 §七 Q1）。
-3. **API 前缀统一**：本期新增渠道管理接口统一落 `/api/channels/...`（复数），与 `ChannelSettings.tsx` 既有契约 `/api/channels/wechat-subjects` 对齐；遗留 `/api/channel-accounts` 保留不变（向后兼容）。详见 §七 Q2。
+> 作者：高见远（Bob，架构师）｜阶段：标准 SOP 第一步（仅设计 + 任务分解，不含实现代码）
+> 范围：前端 `morphix-console` + 后端 `project/backend` 中「添加渠道账号」向导与企业微信 iPad 协议托管接入。
+> 配套图：`docs/class-diagram.mermaid`、`docs/sequence-diagram.mermaid`
 
 ---
 
-## 二、文件列表（新增 / 修改，相对仓库根）
+## 0. 关键决策摘要（给主理人 / 评审）
 
-### 后端（`project/backend/app/`）
-| 文件 | 动作 | 说明 |
+1. **后端端点决策：补齐新域 `/api/channels/accounts/wecom/*`，不复用遗留 `/channel-accounts`。**
+   经核查，`routers/channel_mgmt.py` **已实装** `POST /api/channels/accounts`（→ `ChannelMgmtRepository.create_account`），前端 `channelsApi.createAccount` 的新域契约后端是接上的；真正缺失的是 **iPad 托管子路由** 与 `ipad_uuid / ipad_user_info / host_status` 字段。遗留 `/channel-accounts` 的契约（`ChannelAccountCreateRequest: channel/accountName/boundBot/dailyQuota`）不含 iPad 托管信息，回退需改前端且丢失字段。**故补齐新域最省改动、契约一致。**
+2. **mock 兜底策略**：iPad 客户端每个方法先试真实服务（`httpx`，超时 3s）；连接失败 / 非 200 / 超时 → 返回合成数据，使前端完整 UI 流转可演示。真实服务可达时自动走真实接口。模式由 `IPAD_PROTOCOL_MODE=auto|real|mock` 控制（默认 `auto`）。
+3. **状态有状态性**：`uuid`/`qrcodeKey` 由 `start` 返回前端持有，前端在 `verify`/`poll` 时回传；后端**无状态**（不存中间态），mock 的"已验证"标记用进程内 `MockState` 按 uuid 记忆。
+4. **前端结构**：把 `AccountAdd.tsx` 拆为容器 `AccountAdd.tsx` + 步骤展示 `ChannelAddSteps.tsx` + 轮询/状态机 hook `useWecomHosting.ts`，并新建 `ChannelAdd.css` 补齐向导专有样式。
+
+---
+
+## 1. 实现方案 + 框架选型
+
+### 1.1 技术难点
+- **外部协议接入 + 高可用兜底**：iPad 协议服务可能未启动，需优雅降级到 mock，且 mock 与真实返回**同构**。
+- **长轮询状态机**：前端需在「等待扫码 → 输入验证码 → 托管成功」之间切换，依赖 `loginType`（0/1/2）驱动步骤迁移。
+- **契约缺口闭合**：新域已有列表/创建端点，但缺托管子流程与持久化字段。
+- **二维码有效期（Ttl）**：需倒计时 + 过期刷新（`start` 重建）。
+
+### 1.2 框架 / 库选型
+| 层 | 选型 | 理由 |
 |---|---|---|
-| `schema.py` | 修改 | `SCHEMA_SQL`/`INDEX_SQL` 追加新表 + `channel_accounts` 扩展列；`migrate_schema` 追加幂等 ALTER；`seed_defaults` 追加种子块 |
-| `database/init_morphix_mvp.sql` | 修改 | 同步追加相同 DDL（运行时以 `schema.py` 为准，此文件作独立初始化快照） |
-| `repositories.py` | 修改 | 新增 `ChannelMgmtRepository`（accounts/contacts/sessions/hosting/wechat-subjects/teams 读写）+ `row_to_*` 映射 |
-| `routers/channel_mgmt.py` | 新增 | 本期全部新增路由（`/channels/...`） |
-| `routers/__init__.py` | 修改 | `include_router(channel_mgmt.router)` |
-| `schemas.py` | 修改 | 新增请求模型（创建/更新渠道账号、托管规则、批量托管更新、企微主体等） |
+| 后端 HTTP 客户端 | **httpx**（已装 `0.28.1`） | 同步调用外部协议、可设超时；FastAPI 路由内同步调用即可（无需 async 外部依赖） |
+| 后端路由 | 复用 FastAPI `APIRouter`（新增 `channel_hosting.py`，前缀 `/channels/accounts/wecom`） | 与现有 `channel_mgmt.py` 同构，挂载到 `api_router`（自动带 `/api` 前缀） |
+| 后端持久化 | 裸 SQL（`DatabaseBackend` + `ChannelMgmtRepository`） | 与现有 `channel_accounts` 表一致，增量 ALTER 加列 |
+| 前端框架 | React 18 + react-router-dom v6 + TypeScript（现状） | 不改 |
+| 前端状态 | `useState` + 自定义 hook（无新库） | 轮询用 `setInterval`，无需引入状态库 |
+| 前端请求 | 现有 `channelsApi`（fetch 封装） | 新增 3 个方法即可 |
+| **前端新依赖** | **无** | 真实 / mock 二维码均由后端返回 base64，前端直接 `<img>`，无需本地生成 |
 
-### 前端（`src/`）
-| 文件 | 动作 | 说明 |
+### 1.3 架构模式
+- 后端：**分层** —— Router（契约/编排）→ iPad 客户端（外部适配 + mock 兜底）→ Repository（持久化）。iPad 客户端对上层屏蔽"真实 vs mock"差异。
+- 前端：**容器 / 展示分离** —— `AccountAddPage`（容器，持有 hook 状态）+ `ChannelAddSteps`（纯展示）+ `useWecomHosting`（状态机 + 轮询编排）。
+- 契约：**资源域裸 JSON**（与 `channel_mgmt` 一致，非统一封套域），错误返回 `{message}`。
+
+### 1.4 端点决策（明确选择）
+**采用 `/api/channels/accounts/wecom/*`（新域）。** 理由见第 0 节。最终暴露：
+- `POST /api/channels/accounts/wecom/start`
+- `POST /api/channels/accounts/wecom/verify`
+- `POST /api/channels/accounts/wecom/poll`（loginType==2 时自动持久化并返回新建账号）
+
+---
+
+## 2. 文件列表（新建 / 修改，相对路径）
+
+> 根：`/Users/stevenmac/Desktop/工作目录/Morphix/`
+> 约定：后端相对 `project/backend/`，前端相对 `morphix-console/`（`src/`）。
+
+### 后端（新建 + 修改）
+| 动作 | 路径 | 说明 |
 |---|---|---|
-| `api/client.ts` | 修改 | 扩展 `channelsApi`：accounts/contacts/sessions/hosting/wechat-subjects/teams/hosting-bots |
-| `router.tsx` | 修改 | 增加子路由 `/channels/accounts/add`、`/channels/accounts/:id/hosting` |
-| `types/channels.ts` | 新增 | 渠道域 DTO 类型（Account/Contact/Session/HostingSession/HostingRule/WechatSubject/Team/CustomerProfile…） |
-| `pages/Channels/ChannelAccounts.tsx` | 重写 | 卡片网格 + 团队信息条（P0-ACC-1） |
-| `pages/Channels/AccountAdd.tsx` | 新增 | 添加渠道账号向导（P0-ACC-2） |
-| `pages/Channels/ChannelHosting.tsx` | 新增 | 托管管理：批量托管 + 规则配置（P0-ACC-3/4） |
-| `pages/Channels/ChannelSessions.tsx` | 重写 | 三栏 IM 收件箱（P0-SES-1） |
-| `pages/Channels/ChannelContacts.tsx` | 重写 | 三栏联系人（P0-CON-1） |
-| `pages/Channels/ChannelSettings.tsx` | 重写 | 接真实后端（P0-SET-1 / P1-SET-2），`USE_MOCK=false` |
-| `pages/Channels/shared/TeamInfoBar.tsx` | 新增 | 团队信息条（ACC/SES 复用） |
-| `pages/Channels/shared/TeamSelector.tsx` | 新增 | SES 顶栏团队选择器（含新建/管理入口占位） |
-| `pages/Channels/shared/AccountListPanel.tsx` | 新增 | 左栏账号列表（渠道下拉+搜索+状态Tab，SES/CON 复用） |
-| `pages/Channels/shared/ChannelTypeBadge.tsx` | 新增 | 渠道类型角标（wechat-work/wechat/whatsapp） |
-| `pages/Channels/shared/StatusDot.tsx` | 新增 | 在线/离线状态点 |
-| `pages/Channels/sessions/SessionChatPanel.tsx` | 新增 | 右栏聊天面板（托管开关/选机器人/气泡/输入遮罩） |
-| `pages/Channels/sessions/SessionCustomerDetail.tsx` | 新增 | 右栏客户详情抽屉（双 Tab + 基本信息 + 沟通记录） |
-| `pages/Channels/contacts/ContactDetailPanel.tsx` | 新增 | 右栏联系人详情（归属/备注/描述/来源/发消息） |
-| `pages/Channels/*.css` | 修改/新增 | 复用 `prototype.css` 既有 `.channel-*`/`.session-*`/`.contacts-*`/`.hosting-*` class，补少量局部样式 |
+| 新建 | `app/ipad_client.py` | iPad 协议客户端：真实调用 + mock 兜底 + base URL/模式读取 + `MockState` |
+| 新建 | `app/routers/channel_hosting.py` | 托管路由 `start/verify/poll`（前缀 `/channels/accounts/wecom`） |
+| 修改 | `app/schemas.py` | 新增 `WecomHostStartRequest / WecomHostVerifyRequest / WecomHostPollRequest` |
+| 修改 | `app/config.py` | 新增 `ipad_protocol_base_url`、`ipad_protocol_mode` 配置项 |
+| 修改 | `app/schema.py` | `channel_accounts` 增量 DDL（幂等 ALTER：`ipad_uuid / ipad_user_info / host_status`） |
+| 修改 | `app/repositories.py` | `ChannelMgmtRepository.create_account_with_ipad(...)` + `row_to_account` 暴露新字段 |
+| 修改 | `app/routers/__init__.py` | 挂载 `channel_hosting.router` |
+| 修改 | `.env.example` | 补充 `IPAD_PROTOCOL_BASE_URL`、`IPAD_PROTOCOL_MODE` 说明 |
 
----
-
-## 三、数据库 Schema 变更（DDL）
-
-### 3.1 扩展既有 `channel_accounts`（追加列，新库 CREATE 直带、旧库 `migrate_schema` ALTER）
-```sql
-ALTER TABLE channel_accounts ADD COLUMN team_id       TEXT    NOT NULL DEFAULT '';
-ALTER TABLE channel_accounts ADD COLUMN channel_type  TEXT    NOT NULL DEFAULT '';   -- wecom|wechat|whatsapp|business_whatsapp
-ALTER TABLE channel_accounts ADD COLUMN protocol      TEXT    NOT NULL DEFAULT '';   -- 如 'ipad'
-ALTER TABLE channel_accounts ADD COLUMN sessions_count INTEGER NOT NULL DEFAULT 0;   -- 账号会话数
-```
-> 旧列 `channel`(显示名如「企业微信」)、`account_name`、`status`、`bound_bot`、`daily_quota` 保留；`channel_seats`(seats_left/online_sessions) 保留作「账号在线会话」用途，与团队席位（teams.seats_left）区分。
-
-### 3.2 新增表（CREATE IF NOT EXISTS，并入 `SCHEMA_SQL`）
-```sql
-CREATE TABLE IF NOT EXISTS teams (
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  seats_left  INTEGER NOT NULL DEFAULT 0,
-  energy_value INTEGER NOT NULL DEFAULT 0,
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS channel_contacts (
-  id          TEXT PRIMARY KEY,
-  account_id  TEXT NOT NULL,
-  channel     TEXT NOT NULL DEFAULT '',       -- 显示：@微信 / @企业微信
-  channel_type TEXT NOT NULL DEFAULT 'wechat',-- wecom|wechat|whatsapp|business_whatsapp
-  name        TEXT NOT NULL,
-  nickname    TEXT NOT NULL DEFAULT '',
-  type        TEXT NOT NULL DEFAULT 'customer', -- customer|internal|customer_group|internal_group
-  status      TEXT NOT NULL DEFAULT 'online',   -- online|offline
-  remark      TEXT NOT NULL DEFAULT '',
-  description TEXT NOT NULL DEFAULT '',
-  add_time    TEXT NOT NULL DEFAULT '',
-  source      TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS customer_profiles (
-  id          TEXT PRIMARY KEY,
-  contact_id  TEXT NOT NULL,                    -- FK channel_contacts.id
-  phone       TEXT NOT NULL DEFAULT '',
-  email       TEXT NOT NULL DEFAULT '',
-  company     TEXT NOT NULL DEFAULT '',
-  position    TEXT NOT NULL DEFAULT '',
-  region      TEXT NOT NULL DEFAULT '',
-  age         INTEGER,
-  birthday    TEXT NOT NULL DEFAULT '',
-  remark      TEXT NOT NULL DEFAULT '',
-  add_time    TEXT NOT NULL DEFAULT '',
-  add_channel TEXT NOT NULL DEFAULT '',
-  signature   TEXT NOT NULL DEFAULT '',
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS communication_records (
-  id          TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL,                    -- FK customer_profiles.id
-  content     TEXT NOT NULL DEFAULT '',
-  ai_summary  TEXT NOT NULL DEFAULT '',
-  type        TEXT NOT NULL DEFAULT 'note',     -- note|call|...
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS custom_attributes (
-  id          TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL,                    -- FK customer_profiles.id
-  name        TEXT NOT NULL DEFAULT '',
-  value       TEXT NOT NULL DEFAULT '',
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS channel_sessions (    -- 渠道会话管理(IM 收件箱) 核心表
-  id            TEXT PRIMARY KEY,
-  account_id    TEXT NOT NULL,
-  contact_id    TEXT,                            -- FK channel_contacts.id (可空)
-  name          TEXT NOT NULL,
-  channel       TEXT NOT NULL DEFAULT '',
-  channel_type  TEXT NOT NULL DEFAULT 'wechat',
-  last_message  TEXT NOT NULL DEFAULT '',
-  last_time     TEXT NOT NULL DEFAULT '',
-  unread_count  INTEGER NOT NULL DEFAULT 0,
-  read_status   TEXT NOT NULL DEFAULT 'unread', -- read|unread
-  hosted_status TEXT NOT NULL DEFAULT 'unhosted', -- hosted|unhosted
-  hosted_bot_id TEXT,
-  owner         TEXT NOT NULL DEFAULT '',
-  online_status TEXT NOT NULL DEFAULT 'online',  -- online|offline
-  session_type  TEXT NOT NULL DEFAULT '外部联系人',-- 外部联系人|外部群聊
-  external_tag  TEXT NOT NULL DEFAULT '外部',
-  add_time      TEXT NOT NULL DEFAULT '',
-  hosting_chain TEXT NOT NULL DEFAULT '-'
-);
-
-CREATE TABLE IF NOT EXISTS hosting_sessions (    -- 托管管理(批量页) 投影表
-  id             TEXT PRIMARY KEY,
-  session_key    TEXT NOT NULL DEFAULT '',        -- 关联 channel_sessions.id(预留)
-  account_id     TEXT NOT NULL,
-  customer_name  TEXT NOT NULL DEFAULT '',
-  customer_remark TEXT NOT NULL DEFAULT '',
-  add_time       TEXT NOT NULL DEFAULT '',
-  hosted_status  TEXT NOT NULL DEFAULT 'unhosted',-- hosted|unhosted
-  hosting_chain  TEXT NOT NULL DEFAULT '-'
-);
-
-CREATE TABLE IF NOT EXISTS hosting_rules (
-  id                  TEXT PRIMARY KEY,
-  account_id          TEXT,                       -- NULL = 全局
-  auto_resume_seconds INTEGER,                    -- NULL = 不恢复
-  auto_cancel_enabled INTEGER NOT NULL DEFAULT 0, -- 0|1
-  created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS wechat_subjects (
-  id          TEXT PRIMARY KEY,
-  full_name   TEXT NOT NULL,
-  short_name  TEXT NOT NULL,
-  corp_id     TEXT NOT NULL,
-  config_json TEXT NOT NULL DEFAULT '{}'
-);
-```
-
-### 3.3 索引（并入 `INDEX_SQL`）
-```sql
-CREATE INDEX IF NOT EXISTS idx_channel_accounts_team      ON channel_accounts(team_id);
-CREATE INDEX IF NOT EXISTS idx_channel_accounts_ctype    ON channel_accounts(channel_type, status);
-CREATE INDEX IF NOT EXISTS idx_channel_contacts_account  ON channel_contacts(account_id, type, status);
-CREATE INDEX IF NOT EXISTS idx_channel_sessions_account  ON channel_sessions(account_id, read_status, hosted_status, online_status);
-CREATE INDEX IF NOT EXISTS idx_hosting_sessions_account  ON hosting_sessions(account_id, hosted_status);
-CREATE INDEX IF NOT EXISTS idx_customer_profiles_contact ON customer_profiles(contact_id);
-CREATE INDEX IF NOT EXISTS idx_communication_records_cust ON communication_records(customer_id);
-CREATE INDEX IF NOT EXISTS idx_custom_attributes_cust    ON custom_attributes(customer_id);
-```
-
-### 3.4 DDL 同步
-在 `database/init_morphix_mvp.sql` 末尾追加 **完全相同** 的扩展列 + 9 张新表 DDL + 索引，保证与 `schema.py` 一致（运行时以 `schema.py` 为准，该文件仅作独立快照）。
-
----
-
-## 四、后端 API 设计
-
-新增路由文件 `routers/channel_mgmt.py`：`APIRouter(prefix="/channels", tags=["channels"])`，由 `api_router`（前缀 `/api`）挂载 → 完整路径以 `/api/channels/...` 开头。
-
-### 4.1 路由总表
-| 方法 | 路径 | 说明 | 查询/路径参数 | 请求体 |
-|---|---|---|---|---|
-| GET | `/channels/teams` | 团队列表（ACC/SES 顶部） | — | — |
-| POST | `/channels/teams` | 新建团队（P2） | — | `{name, seatsLeft?, energyValue?}` |
-| GET | `/channels/accounts` | 渠道账号列表（**扩展 DTO**，含 team/protocol/sessionsCount） | — | — |
-| POST | `/channels/accounts` | 添加渠道账号（向导完成） | — | `{channelType, protocol?, teamId?, name?}` |
-| GET | `/channels/contacts` | 联系人列表（筛选） | `accountId,type,status,search` | — |
-| GET | `/channels/contacts/{id}` | 联系人详情（含 profile/沟通记录/自定义属性） | — | — |
-| GET | `/channels/sessions` | 会话列表（IM 收件箱，筛选） | `accountId,read,hosted,online,search` | — |
-| GET | `/channels/sessions/{id}/messages` | 会话消息（聊天面板） | — | — |
-| POST | `/channels/sessions/{id}/hosting` | 开启/关闭托管 + 选机器人 | — | `{hosted:bool, botId?:string|null}` |
-| GET | `/channels/hosting-sessions` | 托管批量列表（筛选） | `accountId,botId,sessionType,nickname,start,end` | — |
-| POST | `/channels/hosting-sessions/batch-update` | 批量编辑托管状态/链 | — | `{ids:[],hostedStatus?,hostingChain?}` |
-| GET | `/channels/hosting-rules` | 托管规则 | `accountId?` | — |
-| PUT | `/channels/hosting-rules` | 保存托管规则 | — | `{accountId?,autoResumeSeconds?,autoCancelEnabled?}` |
-| GET | `/channels/wechat-subjects` | 企微主体列表 | — | — |
-| POST | `/channels/wechat-subjects` | 新增企微主体 | — | `{fullName,shortName,corpId,configJson?}` |
-| PUT | `/channels/wechat-subjects/{id}` | 更新企微主体 | — | `{fullName,shortName,corpId,configJson?}` |
-| GET | `/channels/hosting-bots` | 托管可选机器人（静态配置） | — | — |
-
-> 遗留 `GET/POST /api/channel-accounts`（`routers/channels.py`）**保留不变**，本期新版页面改用 `/api/channels/accounts`。
-
-### 4.2 关键响应结构（裸数据，无封套，与资源域一致）
-- `GET /channels/accounts` 单项：
-  ```json
-  {"id":"acc-zhulu","name":"竹绿-健康","channel":"企业微信","channelType":"wecom",
-   "protocol":"ipad","status":"online","online":true,"sessionsCount":181,
-   "teamId":"team-initial","boundBot":"yefengqiu"}
-  ```
-- `GET /channels/contacts` 单项：
-  ```json
-  {"id":"c-cloud","accountId":"acc-zhulu","name":"Cloud","channel":"@微信","channelType":"wechat",
-   "type":"customer","status":"online","remark":"","description":"","addTime":"2026-06-30 18:29:18","source":"扫码"}
-  ```
-- `GET /channels/contacts/{id}` 返回 `{contact, profile, communications:[], attributes:[]}`。
-- `GET /channels/sessions` 单项：
-  ```json
-  {"id":"ses-drjack","accountId":"acc-zhulu","contactId":"c-cloud","name":"Dr.Jack 恒康倍力",
-   "channel":"@微信","lastMessage":"可以的，后续可以用","lastTime":"10:36",
-   "unreadCount":0,"readStatus":"read","hostedStatus":"hosted","hostedBotId":"yefengqiu",
-   "owner":"竹","onlineStatus":"online","sessionType":"外部联系人","externalTag":"外部"}
-  ```
-- `GET /channels/hosting-sessions` 单项：
-  ```json
-  {"id":"hs-yangyang","accountId":"acc-zhulu","customerName":"洋洋","customerRemark":"",
-   "addTime":"2026-06-30 18:29:12","hostedStatus":"unhosted","hostingChain":"-"}
-  ```
-- `GET /channels/hosting-bots` 返回：`[{"id":"yefengqiu","name":"野风秋大健康机器人"},{"id":"yangqicheng","name":"杨奇成健康机器人"},{"id":"zhulu","name":"竹绿健康助手"}]`（静态配置 `HOSTING_BOTS`，无需建表）。
-
-### 4.3 `ChannelMgmtRepository` 方法清单（`repositories.py`）
-- `list_teams() / create_team(...)`
-- `list_accounts_enriched()`（JOIN `channel_accounts`+`channel_seats`+`teams`）
-- `create_account(channel_type, protocol, team_id, name?)`
-- `list_contacts(account_id?, type?, status?, search?)`
-- `get_contact_detail(contact_id)`（聚合 `customer_profiles`+`communication_records`+`custom_attributes`）
-- `list_sessions(account_id?, read?, hosted?, online?, search?)`
-- `list_session_messages(session_id)`（复用既有 `messages` 表，`conversation_id=session_id`）
-- `set_session_hosting(session_id, hosted, bot_id)`（UPDATE `channel_sessions`）
-- `list_hosting_sessions(account_id?, bot_id?, session_type?, nickname?, start?, end?)`
-- `batch_update_hosting(ids, hosted_status?, hosting_chain?)`
-- `get_hosting_rules(account_id?) / upsert_hosting_rules(...)`
-- `list_wechat_subjects() / create_wechat_subject(...) / update_wechat_subject(id, ...)`
-- `list_hosting_bots()`（返回 `HOSTING_BOTS`）
-
-### 4.4 `schemas.py` 新增请求模型
-`ChannelAccountUpsertRequest{channelType, protocol?, teamId?, name?}`、`HostingRuleRequest{accountId?, autoResumeSeconds?, autoCancelEnabled?}`、`HostingBatchUpdateRequest{ids:list[str], hostedStatus?, hostingChain?}`、`SessionHostingRequest{hosted:bool, botId?}`、`WechatSubjectCreateRequest{fullName, shortName, corpId, configJson?}`、`WechatSubjectUpdateRequest`（同上）、`TeamCreateRequest{name, seatsLeft?, energyValue?}`。
-
----
-
-## 五、前端组件拆分（三栏组件树）
-
-### 5.1 渠道账号管理 ACC（`/channels/accounts`）
-```
-ChannelAccountsPage
-├─ TeamInfoBar                 (团队名 / 剩余席位 / 动能值)  ← shared
-├─ AccountCardGrid
-│   ├─ AccountAddCard          (虚线添加卡 → /channels/accounts/add)
-│   └─ AccountCard            (头像 + 渠道角标 + 在线徽标[ipad在线] + 协议 + 账号会话数 + 操作[设置/托管管理/换绑团队])
-├─ AccountAdd (路由 /channels/accounts/add)  步骤条[选渠道类型→扫码]
-└─ ChannelHosting (路由 /channels/accounts/:id/hosting)
-    ├─ Tabs[批量托管 | 托管规则配置]
-    ├─ HostingFilters         (昵称/托管账号/机器人/会话类型/添加时间/标签+且或 + 重置/查询)
-    ├─ HostingTable           (列:☑/会话/相关客户昵称·备注/所属托管账号/添加时间/托管状态/托管链)
-    │   └─ HostingTableRow
-    ├─ HostingTableTools      (跨页全选/批量编辑托管链/编辑/分页)
-    └─ HostingRulesCard       (恢复时间(秒≤3600)/自动取消托管开关/保存)
-```
-
-### 5.2 渠道会话管理 SES（`/channels/sessions`）
-```
-ChannelSessionsPage
-├─ SessionTopbar              (TeamSelector + 剩余席位 + 移动端管理入口QR)  ← shared
-├─ AccountListPanel (左)      ← shared (渠道下拉 + 账号搜索 + 状态Tab[全部/在线/离线] + 账号列表)
-├─ SessionMainPanel (中)
-│   ├─ Toolbar                (会话名称搜索 + 工具行[回到顶部/定位未读/定位当前/创建群聊/一键已读])
-│   ├─ Filters                (阅读[全部/未读] + 托管[全部/已托管/未托管])
-│   └─ SessionList
-│       └─ SessionRow         (头像/名称/external tag/时间/最后消息/在线状态/未读badge/归属人)
-├─ SessionChatPanel (右1)     → sessionChatHTML
-│   ├─ ChatHeader             (名称/渠道/托管开关/选机器人下拉/托管管理/客户详情)
-│   ├─ ChatMessages           (bot/user 气泡 + 时间戳)
-│   └─ ChatInputWrap          (表情/图片/文件/文件夹 + 输入 + 发送；托管开启→disabled + 遮罩)
-└─ SessionCustomerDetail (右2, 默认 collapsed)  → sessionCustomerDetailHTML
-    ├─ Tabs[客户详情 | 渠道客户详情]
-    ├─ 客户详情 (头像/名称/渠道/添加标签/备注/基本信息[电话/邮箱/公司/职位/区域/年龄/生日/添加时间]/沟通记录)
-    └─ 渠道客户详情 (描述/添加时间/来源)
-```
-
-### 5.3 渠道联系人列表 CON（`/channels/contacts`）
-```
-ChannelContactsPage
-├─ AccountListPanel (左)      ← shared
-├─ ContactsListPanel (中)
-│   ├─ Search                 (联系人名称/备注)
-│   ├─ TypeTabs               (客户/内部成员/客户群聊/内部群聊)
-│   ├─ StatusTabs             (全部/在线/离线)
-│   └─ ContactList
-│       └─ ContactRow         (头像/名称/@渠道/状态/归属于：账号)
-└─ ContactDetailPanel (右)    → contactCustomerDetailHTML
-    ├─ Header (头像/名称/渠道/昵称id)
-    └─ Body   (归属账号/备注(填写)/描述(填写)/添加时间/来源/发消息按钮)
-```
-> 联系人详情字段与「客户管理-客户列表」抽屉共用 `customer_profiles`，本期右栏取 `GET /channels/contacts/{id}` 聚合数据（见 §七 Q5）。
-
-### 5.4 特殊渠道设置 SET（`/channels/settings`）
-```
-ChannelSettingsPage   (重写：USE_MOCK=false，接 /channels/wechat-subjects)
-├─ 主体卡片网格
-│   ├─ WechatConfigCard   (企业全称/简称/ID + 取消/保存)
-│   └─ AddCard            (虚线新增 → Modal)
-└─ AddSubjectModal       (企业全称/简称/ID → POST)
-```
-
-### 5.5 共享（ACC/SES 复用）
-`TeamInfoBar`、`TeamSelector`、`AccountListPanel`、`ChannelTypeBadge`、`StatusDot`、`types/channels.ts`、`channelsApi`。
-
----
-
-## 六、依赖包列表
-
-**无新增依赖。**
-- 后端：沿用 FastAPI / SQLite（标准库）/ Pydantic v2，`DatabaseBackend` 裸 SQL，不引入 ORM 或任何第三方库。
-- 前端：图标复用已装的 `lucide-react`；MUI/Tailwind 已在栈；不新增 npm 包。
-
----
-
-## 七、PRD 第 7 节「7 个待确认问题」设计决策与理由
-
-| # | 问题 | 决策 | 理由 |
-|---|---|---|---|
-| Q1 | 渠道会话数据模型归属 | **新建 `channel_sessions` 表**；另建 `hosting_sessions` 投影表 | `conversations` 已 DEPRECATED 且服务 `/api/control` 契约，字段（缺 account_id/external_tag/unread/owner/online）与 IM 收件箱语义不同；原型中「会话管理」(4 条：Dr.Jack/通天草/知足常乐/福寿康VIP) 与「托管管理」(6 条：洋洋/Min/xıngyue/文/丽丽/Cloud) 数据天然不同，分表最贴合原型、零漂移。 |
-| Q2 | API 前缀不一致 | 本期新增统一 `/api/channels/...`（复数）；遗留 `/api/channel-accounts` 保留 | 与 `ChannelSettings.tsx` 既有契约 `/api/channels/wechat-subjects` 对齐；复数前缀语义更清晰；旧路由不动避免契约回归。 |
-| Q3 | 团队范围 | 最小 `teams` 表 + 只读展示；P0 仅展示初始团队；P2 再做新建/管理弹窗 | ACC/SES 顶部均依赖团队条；本期聚焦渠道会话，团队作为只读上下文即可，新建团队（`POST /channels/teams`）留 P2。 |
-| Q4 | 移动端 `mobile-session-hosting` | 桌面端不做独立页面；其筛选维度（账号/机器人/单群/标签/日期）回填进桌面托管管理筛选区 | 原型列为 P2 参考态；其筛选维度已纳入 `hosting-sessions` 查询参数（accountId/botId/sessionType/nickname/start/end），移动端入口仅保留「扫码」UI 占位。 |
-| Q5 | 客户档案复用 | 渠道联系人与「客户管理-客户列表」共用 `customer_profiles`（跨栏目统一） | 详情字段高度重合（基本信息/沟通记录/自定义属性）；本期 `customer_profiles.contact_id` 关联 `channel_contacts`，右栏直接聚合返回；P2 再与客户管理打通写路径（§六 任务分解标注）。 |
-| Q6 | 托管管理入口（单账号/全局） | ACC 卡片「托管管理」→ 全局批量页 `/channels/accounts/:id/hosting`，**按当前账号名预筛** | 原型 `openHostingMgmt('竹绿-健康')` 传账号名；路由带 `:id` 并初始 `accountId` 查询参数预筛，符合「按账号预筛」且复用同一批量页。 |
-| Q7 | 真实渠道接入 | 扫码添加账号、企微扫码授权本期仅 UI + 种子 mock | 不接真实第三方网关；`POST /channels/accounts` 仅落库并置 `online` + `protocol='ipad'`；企微授权弹窗仅展示二维码 UI，不发起真实 OAuth。 |
-
-> 另：原型团队席位在 ACC 页显示「剩余席位 1」(L7805)、SES 顶栏显示「剩余席位 0」(L8103)，存在不一致。本设计统一以 `teams.seats_left` 为单一来源，种子取 **1**（对齐 ACC 团队信息条这一最明确规范），两页读同一值（SES 顶栏因此显示 1，与原型 0 差 1，属原型自身不一致，接受）。
-
----
-
-## 八、种子数据方案（表 / 量级 / 幂等守卫落地位置）
-
-### 8.1 幂等守卫约定（沿用现有 `_count(...) == 0` 模式，仅空表写入）
-全部写入位于 `schema.py` 的 `seed_defaults(backend)` 内，沿用既有 `if _count(backend, "SELECT COUNT(*) AS c FROM <表>") == 0:` 守卫；扩展列通过 `migrate_schema` 的 `_has_column` 检测后 `ALTER TABLE` 幂等追加。**改种子后验证需删除 `database/morphix_mvp.db` 重启后端重新生成**（与现有约定一致）。
-
-### 8.2 种子量级与关键行
-| 表 | 量级 | 关键内容 |
+### 前端（新建 + 修改）
+| 动作 | 路径 | 说明 |
 |---|---|---|
-| `teams` | 1 | `(team-initial, 初始团队, seats_left=1, energy_value=908)` |
-| `channel_accounts` | 3（**替换**原有 ch-1/2/3 demo 行，对齐原型） | `acc-zhulu`(企业微信/竹绿-健康/online/ipad/会话181/team-initial/bound_bot=yefengqiu)、`acc-hengkang`(企业微信/恒康倍力/online/ipad/会话73)、`acc-fushou`(微信/福寿康/offline//会话12) |
-| `channel_seats` | 3（随账号 id 更新） | `(acc-zhulu,580,20)`/`(acc-hengkang,285,15)`/`(acc-fushou,110,10)` |
-| `channel_contacts` | 12（均属 `acc-zhulu`） | 客户7(Cloud/拾柒/didi/小星星/常胜将军/快乐的小可爱/开心)+内部2(张三/李四)+客户群聊2(远志…/中医流体学入门会员)+内部群聊1(内部运营群) |
-| `customer_profiles` | 5 | 对 Cloud/didi/张三/常胜将军/开心 各 1 条（半数字段留空 `--`，add_time 2026-06-30/07-03） |
-| `communication_records` | 1 | didi 一条演示「有态」记录 |
-| `custom_attributes` | 1 | didi 一条自定义属性 |
-| `channel_sessions` | 4 | ses-drjack(在线/已读/已托管/yefengqiu)、ses-tongtian(在线/未读2/未托管)、ses-zhizu(离线/已读/已托管)、ses-fushou(离线/已读/未托管)，均属 acc-zhulu |
-| `messages`（复用既有表） | ~8 | 为上述 4 个 `channel_sessions.id` 各写 1–3 条（conversation_id=session_id），ses-drjack 写入原型 Dr.Jack 对话气泡（L5980-5986） |
-| `hosting_sessions` | 6 | 洋洋/Min/xıngyue/文/丽丽/Cloud，均 acc-zhulu，add_time 2026-06-30 18:27–18:29，hosted_status=unhosted，hosting_chain='-' |
-| `hosting_rules` | 1 | `(全局 NULL, auto_resume_seconds=NULL, auto_cancel_enabled=0)` |
-| `wechat_subjects` | 1 | `(wx-subj-1, 医林通健康科技, 医林通, ww8f2a1c3d4e5, '{}')` |
-| `hosting_bots` | 静态配置（非表） | `HOSTING_BOTS = [yefengqiu, yangqicheng, zhulu]` |
+| 修改 | `src/api/client.ts` | `channelsApi` 新增 `startWecomScan / verifyWecomCode / pollWecomLogin` |
+| 修改 | `src/types/channels.ts` | 新增 `WecomHostStartResp / WecomHostVerifyResp / WecomHostPollResp / WecomUserInfo` |
+| 新建 | `src/pages/Channels/useWecomHosting.ts` | 向导状态机 + 轮询编排 hook |
+| 修改 | `src/pages/Channels/AccountAdd.tsx` | 重写为 6 步容器（选类型→选协议→二维码→等待→验证码→完成） |
+| 新建 | `src/pages/Channels/ChannelAddSteps.tsx` | 各步骤纯展示组件（StepType/StepProtocol/StepQr/StepWaiting/StepVerify） |
+| 新建 | `src/pages/Channels/ChannelAdd.css` | 向导专有样式（见下） |
 
-> **注意事项**：`channel_accounts` 种子由原有 3 条 demo 改为原型 3 条，需同步把 `channel_seats` 种子 id 改为 `acc-zhulu/acc-hengkang/acc-fushou`（`channel_seats.channel_account_id` 逻辑关联，无外键约束）。其他功能（如 `message_logs`）仅用账号名字符串、无硬 FK，不受替换影响；若概览页等处引用旧 demo 账号名，一并改指新 id（低风险）。
+### CSS 决策（重要）
+- 核查结果：`src/pages/prototype.css` **无任何** `.channel-*` 类（grep 0 匹配）；`src/pages/Channels/Channels.css` 含 50 处 `channel-` 匹配，但**仅** `.channel-account-protocol` 与向导相关，缺少 `phone-mock / verify-box / qr-img / account-add / account-qr / account-waiting / account-verify` 等原型专有类。
+- **结论**：新建 `src/pages/Channels/ChannelAdd.css` 补齐向导专有类（`ChannelAdd.tsx` 内 `import './ChannelAdd.css'`），不污染 `Channels.css` 与 `prototype.css`。
 
 ---
 
-## 九、共享知识（跨文件约定）
+## 3. 数据结构与接口（类图 + JSON Schema）
 
-- **状态枚举**：`hosted_status ∈ {hosted, unhosted}`（前端映射 已托管/未托管）；`read_status ∈ {read, unread}`；`online_status/status ∈ {online, offline}`；`type ∈ {customer, internal, customer_group, internal_group}`；`channel_type ∈ {wecom, wechat, whatsapp, business_whatsapp}`。
-- **命名转换**：DB snake_case → DTO camelCase，沿用 `row_to_*`（`channel_type→channelType`、`sessions_count→sessionsCount`、`auto_resume_seconds→autoResumeSeconds` 等）。
-- **日期展示**：`YYYY-MM-DD HH:mm:ss`；会话列表 `last_time` 可用相对值（10:36/昨天）由前端格式化。
-- **分页结构**：列表类沿用 `{items, total, page, pageSize, hasMore}`（`paginate_result` / 前端 `Paged<T>`）；联系人/会话列表本期可全量返回（数据量小），预留分页参数。
-- **托管机器人来源**：`GET /channels/hosting-bots` 静态返回；聊天面板「选择机器人」与托管「托管AI机器人」筛选共用。
-- **图标映射**：`channelTypeIcon`：wechat-work/wechat/whatsapp（原型 L2244-2251）；账号角标 class `channel-account-type wechat-work`；前端 `ChannelTypeBadge` 内联同款 SVG，避免引入图片资源。
-- **接真实后端开关**：`ChannelSettings.tsx` 置 `USE_MOCK=false`；其余页面移除本地 `MOCK` 常量，直接走 `channelsApi`。
-- **聊天输入遮罩**：`hosted_status==hosted` 时输入框 `disabled` + 显示「已开启机器人托管，请关闭托管后再手动回复」。
+> 类图见 `docs/class-diagram.mermaid`（已在第 0–2 节引用的 `IpadClient / ChannelHostingRouter / ChannelMgmtRepository / WecomHostingHook / AccountAddPage` 等）。
+
+### 3.1 iPad 客户端归一化结构（mock 与真实同构）
+
+```python
+# app/ipad_client.py —— 仅签名与返回结构（设计，不含实现体）
+class IpadInitResult:    uuid: str;        is_login: bool
+class IpadQrResult:      qrcode: str|None; qrcode_data: str|None; ttl: int; qrcode_key: str
+class IpadCheckResult:   ok: bool;         skip: bool
+class IpadClientInfo:    loginType: int;   userInfo: dict|None;       longLinkState: str
+
+# 模块级函数
+init()                 -> IpadInitResult
+get_qrcode(uuid)       -> IpadQrResult
+check_code(uuid,key,code) -> IpadCheckResult
+get_run_client_info(uuid) -> IpadClientInfo
+start_wecom(team_id,name) -> dict   # {uuid, qrcode, qrcode_data, ttl, qrcodeKey, mock}
+verify_wecom(uuid,key,code) -> dict # {ok, skip}
+poll_wecom(uuid)       -> dict      # {loginType, userInfo, longLinkState, mock}
+```
+
+### 3.2 后端接口契约（给前端的 3 个端点）
+
+**`POST /api/channels/accounts/wecom/start`**
+请求：
+```json
+{ "teamId": "team-initial", "name": "企业微信-新账号", "channelType": "wecom" }
+```
+响应（200）：
+```json
+{
+  "uuid": "427d7ee5-...",
+  "qrcode": "http://.../x.png | null",
+  "qrcodeData": "/9j/4AAQ... (base64 PNG) | null",
+  "qrcodeKey": "5DBC31948BB057101F9C6B93569FB39B",
+  "ttl": 600,
+  "mock": false
+}
+```
+
+**`POST /api/channels/accounts/wecom/verify`**
+请求：`{ "uuid": "...", "qrcodeKey": "...", "code": "369130" }`
+响应（200）：`{ "ok": true }` 或 `{ "ok": true, "skip": true }`（`qrcode_not need verify` 时）
+
+**`POST /api/channels/accounts/wecom/poll`**
+请求：`{ "uuid": "..." }`
+响应（进行中，200）：
+```json
+{ "loginType": 1, "userInfo": null, "longLinkState": "CONNECTING", "mock": false }
+```
+响应（托管成功，200，后端已自动持久化）：
+```json
+{
+  "loginType": 2,
+  "userInfo": { "nickname": "林建", "corpName": "通天晕", "avatar": "...", "userId": 1688xxx, "corpId": "..." },
+  "longLinkState": "CONNECTED",
+  "mock": false,
+  "account": { "id": "acc-xxx", "name": "...", "channelType": "wecom", "ipadUuid": "...", "hostStatus": "hosted", "..." }
+}
+```
+错误：资源域返回 `{"message": "..."}` + 合适状态码（如 400 参数缺失 / 502 iPad 服务异常且 mock 也失败）。
+
+### 3.3 `channel_accounts` 表 DDL 增量（幂等 ALTER，加入 `schema.py` 现有迁移循环）
+
+```sql
+-- 追加到 schema.py 的 _channel_account_cols 迁移循环（沿用 _has_column 幂等模式）
+ALTER TABLE channel_accounts ADD COLUMN ipad_uuid      TEXT NOT NULL DEFAULT '';
+ALTER TABLE channel_accounts ADD COLUMN ipad_user_info TEXT NOT NULL DEFAULT '{}';   -- JSON 字符串
+ALTER TABLE channel_accounts ADD COLUMN host_status    TEXT NOT NULL DEFAULT 'pending'; -- pending|hosted|failed|expired
+```
+> 说明：初始 `CREATE TABLE` 可不改（迁移循环覆盖旧库）；新库经 `CREATE IF NOT EXISTS` 后同样由循环补齐。默认值保证旧 `INSERT` 语句（不含新列）仍有效。
+
+### 3.4 `ChannelMgmtRepository` 扩展（仅签名）
+```python
+def create_account_with_ipad(self, channel_type, protocol, team_id, name,
+                             ipad_uuid, ipad_user_info, host_status="hosted") -> dict:
+    # INSERT 含全部列：... , ipad_uuid, ipad_user_info, host_status
+    # 复用 _generate_id("acc")；channel_label 同 create_account；status='online'
+```
+`row_to_account` 增加：`ipadUuid = row.get("ipad_uuid","")`；`ipadUserInfo = json.loads(row.get("ipad_user_info") or "{}") or None`；`hostStatus = row.get("host_status","pending")`。
+
+### 3.5 前端 `channelsApi` 新增方法 + 类型
+```typescript
+// src/api/client.ts —— channelsApi 内新增
+startWecomScan: (d: { teamId: string; name?: string; channelType?: string }) =>
+  api.post<WecomHostStartResp>('/channels/accounts/wecom/start', d),
+verifyWecomCode: (d: { uuid: string; qrcodeKey: string; code: string }) =>
+  api.post<WecomHostVerifyResp>('/channels/accounts/wecom/verify', d),
+pollWecomLogin: (d: { uuid: string }) =>
+  api.post<WecomHostPollResp>('/channels/accounts/wecom/poll', d),
+
+// src/types/channels.ts 新增
+export interface WecomUserInfo { acctid?: string; avatar?: string; corpId?: string|number;
+  mobile?: string; nickname?: string; realname?: string; userId?: string|number; corpName?: string }
+export interface WecomHostStartResp { uuid: string; qrcode: string|null; qrcodeData: string|null;
+  qrcodeKey: string; ttl: number; mock: boolean }
+export interface WecomHostVerifyResp { ok: boolean; skip?: boolean }
+export interface WecomHostPollResp { loginType: 0|1|2; userInfo: WecomUserInfo|null;
+  longLinkState: string; mock: boolean; account?: AccountDTO }
+```
 
 ---
 
-## 十、典型流程时序图（另见 `sequence-diagram.mermaid`）
+## 4. 程序调用流程（时序图，mermaid）
 
-1. **会话列表加载**：前端 `ChannelSessionsPage` 并行 `GET /channels/teams` + `GET /channels/accounts`；用户选账号 → `GET /channels/sessions?accountId=` → `ChannelMgmtRepository.list_sessions` → DB → DTO → 渲染左/中栏。
-2. **开启托管**：用户切换聊天面板开关 → `POST /channels/sessions/{id}/hosting {hosted:true, botId}` → repo 更新 `channel_sessions` → 返回更新后 session → 前端禁用输入 + 显示遮罩。
-3. **联系人详情加载**：左栏选账号 → `GET /channels/contacts?accountId=` → 中栏选联系人 → `GET /channels/contacts/{id}`（聚合 profile/沟通记录/属性）→ 渲染右栏。
-4. **批量托管更新**：托管管理页勾选 → `POST /channels/hosting-sessions/batch-update {ids, hostedStatus}` → repo 更新 `hosting_sessions` → 返回影响行数 → 刷新表格。
-
----
-
-## 十一、任务列表（有序 + 依赖，按子版面分组）
-
-> 实现顺序：后端基础（T01–T05）→ 前端 API/路由/共享（T06–T08，可与后端并行）→ 各子版面前端（T09–T12）→ 联调自查（T13）。P0 优先。
-
-| Task | 子版面 | 名称 | 涉及文件 | 依赖 | 优先级 | 验收点 |
-|---|---|---|---|---|---|---|
-| T01 | 后端基础 | Schema 扩展 + 新表 DDL | `schema.py`、`database/init_morphix_mvp.sql` | — | P0 | `init_schema` 可建表；`channel_accounts` 含 team_id/channel_type/protocol/sessions_count；9 张新表存在；索引建立 |
-| T02 | 后端基础 | 种子数据扩展 | `schema.py`(seed_defaults)、`database/init_morphix_mvp.db`(重跑) | T01 | P0 | 删库重启后：teams(1)/accounts(3 原型账号)/contacts(12)/profiles(5)/sessions(4)/hosting_sessions(6)/hosting_rules(1)/wechat_subjects(1) 均落库；`channel_seats` id 同步 |
-| T03 | 后端基础 | ChannelMgmtRepository | `repositories.py` | T01 | P0 | 各 list/get/create/update 方法可用，SQL 集中、返回 DTO |
-| T04 | 后端基础 | 路由 + 注册 + 请求模型 | `routers/channel_mgmt.py`、`routers/__init__.py`、`schemas.py` | T03 | P0 | `/api/channels/{teams,accounts,contacts,sessions,hosting-sessions,hosting-rules,wechat-subjects,hosting-bots}` 全部可 200；`__init__` 注册成功 |
-| T05 | 后端基础 | 重启后端验证 | `database/morphix_mvp.db` | T01–T04 | P0 | 后端启动无报错；curl 各端点返回种子数据 |
-| T06 | 前端基础 | API 层扩展 | `api/client.ts`、`types/channels.ts` | — | P0 | `channelsApi` 含 accounts/contacts/sessions/hosting/wechat-subjects/teams/hosting-bots；DTO 类型齐全 |
-| T07 | 前端基础 | 路由 + 子路由 | `router.tsx` | — | P0 | `/channels/accounts/add`、`/channels/accounts/:id/hosting` 可达；旧 4 路由保留 |
-| T08 | 前端基础 | 共享组件/工具 | `pages/Channels/shared/*`、`ChannelTypeBadge`、`StatusDot`、`AccountListPanel`、`TeamInfoBar`、`TeamSelector` | — | P0 | 共享三栏左栏/团队条/角标可复用；ACC/SES/CON 引用一致 |
-| T09 | ACC | 账号管理+向导+托管 | `ChannelAccounts.tsx`、`AccountAdd.tsx`、`ChannelHosting.tsx` + 共享 | T04,T06,T07,T08 | P0 | 卡片网格+团队条(P0-ACC-1)；添加向导(P0-ACC-2)；托管批量+规则(P0-ACC-3/4)；数据来自 API |
-| T10 | SES | 三栏会话+聊天+详情 | `ChannelSessions.tsx`、`sessions/SessionChatPanel.tsx`、`sessions/SessionCustomerDetail.tsx` + 共享 | T04,T06,T07,T08 | P0 | 三栏重建(P0-SES-1)；托管开关/选机器人/遮罩(P0-SES-2)；客户详情双Tab(P0-SES-3)；消息来自 `messages` 表 |
-| T11 | CON | 三栏联系人 | `ChannelContacts.tsx`、`contacts/ContactDetailPanel.tsx` + 共享 | T04,T06,T07,T08 | P0 | 左账号+中类型/状态Tab+右详情(P0-CON-1)；发消息按钮(P1-CON-2) |
-| T12 | SET | 特殊渠道设置接后端 | `ChannelSettings.tsx` | T04,T06 | P0 | `USE_MOCK=false`；GET/POST/PUT `/channels/wechat-subjects` 生效(P0-SET-1/P1-SET-2) |
-| T13 | 联调 | 自查与联调 | 仓库根（前端 `npm run build`、后端启动） | T05,T09–T12 | P1 | tsc 无错；4 子版面数据均从 DB 加载；视觉对齐原型 class/状态标签(P2-UI) |
-
-> **范围备注（P2，不在本期派工）**：移动端 `mobile-session-hosting` 独立页（T13 仅桌面端）；换绑团队/团队新建弹窗（`POST /channels/teams` 后端已留，前端 P2）；客户详情「添加标签」联动 `customer_tags`、沟通记录 AI 总结；联系人与客户管理档案写路径打通。后端接口与种子已为这些预留。
+> 完整时序见 `docs/sequence-diagram.mermaid`。要点：
+> 1. **start**：前端 → 路由 → `IpadClient.start_wecom`（先试真实 `init`+`getQrCode`，失败转 mock）→ 返回 `uuid/qrcodeData/qrcodeKey/ttl/mock`。
+> 2. **轮询（扫码前）**：每 2s `poll`，`loginType` 0→1 表示已扫码；前端由 step4(waiting) 自动跳 step5(verify)。
+> 3. **verify**：用户输 6 位码 → `CheckCode`；遇 `qrcode_not need verify` 视为 `ok+skip`；mock 下标记 `MockState[ uuid ].verified=true`。
+> 4. **轮询（验证后）**：继续 `poll`，mock 下 `verified` 后返回 `loginType=2` + 合成 `userInfo`；真实下由 iPad 服务返回。
+> 5. **持久化**：路由在 `loginType==2` 时调用 `create_account_with_ipad(...)` 落库，返回含 `account` 的响应；前端 toast + `navigate('/channels/accounts')`。
 
 ---
 
-## 十二、附：Mermaid 图
+## 5. 待明确事项（UNCLEAR / 假设）
 
-- 类图：`docs/class-diagram.mermaid`
-- 时序图：`docs/sequence-diagram.mermaid`
+1. **pc 协议 / 非 wecom 渠道本期如何处理？** 当前仅设计 **wecom + ipad** 完整扫码流。wechat / whatsapp / pc 协议建议 MVP 走「暂未接入」提示或简单 `createAccount`，不在本期实现真实对接。（假设：仅 wecom/ipad 走向导流程）
+2. **席位校验**：原型显示「剩余席位 1 个」。是否要在 `start` 前校验 `teams.seats_left` 并阻止超限？超限提示语？添加成功后是否扣减 `seats_left`？（假设：本期不校验、不扣减，仅展示）
+3. **托管成功后是否立即绑定 bot？** 现有 `create_account` 写死 `bound_bot='yefengqiu'`。是否改为可选 / 让用户选 / 保持默认？（假设：保持默认 `yefengqiu`）
+4. **`daily_quota` 默认值**：新账号当前 `0`，是否合理？（假设：保持 0，后续产品定）
+5. **二维码过期刷新**：`ttl` 到期后是否提供「刷新」按钮重新 `start`？（假设：提供刷新 → 重新 `start`）
+6. **`vid` 复用 / 自动登录**：本期是否持久化 `vid` 以跳过验证码？（假设：不处理，每次新设备，强制走验证码）
+7. **`longLinkState` 是否展示/持久化**：建议仅随 `userInfo` 返回前端展示，不落库（或落 `ipad_user_info` JSON）。（假设：不单独落库）
+8. **团队选择**：当前 `listTeams()` 取第一个 `teamId`。是否要用户在 step1/step2 选择团队？（假设：取第一个，后续增强）
+
+---
+
+## 6. 任务列表（有序、含依赖、按实现顺序）
+
+> ⚠️ **硬上限遵守**：任务数 ≤ 5，每个任务 ≥ 3 个文件，按模块分组。以下为**官方任务分解**（4 个）；用户原始 T1–T6 细粒度映射见 6.2。
+
+### 6.1 官方任务分解
+
+| ID | 任务 | 文件 | 负责 | 依赖 | 优先级 |
+|---|---|---|---|---|---|
+| **T01** | 后端：iPad 协议客户端 + 托管路由 + 表字段迁移 | `app/ipad_client.py`(新)、`app/routers/channel_hosting.py`(新)、`app/schemas.py`(改)、`app/config.py`(改)、`app/schema.py`(改)、`app/repositories.py`(改)、`app/routers/__init__.py`(改) | 后端 | 无 | P0 |
+| **T02** | 前端：API 层 + 类型 + 轮询 hook | `src/api/client.ts`(改)、`src/types/channels.ts`(改)、`src/pages/Channels/useWecomHosting.ts`(新) | 前端 | T01 | P0 |
+| **T03** | 前端：AccountAdd 向导重写 + 步骤组件 + 样式 | `src/pages/Channels/AccountAdd.tsx`(改/重写)、`src/pages/Channels/ChannelAddSteps.tsx`(新)、`src/pages/Channels/ChannelAdd.css`(新) | 前端 | T02 | P0 |
+| **T04** | 联调验证（mock + 真实）+ 配置与文档 | `tests/test_channel_hosting.py`(新)、`.env.example`(改)、`docs/runbook-channel-add.md`(新) | 前后端 | T01,T02,T03 | P1 |
+
+### 6.2 （附）用户 T1–T6 与官方任务映射（参考，不计入硬上限）
+- T1 iPad 客户端 + mock 兜底 → **T01**
+- T2 托管路由 + 表字段迁移 → **T01**
+- T3 channelsApi 新增方法 → **T02**
+- T4 AccountAdd 向导重写（5 步 + 轮询 + 验证码）→ **T02 + T03**（hook 在 T02，UI 在 T03）
+- T5 ChannelAdd.css 补齐样式 → **T03**
+- T6 联调验证 → **T04**
+
+### 6.3 任务依赖图
+```mermaid
+graph TD
+    T01[T01 后端基建<br/>iPad客户端+路由+迁移] --> T02[T02 前端API层<br/>client+types+hook]
+    T02 --> T03[T03 前端向导<br/>AccountAdd+Steps+CSS]
+    T01 --> T04[T04 联调验证]
+    T02 --> T04
+    T03 --> T04
+```
+
+---
+
+## 7. 依赖包列表
+
+| 包 | 用途 | 状态 |
+|---|---|---|
+| `httpx==0.28.1` | 后端调用 iPad 协议服务（已写入 `requirements.txt`） | ✅ 已装，无需新增 |
+| `pydantic` | 请求模型（FastAPI 自带） | ✅ |
+| 前端：`react` / `react-router-dom` / `lucide-react` | 现有 | ✅ 无新依赖 |
+| 二维码生成库（`qrcode` 等） | **不需要**——二维码由 iPad 服务 / mock 后端返回 base64 | ➖ 不引入 |
+
+---
+
+## 8. 共享知识（跨文件约定）
+
+- **环境变量**：`IPAD_PROTOCOL_BASE_URL`（默认 `http://127.0.0.1:9912`，即服务 host:port 根；客户端自动拼接 `/wxwork/<Action>`）、`IPAD_PROTOCOL_MODE`（`auto`|`real`|`mock`，默认 `auto`）。`auto` = 先真实，失败转 mock。
+- **真实调用超时**：`httpx` `timeout=3s`；连接异常 / HTTP 非 200 / 超时 → 转 mock（返回合成数据，`mock:true`）。
+- **mock 二维码样本**：占位 base64（1×1 透明 PNG 或灰色占位图），前端以 `<img src="data:image/png;base64,...">` 渲染，**不可真实扫码**，仅演示。占位 data URL 示例：`data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==`。
+- **UUID 生成**：mock 用 `uuid.uuid4()`；真实由 `init` 返回并原样透传。
+- **loginType 推进规则（mock）**：`start` 后 `poll` 立即返回 `loginType=1`（已"扫码"，用于演示跳到验证码步骤）；`verify_wecom` 调用后 `MockState[uuid].verified=True`；此后 `poll` 返回 `loginType=2` + 合成 `userInfo`。真实模式完全由 iPad 服务决定。
+- **错误码 `qrcode_not need verify`**：视为 `ok=true, skip=true`，前端跳过"等待"直接进入登录完成态（等价于已验证）。
+- **前端轮询**：`poll` 间隔 **2000ms**；整体超时 = `ttl + 60s`（默认 660s）或固定 120s；超时提示「二维码已过期，请刷新」→ 重新 `start`。
+- **二维码字段优先级**：后端同时返回 `qrcode`(url) 与 `qrcodeData`(base64)；前端优先用 `qrcodeData` 渲染（避免跨域/本地服务不可达问题）。
+- **错误响应格式**：资源域错误返回 `{"message": "..."}` + 合适状态码；前端 `ApiClientError` 取 `message` 字段展示。
+- **持久化时机**：仅当 `poll` 返回 `loginType==2` 时，由**后端**自动 `create_account_with_ipad` 落库（带 `uuid` + `userInfo`），返回 `account`；前端不单独调用 `createAccount`。
+- **步骤状态机**（前端 `useWecomHosting`）：`type → protocol → qr → (waiting ⇄ verify) → done`。`qr` 即启动轮询；`loginType` 驱动 `waiting↔verify` 与最终 `done`。
+
+---
+
+_交付物：`docs/system_design.md`、`docs/class-diagram.mermaid`、`docs/sequence-diagram.mermaid`。下一步（SOP 后续）：T01–T04 实施、真实 iPad 服务联调、非 wecom 渠道接入策略确认。_

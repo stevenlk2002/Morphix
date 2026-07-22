@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    participant FE as 前端
+    participant HOST as channel_hosting(poll)
+    participant REPO as ChannelMgmtRepository
+    participant SYNC as IpadSyncService
+    participant CLI as IpadClient
+    participant IPAD as iPad协议服务
+    participant DB as SQLite
+
+    Note over FE,IPAD: 流程1：托管成功 → 自动首次全量同步
+    FE->>HOST: POST /channels/accounts/wecom/poll {uuid}
+    HOST->>CLI: poll_wecom(uuid)
+    CLI->>IPAD: GetRunClientInfo
+    IPAD-->>CLI: loginType=2, userInfo
+    HOST->>REPO: create_account_with_ipad(ipad_uuid=uuid)
+    REPO->>DB: INSERT channel_accounts
+    HOST-->>FE: {account, loginType=2}
+    HOST->>SYNC: spawn run_full_sync(account_id) [后台线程, try/except]
+
+    Note over FE,DB: 流程2：手动同步按钮 → 同步任务
+    FE->>SYNC: POST /channels/sync {accountId}
+    SYNC->>REPO: get_account_by_id(accountId)
+    SYNC->>CLI: get_inner_contacts(uuid, strSeq)
+    CLI->>IPAD: GetInnerContacts
+    IPAD-->>CLI: data.list[]
+    loop 游标续查直到空 / 累计≥5000 上限
+        SYNC->>REPO: upsert_channel_contact(...) / external / session / group
+    end
+    SYNC-->>FE: {counts, degraded}
+
+    Note over FE,IPAD: 流程3：前端发消息 → 后端 → iPad
+    FE->>SYNC: POST /channels/send-text {accountId, targetType, targetId, content}
+    SYNC->>REPO: 解析 target → user_id/room_id + isRoom
+    SYNC->>CLI: send_text_msg(uuid, send_userid, isRoom, content)
+    CLI->>IPAD: SendTextMsg
+    IPAD-->>CLI: data{msg_id, server_id, ...}
+    SYNC-->>FE: {msgId, ok:true}
+    FE->>FE: 本地乐观追加消息气泡

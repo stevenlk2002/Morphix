@@ -1,0 +1,130 @@
+classDiagram
+    class channel_accounts {
+        +TEXT id PK
+        +TEXT ipad_uuid
+        +TEXT sync_status
+        +TEXT last_sync_at
+        +TEXT callback_url
+        +TEXT callback_type
+    }
+    class channel_contacts {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT user_id
+        +TEXT type
+        +TEXT label_ids
+        +TEXT extra_json
+    }
+    class customer_profiles {
+        +TEXT id PK
+        +TEXT contact_id
+        +TEXT tags
+    }
+    class messages {
+        +TEXT id PK
+        +TEXT conversation_id
+        +TEXT sender_type
+        +TEXT content
+        +TEXT server_id
+        +INTEGER msg_type
+        +TEXT sender_id
+        +TEXT direction
+        +TEXT content_type
+        +TEXT media_url
+        +TEXT media_meta
+        +INTEGER is_read
+        +TEXT channel_account_id
+    }
+    class ipad_label_map {
+        +TEXT account_id PK
+        +TEXT ipad_label_id PK
+        +TEXT label_name
+        +TEXT label_group_id
+        +TEXT tag_id
+        +INTEGER sync_type
+    }
+    class customer_tags {
+        +TEXT id PK
+        +TEXT group_id
+        +TEXT name
+    }
+    class customer_tag_relations {
+        +TEXT customer_id PK
+        +TEXT tag_id PK
+    }
+    class channel_sessions {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT remote_session_id
+        +INTEGER unread_count
+        +TEXT read_status
+    }
+    class channel_groups {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT group_type
+    }
+    class IpadClient {
+        +get_label_list(uuid, index, sync_type)
+        +user_add_labels(uuid, userid, labelid_list)
+        +search_contact(uuid, phoneNumber)
+        +add_search(uuid, vid, openId, phone, content, ticket)
+        +add_wx_user(uuid, vid, content)
+        +agree_user(uuid, corpid, vid)
+        +get_group_msg_list(uuid)
+        +sync_all_data(uuid, limit, seq)
+        +mark_as_read(uuid, send_userid, isRoom)
+        +cdn_upload_img(file, uuid)
+        +cdn_upload_file(file, uuid)
+        +send_cdn_img_msg(...)
+        +send_cdn_file_msg(...)
+        +set_callback_url(uuid, url, callbackType)
+    }
+    class IpadSyncService {
+        +sync_labels(account_id)
+        +search_contact(account_id, keyword)
+        +add_search_contact(...)
+        +mark_session_read(account_id, session_id)
+        +backfill_messages(account_id)
+        +send_media_message(account_id, target, file)
+        +handle_callback(uuid, json, type)
+        +register_callback(account_id)
+    }
+    class ChannelMgmtRepository {
+        +upsert_ipad_label()
+        +get_ipad_labels(account_id)
+        +map_ipad_labels_to_names(account_id, label_ids)
+        +upsert_channel_message(msg)
+        +list_session_messages_ext(session_id, cursor)
+        +message_exists(conversation_id, server_id)
+        +set_account_callback(account_id, url, type)
+        +add_contact_from_search(account_id, item)
+        +mark_session_read_db(session_id)
+    }
+    class IpadSyncRouter {
+        +POST /channels/{id}/labels/sync
+        +GET /channels/{id}/labels
+        +POST /channels/{id}/contacts/search
+        +POST /channels/{id}/contacts/add-search
+        +POST /channels/{id}/sessions/{sid}/read
+        +POST /channels/{id}/sessions/{sid}/messages/backfill
+        +POST /channels/{id}/send-media
+        +GET /channels/{id}/messages
+    }
+    class ChannelCallbackRouter {
+        +POST /wxwork/callback
+    }
+    IpadSyncService --> IpadClient : 调用协议
+    IpadSyncService --> ChannelMgmtRepository : 落库
+    IpadSyncRouter --> IpadSyncService
+    ChannelCallbackRouter --> IpadSyncService
+    channel_accounts ||--o{ channel_contacts : account_id
+    channel_accounts ||--o{ channel_sessions : account_id
+    channel_accounts ||--o{ channel_groups : account_id
+    channel_accounts ||--o{ ipad_label_map : account_id
+    channel_accounts ||--o{ messages : channel_account_id
+    channel_sessions ||--o{ messages : conversation_id
+    ipad_label_map --> customer_tags : tag_id
+    customer_profiles "1" --> "0..*" customer_tag_relations : id
+    customer_tag_relations --> customer_tags : tag_id
+    channel_contacts "1" --> "1" customer_profiles : contact_id

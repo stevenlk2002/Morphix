@@ -1,0 +1,78 @@
+classDiagram
+    class channel_accounts {
+        +TEXT id PK
+        +TEXT ipad_uuid
+        +TEXT host_status
+        +TEXT sync_status
+        +TEXT last_sync_at
+    }
+    class channel_contacts {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT user_id
+        +TEXT type
+        +TEXT label_ids
+        +TEXT raw_status
+        +TEXT extra_json
+    }
+    class customer_profiles {
+        +TEXT id PK
+        +TEXT contact_id
+        +TEXT tags
+    }
+    class channel_sessions {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT remote_session_id
+        +INTEGER msg_type
+        +TEXT session_type
+    }
+    class channel_groups {
+        +TEXT id PK
+        +TEXT account_id
+        +TEXT room_id
+        +TEXT group_type
+        +TEXT nickname
+        +INTEGER total
+        +TEXT room_url
+    }
+    class channel_group_members {
+        +TEXT id PK
+        +TEXT group_id
+        +TEXT uin
+        +TEXT user_id
+    }
+    class IpadClient {
+        +get_inner_contacts()
+        +get_external_contacts()
+        +get_session_list()
+        +get_chatroom_members()
+        +get_room_user_list()
+        +send_text_msg()
+    }
+    class IpadSyncService {
+        +run_full_sync(account_id)
+        +_sync_contacts()
+        +_sync_sessions()
+        +_sync_groups()
+    }
+    class ChannelMgmtRepository {
+        +upsert_channel_contact()
+        +upsert_channel_session()
+        +upsert_channel_group()
+        +list_groups()
+    }
+    class IpadSyncRouter {
+        +POST /channels/sync
+        +POST /channels/send-text
+        +GET /channels/groups
+        +GET /channels/sync/status
+    }
+    IpadSyncService --> IpadClient : 调用协议
+    IpadSyncService --> ChannelMgmtRepository : 落库
+    IpadSyncRouter --> IpadSyncService
+    channel_contacts "1" --> "1" customer_profiles : contact_id
+    channel_groups ||--o{ channel_group_members : group_id
+    channel_accounts ||--o{ channel_contacts : account_id
+    channel_accounts ||--o{ channel_sessions : account_id
+    channel_accounts ||--o{ channel_groups : account_id

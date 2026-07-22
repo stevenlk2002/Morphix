@@ -1,0 +1,76 @@
+sequenceDiagram
+    autonumber
+    participant FE as 前端
+    participant R as IpadSyncRouter / ChannelCallbackRouter
+    participant SVC as IpadSyncService
+    participant CLI as IpadClient
+    participant IPAD as iPad协议服务
+    participant REPO as ChannelMgmtRepository
+    participant DB as SQLite
+
+    Note over FE,DB: 流程1：标签同步 + 客户标签展示/编辑（P1-1）
+    FE->>R: POST /channels/{id}/labels/sync
+    R->>SVC: sync_labels(account_id)
+    SVC->>CLI: get_label_list(uuid, index, sync_type=1)
+    CLI->>IPAD: GetLabelListReq
+    IPAD-->>CLI: labelList[]{id,name,label_type,label_groupid}
+    loop 游标 index 续查直到空
+        SVC->>REPO: upsert_ipad_label(...) + upsert customer_tags + tag group
+    end
+    FE->>R: GET /channels/{id}/labels 或 客户详情标签区
+    R->>REPO: map_ipad_labels_to_names(account_id, label_ids[])
+    REPO-->>FE: 真实标签名 chips
+    FE->>R: 保存标签（增/减）→ 调 UserAddLabelsReq
+    R->>SVC: add_labels_to_contact(account_id, contact, labelid_list)
+    SVC->>CLI: user_add_labels(uuid, userid, labelid_list)
+    CLI->>IPAD: UserAddLabelsReq
+    SVC->>REPO: 更新 customer_tag_relations + customer_profiles.tags
+
+    Note over FE,DB: 流程2：搜索 / 添加外部联系人（P1-2）
+    FE->>R: POST /channels/{id}/contacts/search {phoneNumber}
+    R->>SVC: search_contact(account_id, keyword)
+    SVC->>CLI: search_contact(uuid, phoneNumber)
+    CLI->>IPAD: SearchContact
+    IPAD-->>CLI: userList[]{user_id,name,sex,headImg,ticket,openId,corp_id,state}
+    R-->>FE: ContactSearchResultDTO[]
+    FE->>R: POST /channels/{id}/contacts/add-search {vid,openId,phone,content,ticket}
+    R->>SVC: add_search_contact(...)
+    SVC->>CLI: add_search(uuid, vid, openId, phone, content, ticket)
+    CLI->>IPAD: AddSearch
+    IPAD-->>CLI: ok
+    SVC->>REPO: add_contact_from_search（落 channel_contacts + profile, extra_json 存 vid/openId/ticket）
+
+    Note over FE,DB: 流程3：进入会话→已读 + 历史回填 + 富媒体发送（P2-1/2/3）
+    FE->>R: POST /channels/{id}/sessions/{sid}/read
+    R->>SVC: mark_session_read(account_id, session_id)
+    SVC->>SVC: 解析 send_userid + isRoom（来自 session）
+    SVC->>CLI: mark_as_read(uuid, send_userid, isRoom)
+    CLI->>IPAD: MarkAsRead
+    SVC->>REPO: mark_session_read_db（unread_count=0, read_status=read）
+    FE->>R: POST /channels/{id}/sessions/{sid}/messages/backfill
+    R->>SVC: backfill_messages(account_id)
+    SVC->>CLI: get_group_msg_list(uuid) / sync_all_data(uuid, limit, seq)
+    CLI->>IPAD: GetGroupMsgList / SyncAllData
+    IPAD-->>CLI: 群历史(listdata[]) / 触发离线消息经回调推送
+    SVC->>REPO: upsert_channel_message（按 server_id 幂等）
+    FE->>R: POST /channels/{id}/send-media (multipart file + target)
+    R->>SVC: send_media_message(account_id, target, file_bytes)
+    SVC->>CLI: cdn_upload_img(file, uuid)
+    CLI->>IPAD: CdnUploadImg
+    IPAD-->>CLI: {cdn_key,aes_key,md5,width,height,size}
+    SVC->>CLI: send_cdn_img_msg(uuid, send_userid, isRoom, cdn_key,...)
+    CLI->>IPAD: SendCDNImgMsg
+    SVC->>REPO: upsert_channel_message(direction=outbound, content_type=image)
+    R-->>FE: SendMediaResultDTO → 前端乐观追加图片气泡
+
+    Note over FE,DB: 流程4：实时回调（新消息入站，P2-4）
+    IPAD->>R: POST /wxwork/callback {uuid, json, type}
+    R->>SVC: handle_callback(uuid, json, type)
+    SVC->>REPO: message_exists(conversation_id, server_id)? 
+    alt 不存在
+        SVC->>REPO: upsert_channel_message(direction=inbound)
+        SVC->>REPO: 更新 channel_sessions.unread_count + read_status=unread
+    end
+    FE->>R: 轮询 GET /channels/{id}/messages?cursor= → 实时未读红点
+    R->>REPO: list_session_messages_ext(session_id, cursor)
+    REPO-->>FE: MessageExtDTO[]（含 contentType/mediaUrl）
