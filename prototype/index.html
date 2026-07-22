@@ -3130,8 +3130,8 @@
       const valueEl = document.getElementById('channelProtocolValue');
       const tipEl = document.getElementById('channelProtocolTip');
       if (valueEl) {
-        const labels = { ipod: 'ipod (推荐)', pc: 'pc' };
-        valueEl.textContent = labels[channelAddState.protocol] || 'ipod (推荐)';
+        const labels = { ipod: 'IPad (推荐)', pc: 'pc' };
+        valueEl.textContent = labels[channelAddState.protocol] || 'IPad (推荐)';
       }
       if (tipEl) {
         const tips = {
@@ -8243,14 +8243,14 @@
                 <span class="channel-protocol-icon">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg>
                 </span>
-                <span class="channel-protocol-value" id="channelProtocolValue">ipod (推荐)</span>
+                <span class="channel-protocol-value" id="channelProtocolValue">IPad (推荐)</span>
                 <span class="channel-protocol-caret">${icons.chevron}</span>
               </div>
               <div class="channel-protocol-dropdown" onclick="event.stopPropagation()">
                 <div class="channel-protocol-option selected" data-value="ipod" onclick="selectProtocolOption(this);event.stopPropagation()">
                   <span class="channel-protocol-radio"></span>
                   <span class="channel-protocol-text">
-                    <span class="channel-protocol-name">ipod (推荐)</span>
+                    <span class="channel-protocol-name">IPad (推荐)</span>
                     <span class="channel-protocol-hint">iPad 协议 · 稳定 · 风险低</span>
                   </span>
                 </div>

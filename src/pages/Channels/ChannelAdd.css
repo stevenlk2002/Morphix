@@ -1,0 +1,511 @@
+/* ===========================================================================
+ * 添加渠道账号向导（AccountAdd）专有样式
+ * 对齐 prototype/index.html 第 8197-8348 屏；颜色一律使用项目 CSS 变量。
+ * 不污染 Channels.css / prototype.css（仅补充向导专有类）。
+ * ======================================================================== */
+
+/* ---------------- 类型选择（type） ---------------- */
+.channel-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.channel-type-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: 160ms ease;
+}
+.channel-type-card:hover {
+  border-color: var(--primary);
+}
+.channel-type-card.selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.channel-type-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+}
+.channel-type-info {
+  flex: 1;
+  min-width: 0;
+}
+.channel-type-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.channel-type-desc {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.channel-type-arrow {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.channel-add-seats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 14px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+.channel-add-seats-text {
+  font-size: 13px;
+  color: var(--muted);
+}
+.channel-add-seats-text em {
+  font-style: normal;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 2px;
+}
+.channel-add-seats-buy {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+/* ---------------- 协议选择（protocol） ---------------- */
+.channel-protocol-select {
+  position: relative;
+}
+.channel-protocol-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  transition: 160ms ease;
+}
+.channel-protocol-trigger:hover {
+  border-color: var(--primary);
+}
+.channel-protocol-icon {
+  color: var(--primary);
+  display: inline-flex;
+}
+.channel-protocol-value {
+  flex: 1;
+}
+.channel-protocol-caret {
+  color: var(--muted);
+  display: inline-flex;
+}
+.channel-protocol-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 12;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+}
+.channel-protocol-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.channel-protocol-option:hover {
+  background: var(--surface-soft);
+}
+.channel-protocol-option.selected {
+  background: var(--primary-light);
+}
+.channel-protocol-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  flex-shrink: 0;
+}
+.channel-protocol-option.selected .channel-protocol-radio {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+.channel-protocol-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.channel-protocol-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.channel-protocol-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.channel-protocol-tip {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------------- 二维码（qr） ---------------- */
+.channel-qr-prompt {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.channel-qr-scan {
+  margin-left: 8px;
+  color: var(--primary);
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 14px;
+}
+.channel-qr-arrow {
+  margin-left: 2px;
+}
+.channel-qr-img {
+  width: 220px;
+  height: 220px;
+  margin: 20px auto;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.channel-qr-img img {
+  width: 200px;
+  height: 200px;
+  display: block;
+}
+.channel-qr-placeholder {
+  font-size: 13px;
+  color: var(--muted);
+}
+.channel-qr-caption {
+  font-size: 13px;
+  color: var(--muted);
+}
+.channel-qr-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.channel-qr-countdown {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.channel-qr-expired {
+  padding: 24px 0;
+}
+.channel-qr-expired-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.channel-qr-expired-sub {
+  margin: 8px 0 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------------- 等待确认（waiting） ---------------- */
+.channel-waiting-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.channel-waiting-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+.channel-phone-mock {
+  width: 240px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+.channel-phone-notch {
+  width: 90px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  margin: 4px auto 10px;
+}
+.channel-phone-screen {
+  background: var(--surface-soft);
+  border-radius: 20px;
+  padding: 14px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.channel-phone-statusbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.channel-phone-statusicons {
+  letter-spacing: 1px;
+}
+.channel-phone-chevron {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  margin: -4px 0;
+}
+.channel-phone-pad {
+  margin: 4px 0;
+}
+.channel-phone-pad svg {
+  display: block;
+  margin: 0 auto;
+}
+.channel-phone-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.channel-phone-spacer {
+  height: 6px;
+}
+.channel-phone-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  text-align: center;
+}
+.channel-phone-cancel {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.channel-waiting-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.channel-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: channel-pulse 1.2s infinite ease-in-out;
+}
+@keyframes channel-pulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+}
+
+/* ---------------- 验证码（verify） ---------------- */
+.channel-verify-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 28px;
+}
+.channel-verify-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.channel-verify-tag {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.channel-verify-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+}
+.channel-verify-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  font-size: 22px;
+}
+.channel-verify-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.channel-verify-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+.channel-verify-back {
+  align-self: flex-start;
+  margin-top: auto;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.channel-verify-back:hover {
+  color: var(--ink);
+}
+.channel-verify-right {
+  display: flex;
+  flex-direction: column;
+}
+.channel-verify-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.channel-verify-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 6px 0 18px;
+}
+.channel-verify-inputs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.channel-verify-box {
+  width: 48px;
+  height: 56px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--ink);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  outline: none;
+  transition: 160ms ease;
+}
+.channel-verify-box:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+.channel-verify-box:disabled {
+  opacity: 0.6;
+}
+.channel-verify-sep {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.channel-verify-error {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--error);
+  font-weight: 700;
+}
+.channel-verify-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.channel-verify-back-link {
+  align-self: flex-start;
+  margin-top: 14px;
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.channel-verify-back-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------------- 完成（done） ---------------- */
+.channel-done-icon {
+  color: var(--success);
+  display: grid;
+  place-items: center;
+  margin-bottom: 12px;
+}
+.channel-done-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.channel-done-sub {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------------- 响应式 ---------------- */
+@media (max-width: 720px) {
+  .channel-verify-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}

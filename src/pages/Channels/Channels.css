@@ -29,7 +29,7 @@
   flex-wrap: wrap;
 }
 .channel-team-name {
-  font-size: 17px;
+  font-size: var(--text-xl);
   font-weight: 800;
 }
 .badge-default {
@@ -70,6 +70,7 @@
   border-radius: 10px;
   background: var(--surface);
   font-weight: 700;
+  font-size: var(--text-base);
   cursor: pointer;
 }
 .team-selector-dropdown {
@@ -159,7 +160,7 @@
   background: var(--blue-soft);
   color: var(--blue);
 }
-.channel-add-title { font-weight: 800; color: var(--ink); }
+.channel-add-title { font-weight: 800; color: var(--ink); font-size: var(--text-md); }
 .channel-add-desc { font-size: 12px; }
 
 .channel-account-card {
@@ -207,7 +208,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--text-md);
   font-weight: 800;
 }
 .channel-online-badge {
@@ -226,7 +227,7 @@
 .channel-account-protocol { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .channel-account-stats { text-align: center; padding: 0 14px; }
 .channel-stat-label { font-size: 12px; color: var(--muted); }
-.channel-stat-value { font-size: 22px; font-weight: 800; }
+.channel-stat-value { font-size: var(--text-2xl); font-weight: 800; }
 .channel-account-actions { display: flex; flex-direction: column; gap: 8px; }
 
 /* ---------------- 通用下拉（import-select） ---------------- */
@@ -560,14 +561,14 @@
 .session-filter-select { position: relative; }
 .session-filter-select-trigger {
   padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--surface); font-size: 13px; cursor: pointer;
+  background: var(--surface); font-size: var(--text-base); cursor: pointer;
 }
 .session-filter-select-dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 12;
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   box-shadow: var(--shadow); padding: 6px; min-width: 140px;
 }
-.session-filter-select-option { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.session-filter-select-option { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: var(--text-base); }
 .session-filter-select-option:hover { background: var(--surface-soft); }
 .session-filter-select-option.active { background: var(--blue-soft); color: var(--blue); }
 
@@ -684,7 +685,7 @@
 .detail-name { font-weight: 800; font-size: 16px; }
 .detail-channel { font-size: 12px; color: var(--muted); }
 .detail-section { padding: 12px 0; border-bottom: 1px solid var(--line); }
-.detail-section-title { font-weight: 700; margin-bottom: 8px; }
+.detail-section-title { font-weight: 700; font-size: var(--text-base); margin-bottom: 8px; }
 .detail-action {
   display: inline-flex; align-items: center; gap: 5px; color: var(--blue);
   font-size: 13px; font-weight: 700; cursor: pointer; margin-bottom: 10px;
@@ -762,6 +763,41 @@
 .comm-item .comm-content { font-size: 13px; line-height: 1.6; }
 .comm-item .comm-summary { font-size: 12px; color: var(--blue); margin-top: 4px; }
 
+.contacts-detail-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--blue);
+  background: var(--blue-soft);
+  cursor: pointer;
+}
+.contacts-detail-edit:hover { color: var(--primary-hover); }
+
+/* 标签编辑弹窗（决策 #9 双写端点） */
+.label-editor { padding: 4px 2px; }
+.label-editor-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.label-chip:hover { border-color: var(--primary); color: var(--primary); }
+.label-chip.on { color: #fff; background: var(--primary); border-color: var(--primary); }
+
 /* ---------------- SET：企微主体 ---------------- */
 .subjects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .subject-card { display: flex; flex-direction: column; gap: 12px; min-height: 200px; }
@@ -789,3 +825,43 @@
     max-height: none;
   }
 }
+
+/* ---------------- iPad 协议同步状态（SES / CON 顶部按钮） ---------------- */
+.session-sync-wrap { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.session-sync-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* CON 列表头部（搜索 + 同步按钮） */
+.contacts-list-header { display: flex; align-items: center; gap: 10px; }
+.contacts-list-header .contacts-search-wrap { flex: 1; border-bottom: 0; padding: 12px 14px 0; }
+
+/* iPad 标签（来自 customer_profiles.tags，决策 #2） */
+.ipad-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.ipad-tag {
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  background: var(--blue-soft); color: var(--blue);
+}
+.ipad-tags-empty { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* ---------------- 群成员抽屉（T04） ---------------- */
+.group-detail-header-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.group-detail-stats { display: flex; gap: 18px; padding: 8px 0 14px; }
+.group-detail-stat { font-size: 13px; color: var(--muted); }
+.group-detail-stat b { color: var(--ink); font-size: 16px; margin-right: 3px; }
+.group-detail-notice {
+  padding: 10px 12px; border-radius: 10px; background: var(--surface-soft);
+  font-size: 13px; line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap;
+}
+.group-detail-section-title { font-weight: 700; margin: 16px 0 8px; }
+.group-member-list { display: flex; flex-direction: column; gap: 6px; }
+.group-member-item { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 10px; }
+.group-member-item:hover { background: var(--surface-soft); }
+.group-member-avatar {
+  width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+  color: #fff; font-weight: 800; flex-shrink: 0;
+}
+.group-member-body { flex: 1; min-width: 0; }
+.group-member-name { font-weight: 700; font-size: 14px; }
+.group-member-sub { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-member-meta { font-size: 12px; color: var(--muted); flex-shrink: 0; text-align: right; line-height: 1.5; }

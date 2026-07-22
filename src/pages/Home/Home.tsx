@@ -197,26 +197,34 @@ function strOr(v: unknown, fallback = '--'): string {
  * 由一系列点生成平滑曲线 path（Catmull-Rom 转三次贝塞尔）。
  * 曲线必然穿过所有数据点；tension 控制平滑度（0.5 为适中值，不出现过冲）。
  */
-function smoothPath(points: Array<{ x: number; y: number }>, tension = 0.5): string {
+function smoothPath(
+  points: Array<{ x: number; y: number }>,
+  tension = 0.5,
+  baselineY: number = Infinity,
+): string {
   if (points.length === 0) return ''
   if (points.length === 1) {
-    return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`
+    return `M${points[0].x.toFixed(1)},${Math.min(points[0].y, baselineY).toFixed(1)}`
   }
   const p = points
-  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`
+  // SVG 中 y 向下增大，baselineY 为 0 值对应的像素 y（最大值）。
+  // 所有数据点 y ≤ baselineY，只需钳制每段控制点与段末端点，即可保证整条
+  // 三次贝塞尔曲线不越过 baselineY（不会下穿 0 轴出现负值区域）。
+  const clampY = (v: number) => Math.min(v, baselineY)
+  let d = `M${p[0].x.toFixed(1)},${clampY(p[0].y).toFixed(1)}`
   for (let i = 0; i < p.length - 1; i++) {
     const p0 = p[i - 1] ?? p[i]
     const p1 = p[i]
     const p2 = p[i + 1]
     const p3 = p[i + 2] ?? p2
     const cp1x = p1.x + ((p2.x - p0.x) * tension) / 6
-    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 6
+    const cp1y = clampY(p1.y + ((p2.y - p0.y) * tension) / 6)
     const cp2x = p2.x - ((p3.x - p1.x) * tension) / 6
-    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 6
+    const cp2y = clampY(p2.y - ((p3.y - p1.y) * tension) / 6)
     d +=
       ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ` +
       `${cp2x.toFixed(1)},${cp2y.toFixed(1)} ` +
-      `${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+      `${p2.x.toFixed(1)},${clampY(p2.y).toFixed(1)}`
   }
   return d
 }
@@ -412,7 +420,7 @@ function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series:
             y: y(d[s.key as keyof ChartPoint] as number),
             d,
           }))
-          const linePath = smoothPath(points.map((p) => ({ x: p.x, y: p.y })))
+          const linePath = smoothPath(points.map((p) => ({ x: p.x, y: p.y })), 0.5, padT + plotH)
           const areaPath =
             `${linePath} L${x(data.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} ` +
             `L${x(0).toFixed(1)},${(padT + plotH).toFixed(1)} Z`
@@ -477,6 +485,92 @@ function LineChart({ data, series, height = 280 }: { data: ChartPoint[]; series:
   )
 }
 
+/**
+ * 通用「?」帮助气泡。
+ * 采用 position:fixed + getBoundingClientRect 视口坐标定位，彻底规避祖先
+ * overflow:hidden 裁剪；并改用全新类名（不与其它页面的 .tab-tooltip-bubble 全局样式冲突）。
+ * 气泡始终渲染在视口内（左/右对齐可配，左侧用 Math.max 兜底不越界）。
+ */
+function HelpTip({
+  content,
+  align = 'left',
+  children,
+}: {
+  content: ReactNode
+  align?: 'left' | 'right'
+  children: ReactNode
+}) {
+  const [show, setShow] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+
+  // 计算气泡位置：基于「?」图标的视口坐标 + fixed 定位，彻底脱离祖先
+  // overflow:hidden 裁剪（普通 absolute 会被 .app-main/.app-layout 裁掉）。
+  const place = () => {
+    const r = ref.current?.getBoundingClientRect()
+    if (!r) return
+    const bubbleW = 300
+    setPos({ top: r.bottom + 8, left: align === 'right' ? r.right - bubbleW : r.left })
+  }
+
+  // 进入「?」图标或气泡时立即显示，并取消可能挂起的隐藏计时器。
+  const showNow = () => {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current)
+      hideTimer.current = null
+    }
+    place()
+    setShow(true)
+  }
+
+  // 离开时延迟 150ms 再隐藏。原因：气泡以 fixed 定位在「?」下方 8px 处，
+  // 那 8px 间隙不在 .help-tip 的 hover 盒内，鼠标从图标移向气泡途中穿过该
+  // 间隙会触发 mouseleave，导致气泡「闪一下就消失」——这正是 hover 不弹的真实根因。
+  // 延迟 + 下方 CSS 透明桥接区共同消除死区，使 hover 区域包含气泡。
+  const hideSoon = () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    hideTimer.current = setTimeout(() => setShow(false), 150)
+  }
+
+  // 卸载时清理计时器，避免卸载后 setState / 内存泄漏。
+  useEffect(() => {
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+    }
+  }, [])
+
+  return (
+    <span
+      ref={ref}
+      className="help-tip"
+      onMouseEnter={showNow}
+      onMouseLeave={hideSoon}
+      onFocus={showNow}
+      onBlur={hideSoon}
+      tabIndex={0}
+    >
+      {children}
+      {show && (
+        <span
+          className="help-tip-bubble"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: Math.max(8, pos.left),
+            zIndex: 9999,
+          }}
+          role="tooltip"
+          onMouseEnter={showNow}
+          onMouseLeave={hideSoon}
+        >
+          {content}
+        </span>
+      )}
+    </span>
+  )
+}
+
 function GaugeCard({
   title,
   percent,
@@ -496,10 +590,9 @@ function GaugeCard({
       <div className="gauge-card-title">
         <span>{title}</span>
         {help ? (
-          <span className="gauge-help tab-tooltip">
-            <span className="tab-tooltip-bubble gauge-tip-bubble">{help}</span>
-            <HelpCircle size={14} />
-          </span>
+          <HelpTip align="right" content={help}>
+            <HelpCircle size={14} className="help-tip-icon gauge-help" />
+          </HelpTip>
         ) : null}
       </div>
       <Donut percent={Math.round(percent * 10) / 10} color={color} />
@@ -808,17 +901,21 @@ export default function HomePage() {
                       onClick={() => setTab(t.key)}
                     >
                       {t.label}
-                      <span className="tab-help tab-tooltip">
-                        <span className="tab-tooltip-bubble">
-                          {t.defs.map((d, i) => (
-                            <div className="def-row" key={i}>
-                              <span className="def-label">{d.label}</span>
-                              <span className="def-text">{d.text}</span>
-                            </div>
-                          ))}
-                        </span>
-                        <HelpCircle size={14} />
-                      </span>
+                      <HelpTip
+                        align="left"
+                        content={
+                          <>
+                            {t.defs.map((d, i) => (
+                              <div className="def-row" key={i}>
+                                <span className="def-label">{d.label}</span>
+                                <span className="def-text">{d.text}</span>
+                              </div>
+                            ))}
+                          </>
+                        }
+                      >
+                        <HelpCircle size={14} className="help-tip-icon tab-help" />
+                      </HelpTip>
                     </button>
                   ))}
                 </div>

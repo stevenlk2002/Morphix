@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import HomePage from './pages/Home/Home'
 import BotsPage from './pages/Bots/Bots'
 import BotDetailPage from './pages/Bots/BotDetail'
+import BotCreatePage from './pages/Bots/BotCreate'
 import SessionsPage from './pages/Sessions/Sessions'
 import SessionDetailPage from './pages/Sessions/SessionDetail'
 import ChannelAccountsPage from './pages/Channels/ChannelAccounts'
@@ -43,6 +44,7 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/bots" element={<BotsPage />} />
+      <Route path="/bots/create" element={<BotCreatePage />} />
       <Route path="/bots/:botId" element={<BotDetailPage />} />
       <Route path="/bots/:botId/orchestrate" element={<OrchestratePage />} />
       <Route path="/bots/logs" element={<BotLogsPage />} />

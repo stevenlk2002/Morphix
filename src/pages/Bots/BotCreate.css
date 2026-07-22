@@ -1,0 +1,222 @@
+/* ===== 创建机器人向导页 ===== */
+
+/* 页面容器：居中、留白 */
+.create-page {
+  padding: 32px 24px 48px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+/* 居中卡片容器（沿用项目 .card 观感：surface 背景 + 主题边框 + 圆角） */
+.create-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 40px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+.create-card--wide {
+  max-width: 800px;
+}
+.create-card--md {
+  max-width: 600px;
+}
+.create-card--narrow {
+  max-width: 520px;
+}
+
+/* ===== 步骤条 Stepper（复用原型 .stepper 规则，颜色用主题变量） ===== */
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.step.active {
+  color: var(--text);
+}
+.step.done {
+  color: var(--primary);
+}
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.step.active .step-num {
+  background: var(--primary);
+  color: #fff;
+}
+.step.done .step-num {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.step-line {
+  width: 40px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ===== 模板选择卡片（与 .bot-card 视觉一致） ===== */
+.tpl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.tpl-card {
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.tpl-card:hover {
+  box-shadow: var(--shadow);
+  border-color: var(--border);
+  transform: translateY(-2px);
+}
+.tpl-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+.tpl-illus {
+  height: 120px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.tpl-illus--qa {
+  background: var(--primary-light);
+}
+.tpl-illus--reception {
+  background: var(--success-bg);
+}
+.tpl-illus-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+.tpl-illus--qa .tpl-illus-icon {
+  color: var(--primary);
+}
+.tpl-illus--reception .tpl-illus-icon {
+  color: var(--success);
+}
+.tpl-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.tpl-meta {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ===== 标题 ===== */
+.create-title {
+  margin: 0 0 8px;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+}
+.create-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* ===== 命名输入（沿用项目 .input 观感） ===== */
+.create-name-field {
+  margin-bottom: 6px;
+}
+#botNameInput,
+.create-name-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  font-size: var(--text-md);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+#botNameInput:focus,
+.create-name-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+.create-name-count {
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+
+/* ===== 完成态 ===== */
+.create-done {
+  text-align: center;
+}
+.create-illus {
+  max-width: 200px;
+  margin: 0 auto 16px;
+}
+.create-illus-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.create-done-title {
+  margin: 0 0 8px;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text);
+}
+.create-done-title .star {
+  color: var(--primary);
+}
+.create-done-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+  line-height: 1.6;
+}
+
+/* ===== 底部操作区 ===== */
+.create-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 24px;
+}
+.create-actions--center {
+  justify-content: center;
+}

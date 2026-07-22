@@ -56,6 +56,8 @@ export interface CustomerProfileDTO {
   addTime: string
   addChannel: string
   signature: string
+  /** iPad 协议外部联系人标签（labelid[] 原样镜像，决策 #2）。 */
+  tags?: string[]
 }
 
 /** 沟通记录。 */
@@ -89,6 +91,7 @@ export interface SessionDTO {
   id: string
   accountId: string
   contactId: string | null
+  remoteSessionId: string | null
   name: string
   channel: string
   channelType: string
@@ -156,4 +159,184 @@ export interface WechatSubjectInput {
   shortName: string
   corpId: string
   configJson?: string
+}
+
+/** 企业微信托管：扫码后返回的用户信息（loginType=2 时携带）。 */
+export interface WecomUserInfo {
+  acctid?: string
+  avatar?: string
+  corpId?: string | number
+  mobile?: string
+  nickname?: string
+  realname?: string
+  userId?: string | number
+  corpName?: string
+}
+
+/** 企业微信托管：启动扫码响应。 */
+export interface WecomHostStartResp {
+  uuid: string
+  qrcode: string | null
+  qrcodeData: string | null
+  qrcodeKey: string
+  ttl: number
+  mock: boolean
+}
+
+/** 企业微信托管：验证码校验响应。 */
+export interface WecomHostVerifyResp {
+  ok: boolean
+  skip?: boolean
+}
+
+/** 企业微信托管：轮询登录状态响应。 */
+export interface WecomHostPollResp {
+  loginType: 0 | 1 | 2
+  userInfo: WecomUserInfo | null
+  longLinkState: string
+  mock: boolean
+  account?: Record<string, unknown>
+}
+
+/** iPad 协议：群 DTO。 */
+export interface GroupDTO {
+  id: string
+  accountId: string
+  roomId: string
+  groupType: 'customer_group' | 'internal_group' | string
+  name: string
+  total: number
+  roomUrl: string
+  noticeContent: string
+  createTime: string
+  updateTime: string
+}
+
+/** iPad 协议：群成员 DTO。 */
+export interface GroupMemberDTO {
+  id: string
+  groupId: string
+  uin: string
+  userId: string
+  nickname: string
+  realname: string
+  avatar: string
+  roomNickname: string
+  sex: number
+  mobile: string
+  joinTime: string
+}
+
+/** iPad 协议：群详情（含成员）。 */
+export interface GroupDetailDTO {
+  group: GroupDTO
+  members: GroupMemberDTO[]
+  noticeContent: string
+  total: number
+}
+
+/** iPad 协议：同步触发响应。 */
+export interface SyncResultDTO {
+  started?: boolean
+  skipped?: boolean
+  accountId?: string
+  message?: string
+}
+
+/** iPad 协议：同步状态。 */
+export interface SyncStatusDTO {
+  accountId: string
+  syncStatus: '' | 'syncing' | 'success' | 'degraded' | 'error'
+  lastSyncAt: string
+  syncing: boolean
+}
+
+/** iPad 协议：发送文本消息响应。 */
+export interface SendTextResultDTO {
+  msgId: string
+  ok: boolean
+  serverId: string
+}
+
+/** iPad 协议：标签（映射后，决策 #9 双写）。 */
+export interface LabelDTO {
+  accountId: string
+  labelId: string
+  labelName: string
+  labelType: number
+  labelGroupId: string
+  tagId: string
+  syncType: number
+}
+
+/** iPad 协议：标签同步结果。 */
+export interface LabelSyncResultDTO {
+  accountId: string
+  total: number
+  synced: number
+  skipped: boolean
+}
+
+/** iPad 协议：搜索添加外部联系人结果项。 */
+export interface ContactSearchResultDTO {
+  userId: string
+  name: string
+  sex: number
+  headImg: string
+  ticket: string
+  openId: string
+  corpId: string
+  state: string
+}
+
+/** iPad 协议：搜索添加外部联系人请求体。 */
+export interface AddSearchRequestDTO {
+  vid: string
+  openId?: string
+  phone?: string
+  content?: string
+  ticket?: string
+  useDirectAdd?: boolean
+}
+
+/** iPad 协议：消息历史回填结果。 */
+export interface BackfillResultDTO {
+  accountId: string
+  sessionId: string
+  upserted: number
+  triggered: boolean
+  message: string
+}
+
+/** iPad 协议：富媒体发送结果。 */
+export interface SendMediaResultDTO {
+  msgId: string
+  serverId: string
+  contentType: 'image' | 'file' | string
+  mediaUrl: string
+  ok: boolean
+}
+
+/** iPad 协议：联系人标签（已解析真实名称）。 */
+export interface ContactLabelDTO {
+  labelId: string
+  labelName: string
+}
+
+/** iPad 协议：扩展消息（含 serverId/msgType/direction/contentType/media）。 */
+export interface MessageExtDTO {
+  id: string
+  conversationId: string
+  senderType: 'bot' | 'user' | 'system' | string
+  content: string
+  createdAt: string
+  serverId: string
+  msgType: number
+  senderId: string
+  direction: 'inbound' | 'outbound' | string
+  contentType: 'text' | 'image' | 'file' | string
+  mediaUrl: string
+  mediaMeta: unknown
+  isRead: boolean
+  channelAccountId: string
 }

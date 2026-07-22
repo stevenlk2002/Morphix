@@ -198,7 +198,7 @@
 .json-preview {
   margin: 0;
   padding: 8px 10px;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--text);
@@ -276,7 +276,7 @@
 .json-detail {
   margin: 0;
   padding: 12px 14px;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--text);
@@ -291,7 +291,7 @@
 
 /* 通用工具类 */
 .mono {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
 }
 
 .text-secondary {
@@ -449,7 +449,7 @@
 .debug-code-body {
   padding: 12px;
   color: #e2e8f0;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
   overflow-x: auto;

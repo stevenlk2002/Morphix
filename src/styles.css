@@ -18,7 +18,7 @@
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body {
-  font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-family);
   background:
     linear-gradient(135deg, rgba(47, 109, 246, 0.08), transparent 32%),
     radial-gradient(circle at 92% 8%, rgba(18, 167, 122, 0.10), transparent 28%),
@@ -401,7 +401,7 @@ th { color: var(--muted); font-size: 12px; background: var(--surface-soft); }
   box-shadow: 0 12px 28px rgba(24,34,49,0.06);
 }
 .node-panel h4 { margin: 0 0 12px; }
-.node-panel textarea { min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.node-panel textarea { min-height: 160px; font-family: var(--font-mono); font-size: 12px; }
 @keyframes drawerIn { from { transform: translateX(28px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes modalIn { from { transform: translateY(12px) scale(.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
 .analytics-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr); gap: 18px; }

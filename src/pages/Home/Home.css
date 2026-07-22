@@ -676,3 +676,95 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ===================== 通用帮助气泡 HelpTip（固定定位，视口内可见） ===================== */
+/* 规避祖先 overflow:hidden 裁剪 + 不与其它页面 .tab-tooltip-bubble 全局样式冲突。 */
+.help-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  outline: none;
+}
+
+.help-tip-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.help-tip-bubble {
+  position: fixed;
+  width: 300px;
+  max-width: 90vw;
+  padding: 12px 16px;
+  background: rgba(30, 41, 59, 0.96);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  text-align: left;
+  white-space: normal;
+}
+
+.help-tip-bubble .def-label {
+  font-weight: 600;
+  color: #fff;
+}
+
+.help-tip-bubble .def-text {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.help-tip-bubble .def-row + .def-row {
+  margin-top: 10px;
+}
+
+/* 气泡上方透明桥接区：覆盖「?」图标与气泡之间的 8px 间隙（对其位置为 top:-10px），
+   使鼠标从图标连续移向气泡时不会经过「死区」而触发 mouseleave 让气泡消失。
+   与 HelpTip 的 150ms 隐藏延迟配合，保证 hover 区域真正包含气泡。 */
+.help-tip-bubble::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+/* gauge 标题「?」图标：保留颜色与 hover 过渡（hover 现由外层 .help-tip 触发） */
+.gauge-help {
+  color: var(--text-secondary);
+  transition: color var(--transition);
+}
+
+.help-tip:hover .gauge-help,
+.help-tip:focus .gauge-help {
+  color: var(--primary);
+}
+
+.gauge-help svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 图表 tab「?」图标：保留颜色与 hover 过渡 */
+.chart-tabs .tab-help {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  transition: opacity var(--transition), color var(--transition);
+}
+
+.chart-tabs .chart-tab:hover .tab-help,
+.chart-tabs .chart-tab.active .tab-help {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.chart-tabs .tab-help svg {
+  width: 14px;
+  height: 14px;
+}

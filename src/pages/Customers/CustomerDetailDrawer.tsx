@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback } from 'react'
 import { Plus, X, Check, MessageCircle } from 'lucide-react'
 import Modal from '../../components/common/Modal'
 import Button from '../../components/common/Button'
-import { customersApi } from '../../api/client'
-import type { ContactDetailDTO } from '../../types/channels'
+import { customersApi, channelsApi } from '../../api/client'
+import type { ContactDetailDTO, ContactLabelDTO } from '../../types/channels'
 import { toast } from '../../utils/toast'
 import CustomerTagModal from './CustomerTagModal'
+import SendMessageDialog from '../../components/common/SendMessageDialog'
 
 interface Props {
   contactId: string | null
@@ -34,6 +35,8 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
   const [commTab, setCommTab] = useState<'communications' | 'notes'>('communications')
   const [tagModalOpen, setTagModalOpen] = useState(false)
   const [customerTagIds, setCustomerTagIds] = useState<string[]>([])
+  // iPad 标签（真实标签名，来自 ipad_label_map，决策 #2/#9）
+  const [ipadLabels, setIpadLabels] = useState<ContactLabelDTO[]>([])
 
   // 编辑备注
   const [editNoteOpen, setEditNoteOpen] = useState(false)
@@ -57,6 +60,9 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
   const [attrName, setAttrName] = useState('')
   const [attrValue, setAttrValue] = useState('')
 
+  // 发消息（iPad 协议真实发送）
+  const [sendOpen, setSendOpen] = useState(false)
+
   const loadDetail = useCallback(async () => {
     if (!contactId) return
     setLoading(true)
@@ -68,6 +74,15 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
         const tags = await customersApi.getCustomerTags(d.profile?.id || '')
         setCustomerTagIds((tags as Array<{ id: string }>).map((t) => t.id))
       } catch { setCustomerTagIds([]) }
+      // Load iPad labels (real names from ipad_label_map, 决策 #2/#9)
+      try {
+        if (d.contact?.accountId) {
+          const labels = await channelsApi.getContactLabels(d.contact.accountId, contactId)
+          setIpadLabels(labels)
+        } else {
+          setIpadLabels([])
+        }
+      } catch { setIpadLabels([]) }
     } catch {
       setData(null)
       toast('加载客户详情失败')
@@ -141,11 +156,6 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
       setAttrValue('')
       loadDetail()
     } catch { toast('添加失败') }
-  }
-
-  const handleSendMessage = () => {
-    onClose()
-    toast('已跳转至会话窗口（模拟）')
   }
 
   return (
@@ -305,9 +315,7 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
                               </div>
                               <div className="customer-comm-content">
                                 {c.aiSummary ? (
-                                  <>
-                                    <p>{c.aiSummary}</p>
-                                  </>
+                                  <p>{c.aiSummary}</p>
                                 ) : (
                                   <p>{c.content}</p>
                                 )}
@@ -341,10 +349,28 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
                     <div className="contacts-detail-row"><span className="contacts-detail-row-label">关联会话</span></div>
                     <div className="contacts-detail-row" style={{ paddingLeft: 12 }}>
                       <span className="contacts-detail-row-label">单聊</span>
-                      <span className="contacts-detail-row-value" style={{ color: 'var(--primary)', cursor: 'pointer' }} onClick={handleSendMessage}>
+                      <span className="contacts-detail-row-value" style={{ color: 'var(--primary)', cursor: 'pointer' }} onClick={() => setSendOpen(true)}>
                         {name}
                       </span>
                     </div>
+                  </div>
+
+                  {/* iPad 标签（真实标签名，来自 ipad_label_map，决策 #2/#9） */}
+                  <div className="contacts-detail-section" style={{ borderBottom: 'none' }}>
+                    <div className="contacts-detail-section-title" style={{ fontWeight: 600, marginBottom: 8 }}>
+                      iPad 标签
+                    </div>
+                    {ipadLabels.length > 0 ? (
+                      <div className="ipad-tags">
+                        {ipadLabels.map((l) => (
+                          <span className="ipad-tag" key={l.labelId}>
+                            {l.labelName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="ipad-tags-empty">暂无 iPad 标签</div>
+                    )}
                   </div>
 
                   {/* Custom Attributes */}
@@ -383,7 +409,7 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
             padding: '12px 20px', borderTop: '1px solid var(--border)',
           }}>
             <Button variant="secondary" size="sm" onClick={onClose}>关闭</Button>
-            <Button variant="primary" size="sm" icon={<MessageCircle size={14} />} onClick={handleSendMessage}>
+            <Button variant="primary" size="sm" icon={<MessageCircle size={14} />} onClick={() => setSendOpen(true)}>
               发消息
             </Button>
           </div>
@@ -519,6 +545,18 @@ export default function CustomerDetailDrawer({ contactId, onClose }: Props) {
         onClose={() => setTagModalOpen(false)}
         onSaved={() => loadDetail()}
       />
+
+      {/* Send Message Dialog (iPad 协议真实发送) */}
+      {sendOpen && contact && (
+        <SendMessageDialog
+          open={sendOpen}
+          title={`发消息给 ${name}`}
+          accountId={contact.accountId || ''}
+          targetType="contact"
+          targetId={contact.id}
+          onClose={() => setSendOpen(false)}
+        />
+      )}
     </>
   )
 }

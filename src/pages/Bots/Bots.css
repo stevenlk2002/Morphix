@@ -197,6 +197,10 @@
   background: var(--border-light);
   color: var(--text-secondary);
 }
+.badge-offline {
+  background: var(--border-light);
+  color: var(--text-tertiary);
+}
 
 /* ===== 卡片网格 ===== */
 .bot-card-grid {
@@ -340,19 +344,174 @@
 
 /* ===== 创建弹窗 ===== */
 .create-modal {
-  max-width: 480px;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* 标题与底部按钮固定，仅卡片区可滚动 */
+.create-modal .modal-title,
+.create-modal .modal-actions {
+  flex-shrink: 0;
 }
 .create-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin: 8px 0 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .create-card {
   cursor: pointer;
   margin: 0;
-  padding: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .create-card:hover {
   border-color: var(--primary);
+}
+.create-card .bot-info {
+  min-width: 0;
+}
+.create-card .bot-name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.create-card .bot-meta {
+  white-space: normal;
+  overflow: visible;
+}
+.create-card-illus {
+  margin: 10px 0 8px;
+  padding: 8px;
+  max-height: 96px;
+  background: var(--bg-subtle, #f7f8fa);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.create-card-illus svg {
+  width: 100%;
+  height: auto;
+  max-height: 80px;
+  display: block;
+}
+.create-card-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.create-card-points li {
+  position: relative;
+  padding-left: 18px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+.create-card-points li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+/* ===== 创建入口卡片 ===== */
+.bot-updated {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 12px;
+}
+.create-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  border-style: dashed;
+  border-color: var(--border);
+}
+.create-entry:hover {
+  border-color: var(--primary);
+}
+.create-entry-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.create-entry-plus {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.create-entry-text {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ===== 删除确认弹窗 ===== */
+.confirm-modal {
+  max-width: 420px;
+  padding: 28px 32px 24px;
+  text-align: center;
+  position: relative;
+}
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  line-height: 1;
+}
+.modal-close:hover {
+  color: var(--text);
+}
+.confirm-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #fef3cd;
+  color: #d4a373;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+.confirm-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.confirm-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
 }

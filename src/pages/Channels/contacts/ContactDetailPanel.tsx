@@ -1,13 +1,19 @@
-/** 联系人详情（CON 右栏）：归属 / 基本信息 / 沟通记录 / 自定义属性。 */
+/** 联系人详情（CON 右栏）：归属 / 基本信息 / 沟通记录 / 自定义属性 / 发消息。 */
 
-import { MessageSquare } from 'lucide-react'
-import type { ContactDetailDTO } from '../../../types/channels'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { MessageSquare, Pencil, Check } from 'lucide-react'
+import type { ContactDetailDTO, ContactLabelDTO, LabelDTO } from '../../../types/channels'
+import { channelsApi } from '../../../api/client'
 import { avatarColor, avatarChar } from '../shared/avatar'
-import { toast } from '../../../utils/toast'
+import Modal from '../../../components/common/Modal'
+import { toast, errText } from '../../../utils/toast'
 
 interface ContactDetailPanelProps {
   detail: ContactDetailDTO | null
   accountName: string
+  /** 关联渠道账号 id（用于发消息后端反查 user_id）。 */
+  accountId?: string
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -19,7 +25,56 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-export default function ContactDetailPanel({ detail, accountName }: ContactDetailPanelProps) {
+export default function ContactDetailPanel({ detail, accountName, accountId }: ContactDetailPanelProps) {
+  const navigate = useNavigate()
+  // iPad 标签（已解析真实名称，来自 ipad_label_map，决策 #2/#9）
+  const [ipadLabels, setIpadLabels] = useState<ContactLabelDTO[]>([])
+
+  useEffect(() => {
+    if (!detail?.contact || !accountId) {
+      setIpadLabels([])
+      return
+    }
+    channelsApi
+      .getContactLabels(accountId, detail.contact.id)
+      .then(setIpadLabels)
+      .catch(() => setIpadLabels([]))
+  }, [detail?.contact?.id, accountId])
+
+  // 标签编辑（双写端点，决策 #9）
+  const [editOpen, setEditOpen] = useState(false)
+  const [allLabels, setAllLabels] = useState<LabelDTO[]>([])
+  const [selected, setSelected] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const openLabelEditor = () => {
+    if (!accountId || !detail?.contact) return
+    setSelected(ipadLabels.map((l) => l.labelId))
+    setSaving(false)
+    channelsApi
+      .listLabels(accountId)
+      .then(setAllLabels)
+      .catch(() => setAllLabels([]))
+    setEditOpen(true)
+  }
+
+  const toggleLabel = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+
+  const saveLabels = () => {
+    if (!accountId || !detail?.contact) return
+    setSaving(true)
+    channelsApi
+      .updateContactLabels(accountId, detail.contact!.id, selected)
+      .then(() => channelsApi.getContactLabels(accountId, detail.contact!.id))
+      .then(setIpadLabels)
+      .catch((e) => toast(`保存失败：${errText(e)}`))
+      .finally(() => {
+        setSaving(false)
+        setEditOpen(false)
+      })
+  }
+
   if (!detail) {
     return (
       <aside className="contacts-detail">
@@ -55,7 +110,16 @@ export default function ContactDetailPanel({ detail, accountName }: ContactDetai
       <Row label="来源" value={contact.source} />
 
       <div className="contacts-detail-actions">
-        <button className="btn btn-primary btn-sm" onClick={() => toast('发消息（P2 暂未开放）')}>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() =>
+            navigate(
+              `/channels/sessions?accountId=${encodeURIComponent(
+                accountId ?? ''
+              )}&contactId=${encodeURIComponent(contact.id)}`
+            )
+          }
+        >
           <MessageSquare size={14} /> 发消息
         </button>
       </div>
@@ -71,6 +135,28 @@ export default function ContactDetailPanel({ detail, accountName }: ContactDetai
           <Row label="年龄" value={profile.age != null ? String(profile.age) : ''} />
           <Row label="出生日期" value={profile.birthday} />
           <Row label="添加渠道" value={profile.addChannel} />
+          {/* iPad 协议外部联系人标签（真实标签名，来自 ipad_label_map，决策 #2/#9） */}
+          <div className="contacts-detail-row contacts-detail-labels" style={{ borderBottom: '1px solid var(--line)' }}>
+            <span className="k">
+              iPad 标签
+              <button type="button" className="contacts-detail-edit" onClick={openLabelEditor} title="编辑标签">
+                <Pencil size={13} /> 编辑
+              </button>
+            </span>
+            <span className="v" style={{ textAlign: 'right' }}>
+              {ipadLabels.length > 0 ? (
+                <span className="ipad-tags">
+                  {ipadLabels.map((l) => (
+                    <span className="ipad-tag" key={l.labelId}>
+                      {l.labelName}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                '—'
+              )}
+            </span>
+          </div>
         </>
       )}
 
@@ -100,6 +186,47 @@ export default function ContactDetailPanel({ detail, accountName }: ContactDetai
             {c.aiSummary && <div className="comm-summary">AI：{c.aiSummary}</div>}
           </div>
         ))
+      )}
+
+      {editOpen && (
+        <Modal
+          open={editOpen}
+          title={`编辑标签 · ${contact.name}`}
+          onClose={() => setEditOpen(false)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={saveLabels} disabled={saving}>
+                {saving ? '保存中…' : '保存'}
+              </button>
+            </>
+          }
+        >
+          <div className="label-editor">
+            {allLabels.length === 0 ? (
+              <div className="detail-empty">暂无可用标签，请先在账号页「同步标签」</div>
+            ) : (
+              <div className="label-editor-chips">
+                {allLabels.map((l) => {
+                  const on = selected.includes(l.labelId)
+                  return (
+                    <button
+                      key={l.labelId}
+                      type="button"
+                      className={`label-chip${on ? ' on' : ''}`}
+                      onClick={() => toggleLabel(l.labelId)}
+                    >
+                      {on && <Check size={13} />}
+                      {l.labelName}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </aside>
   )

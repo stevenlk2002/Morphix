@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Settings, Link2, Users } from 'lucide-react'
 import Button from '../../components/common/Button'
 import { channelsApi } from '../../api/client'
-import type { AccountDTO, TeamDTO } from '../../types/channels'
+import type { AccountDTO, SyncStatusDTO, TeamDTO } from '../../types/channels'
 import TeamInfoBar from './shared/TeamInfoBar'
 import ChannelTypeBadge from './shared/ChannelTypeBadge'
 import { avatarColor } from './shared/avatar'
@@ -19,10 +19,29 @@ function onlineBadge(status: string, protocol: string): { text: string; offline:
   return { text: protocol ? 'ipad在线' : '在线', offline: false }
 }
 
+/** 同步状态徽标颜色（绿=成功 / 蓝=同步中 / 黄=降级 / 红=失败 / 灰=未同步）。 */
+function syncStatusColor(status?: string): string {
+  if (status === 'success') return '#22c55e'
+  if (status === 'syncing') return '#3b82f6'
+  if (status === 'degraded') return '#eab308'
+  if (status === 'error') return '#ef4444'
+  return '#9ca3af'
+}
+
+/** 同步状态徽标文案。 */
+function syncStatusLabel(status?: string): string {
+  if (status === 'success') return '已同步'
+  if (status === 'syncing') return '同步中'
+  if (status === 'degraded') return '上次降级'
+  if (status === 'error') return '上次失败'
+  return '未同步'
+}
+
 export default function ChannelAccountsPage() {
   const navigate = useNavigate()
   const [teams, setTeams] = useState<TeamDTO[]>([])
   const [accounts, setAccounts] = useState<AccountDTO[]>([])
+  const [syncStatuses, setSyncStatuses] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -32,6 +51,21 @@ export default function ChannelAccountsPage() {
         if (!alive) return
         setTeams(t)
         setAccounts(a)
+        // 批量拉取各账号同步状态（展示同步徽标）
+        Promise.all(
+          a.map((ac) =>
+            channelsApi
+              .getSyncStatus(ac.id)
+              .then((s: SyncStatusDTO) => [ac.id, s.syncStatus] as const)
+              .catch(() => [ac.id, ''] as const)
+          )
+        ).then((entries) => {
+          const map: Record<string, string> = {}
+          entries.forEach(([id, st]) => {
+            map[id] = st
+          })
+          if (alive) setSyncStatuses(map)
+        })
       })
       .catch((e) => toast(`加载失败：${errText(e)}`))
       .finally(() => alive && setLoading(false))
@@ -108,9 +142,31 @@ export default function ChannelAccountsPage() {
                         {badge.text}
                       </span>
                     </div>
-                    <div className="channel-account-protocol">
-                      {a.channel} · {a.protocol ? `${a.protocol}协议` : '未配置协议'}
-                    </div>
+                  <div className="channel-account-protocol">
+                    {a.channel} · {a.protocol ? `${a.protocol}协议` : '未配置协议'}
+                  </div>
+                  <div className="channel-account-sync">
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        fontSize: 11,
+                        color: syncStatusColor(syncStatuses[a.id]),
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          background: syncStatusColor(syncStatuses[a.id]),
+                          display: 'inline-block',
+                        }}
+                      />
+                      {syncStatusLabel(syncStatuses[a.id])}
+                    </span>
+                  </div>
                   </div>
                 </div>
                 <div className="channel-account-stats">

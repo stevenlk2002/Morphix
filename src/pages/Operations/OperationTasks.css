@@ -921,7 +921,7 @@
   background: #1e293b;
   color: #e2e8f0;
   border-radius: 6px;
-  font-family: 'SF Mono', 'Menlo', monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
   margin-bottom: 8px;
 }

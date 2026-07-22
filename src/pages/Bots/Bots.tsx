@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, MoreHorizontal, ChevronLeft, ChevronRight, Bot } from 'lucide-react'
+import { Plus, Search, MoreHorizontal, ChevronLeft, ChevronRight, Bot, AlertTriangle } from 'lucide-react'
 import Button from '../../components/common/Button'
 import { toast } from '../../utils/toast'
+import { botsApi } from '../../api/client'
 import './Bots.css'
 
 /** 机器人卡片（列表展示用）。 */
@@ -10,7 +11,7 @@ interface BotCard {
   id: string
   name: string
   type: string
-  status: 'online' | 'training'
+  status: 'online' | 'training' | 'offline'
   desc: string
   tag: string
   createdAt: string
@@ -30,41 +31,66 @@ const BANNER_SLIDES: BannerSlide[] = [
   { tag: '新功能', title: '智能机器人训练中心', btn: '去体验 ›' },
 ]
 
-/** 列表 mock 种子数据（纯前端，无后端依赖）。 */
-const BOTS_MOCK: BotCard[] = [
-  {
-    id: 'yefengqiu',
-    name: '野风秋大健康机器人',
-    type: '接待机器人',
-    status: 'online',
-    desc: '专注于为中老年群体及慢性病管理人群提供科学、合规的健康咨询与生活方式指导服务。',
-    tag: '接待',
-    createdAt: '2026-07-01 10:12:30',
-    updatedAt: '2026-07-05 09:20:11',
-  },
-  {
-    id: 'fanfuni',
-    name: '梵芙尼美妆销售机器人',
-    type: '问答机器人',
-    status: 'training',
-    desc: '为高端美妆消费者提供专业、个性化的护肤与彩妆产品咨询与购买引导服务。',
-    tag: '销售',
-    createdAt: '2026-07-03 14:48:02',
-    updatedAt: '2026-07-10 21:09:50',
-  },
-]
+/** 机器人类型由 project / workflow 推断（中文业务类型）。 */
+function mapBotType(raw: any): string {
+  const workflow: string = (raw.workflow || '').toString()
+  const project: string = (raw.project || '').toString()
+  if (workflow.includes('接待') || project.includes('接待')) return '接待机器人'
+  if (workflow.includes('销售') || workflow.includes('成交') || workflow.includes('询盘')) return '销售机器人'
+  if (workflow.includes('售后') || workflow.includes('客服') || workflow.includes('问答')) return '问答机器人'
+  if (workflow.includes('测试') || project.includes('QA')) return '问答机器人'
+  return '问答机器人'
+}
+
+/** 标签由 project 派生，兜底「通用」。 */
+function mapBotTag(project: any): string {
+  const p: string = (project || '').toString()
+  if (p === 'Global Fit') return '出海'
+  if (p === 'QA') return '测试'
+  if (p === 'Morphix') return '通用'
+  return p || '通用'
+}
+
+/**
+ * 把后端 GET /api/bots 返回的裸记录映射成前端卡片结构 BotCard。
+ * 后端记录字段：id, name, project, status, workflow, tone, trainingPrompt,
+ * score, createdAt, updatedAt。
+ */
+function mapBot(raw: any): BotCard {
+  const status: BotCard['status'] =
+    raw.status === 'online' || raw.status === 'training' ? raw.status : 'offline'
+  const descRaw: string = (raw.trainingPrompt || raw.tone || '').toString().trim()
+  const desc: string = descRaw
+    ? descRaw.length > 40
+      ? `${descRaw.slice(0, 40)}…`
+      : descRaw
+    : '暂无描述'
+  const createdAt: string = raw.createdAt || raw.created_at || ''
+  const updatedAt: string = raw.updatedAt || raw.updated_at || createdAt || ''
+  return {
+    id: raw.id,
+    name: raw.name || '',
+    type: mapBotType(raw),
+    status,
+    desc,
+    tag: mapBotTag(raw.project),
+    createdAt,
+    updatedAt,
+  }
+}
 
 type SortKey = '' | 'createdAt' | 'updatedAt' | 'name'
 type SortDir = 'asc' | 'desc'
 
 /**
  * 对话机器人列表页（/bots）。
- * 纯前端 mock：轮播 Banner、筛选栏、创建弹窗、卡片网格，全部本地状态驱动。
+ * 真实数据来自后端 GET /api/bots（经 botsApi.list 加载并 mapBot 映射）；
+ * 轮播 Banner、筛选栏、创建弹窗、卡片网格由本地状态驱动。
  */
 export default function BotsPage() {
   const navigate = useNavigate()
 
-  const [bots] = useState<BotCard[]>(BOTS_MOCK)
+  const [bots, setBots] = useState<BotCard[]>([])
 
   // ---- 轮播 ----
   const [current, setCurrent] = useState(0)
@@ -88,6 +114,23 @@ export default function BotsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ---- 加载真实机器人列表（后端 /api/bots） ----
+  useEffect(() => {
+    let alive = true
+    botsApi
+      .list()
+      .then((raw) => {
+        if (!alive) return
+        setBots(raw.map((item: unknown) => mapBot(item)))
+      })
+      .catch((e: unknown) => {
+        toast(`加载机器人列表失败：${e instanceof Error ? e.message : String(e)}`)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   // ---- 筛选 ----
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -98,6 +141,7 @@ export default function BotsPage() {
   // ---- 弹窗 / 下拉 ----
   const [createOpen, setCreateOpen] = useState(false)
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null)
 
   const filteredBots = useMemo(() => {
     const kw = search.trim().toLowerCase()
@@ -118,17 +162,32 @@ export default function BotsPage() {
 
   const handleBannerClick = () => toast('演示环境：该功能未接入')
 
-  const handleCreateCard = () => {
-    setCreateOpen(false)
-    toast('演示环境：创建流程未接入')
-  }
-
   const openMore = (id: string) => setMoreOpenId((prev) => (prev === id ? null : id))
   const closeMore = () => setMoreOpenId(null)
 
   const handleMoreAction = (label: string) => {
     closeMore()
     toast(`演示环境：${label}未接入`)
+  }
+
+  const handleDeleteClick = (id: string, name: string) => {
+    setMoreOpenId(null)
+    setConfirmDelete({ id, name })
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return
+    const id = confirmDelete.id
+    const name = confirmDelete.name
+    try {
+      await botsApi.delete(id)
+      setBots((prev) => prev.filter((b) => b.id !== id))
+      toast(`已删除：${name}`)
+    } catch (e) {
+      toast(`删除失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setConfirmDelete(null)
+    }
   }
 
   return (
@@ -203,7 +262,12 @@ export default function BotsPage() {
         <Button variant="primary" size="sm" icon={<Search size={16} />} onClick={() => setSearch(searchInput)}>
           搜索
         </Button>
-        <select className="filter-select" value={template} onChange={(e) => setTemplate(e.target.value)}>
+        <select
+          className="filter-select"
+          style={{ marginLeft: 'auto' }}
+          value={template}
+          onChange={(e) => setTemplate(e.target.value)}
+        >
           <option value="全部模板">全部模板</option>
           <option value="接待机器人">接待机器人</option>
           <option value="问答机器人">问答机器人</option>
@@ -228,26 +292,35 @@ export default function BotsPage() {
           <option value="asc">时间升序</option>
           <option value="desc">时间降序</option>
         </select>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={<Plus size={16} />}
-          style={{ marginLeft: 'auto' }}
-          onClick={() => setCreateOpen(true)}
-        >
-          创建机器人
-        </Button>
       </div>
 
       {/* 机器人卡片网格 */}
       <div className="bot-card-grid">
+        <div className="bot-card create-entry" onClick={() => setCreateOpen(true)}>
+          <div className="create-entry-inner">
+            <div className="create-entry-plus"><Plus size={28} /></div>
+            <div className="create-entry-text">创建机器人</div>
+          </div>
+        </div>
         {filteredBots.map((bot) => {
           const isOnline = bot.status === 'online'
-          const statusText = isOnline ? '已上线' : '训练中'
-          const dotColor = isOnline ? 'var(--success)' : 'var(--warning)'
+          const statusText =
+            bot.status === 'training' ? '训练中' : bot.status === 'offline' ? '未上线' : '已上线'
+          const dotColor =
+            bot.status === 'training'
+              ? 'var(--warning)'
+              : bot.status === 'offline'
+                ? 'var(--text-tertiary)'
+                : 'var(--success)'
+          const statusBadgeClass =
+            bot.status === 'training'
+              ? 'badge-warning'
+              : bot.status === 'offline'
+                ? 'badge-offline'
+                : 'badge-success'
           return (
             <div key={bot.id} className="bot-card" onClick={() => navigate(`/bots/${bot.id}`)}>
-              <span className={`bot-card-status badge ${isOnline ? 'badge-success' : 'badge-warning'}`}>
+              <span className={`bot-card-status badge ${statusBadgeClass}`}>
                 {statusText}
               </span>
               <div className="bot-card-header">
@@ -329,13 +402,17 @@ export default function BotsPage() {
                       <div className="more-item" onClick={() => handleMoreAction('复制机器人ID')}>
                         复制机器人ID
                       </div>
-                      <div className="more-item more-item-danger" onClick={() => handleMoreAction('删除')}>
+                      <div
+                        className="more-item more-item-danger"
+                        onClick={() => handleDeleteClick(bot.id, bot.name)}
+                      >
                         删除
                       </div>
                     </div>
                   </>
                 )}
               </div>
+              <div className="bot-updated">编辑于 {bot.updatedAt}</div>
             </div>
           )
         })}
@@ -351,7 +428,8 @@ export default function BotsPage() {
                 className="bot-card create-card"
                 onClick={(e) => {
                   e.stopPropagation()
-                  handleCreateCard()
+                  setCreateOpen(false)
+                  navigate('/bots/create?mode=template')
                 }}
               >
                 <div className="bot-card-header">
@@ -361,12 +439,41 @@ export default function BotsPage() {
                     <div className="bot-meta">使用预制模板进行创建</div>
                   </div>
                 </div>
+                <div className="create-card-illus">
+                  <svg viewBox="0 0 240 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="从模板创建示意图">
+                    {/* 叠放的模板卡片 */}
+                    <rect x="26" y="46" width="42" height="30" rx="6" fill="var(--border)" />
+                    <rect x="18" y="38" width="42" height="30" rx="6" fill="var(--surface)" stroke="var(--border)" strokeWidth="1.5" />
+                    <rect x="10" y="30" width="46" height="34" rx="6" fill="var(--primary-light)" stroke="var(--primary)" strokeWidth="1.5" />
+                    {/* 卡片内文字占位线 */}
+                    <rect x="16" y="46" width="22" height="3" rx="1.5" fill="var(--primary)" opacity="0.45" />
+                    <rect x="16" y="53" width="15" height="3" rx="1.5" fill="var(--primary)" opacity="0.3" />
+                    {/* 选中卡片的勾选标记 */}
+                    <circle cx="47" cy="42" r="8" fill="var(--success)" />
+                    <path d="M43 42l3 3 5-6" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    {/* 连线箭头：模板 -> 机器人 */}
+                    <path d="M60 47H150" stroke="var(--border)" strokeWidth="2" strokeDasharray="5 5" />
+                    <path d="M146 43l5 4-5 4" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    {/* 机器人头像 */}
+                    <circle cx="182" cy="47" r="24" fill="var(--primary)" />
+                    <path d="M174 23v-6 M190 23v-6" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" />
+                    <circle cx="174" cy="42" r="3" fill="#fff" />
+                    <circle cx="190" cy="42" r="3" fill="#fff" />
+                    <path d="M174 54c3 3 8 3 11 0" stroke="#fff" strokeWidth="2" strokeLinecap="round" fill="none" />
+                  </svg>
+                </div>
+                <ul className="create-card-points">
+                  <li>精选行业机器人模板</li>
+                  <li>一键套用话术与配置</li>
+                  <li>分钟级快速上线</li>
+                </ul>
               </div>
               <div
                 className="bot-card create-card"
                 onClick={(e) => {
                   e.stopPropagation()
-                  handleCreateCard()
+                  setCreateOpen(false)
+                  navigate('/bots/create?mode=orchestrate')
                 }}
               >
                 <div className="bot-card-header">
@@ -376,11 +483,69 @@ export default function BotsPage() {
                     <div className="bot-meta">从0开始编排创建</div>
                   </div>
                 </div>
+                <div className="create-card-illus">
+                  <svg viewBox="0 0 240 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="从编排创建示意图">
+                    {/* 节点间连线 */}
+                    <g stroke="var(--border)" strokeWidth="1.5">
+                      <path d="M42 51H49" />
+                      <path d="M114 51H121" />
+                      <path d="M168 51H175" />
+                    </g>
+                    <g stroke="var(--text-tertiary)" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M50 48l4 3-4 3" />
+                      <path d="M122 48l4 3-4 3" />
+                      <path d="M176 48l4 3-4 3" />
+                    </g>
+                    {/* 流程编排节点 */}
+                    <rect x="4" y="38" width="38" height="26" rx="9" fill="var(--primary-light)" stroke="var(--primary)" strokeWidth="1.5" />
+                    <rect x="58" y="38" width="56" height="26" rx="9" fill="var(--primary-light)" stroke="var(--primary)" strokeWidth="1.5" />
+                    <rect x="130" y="38" width="38" height="26" rx="9" fill="var(--primary-light)" stroke="var(--primary)" strokeWidth="1.5" />
+                    <rect x="184" y="38" width="52" height="26" rx="9" fill="var(--primary-light)" stroke="var(--primary)" strokeWidth="1.5" />
+                    <text x="23" y="55" textAnchor="middle" fontSize="12" fontWeight="600" fill="var(--primary)">触发</text>
+                    <text x="86" y="55" textAnchor="middle" fontSize="9" fontWeight="600" fill="var(--primary)">理解(LLM)</text>
+                    <text x="149" y="55" textAnchor="middle" fontSize="12" fontWeight="600" fill="var(--primary)">工具</text>
+                    <text x="210" y="55" textAnchor="middle" fontSize="12" fontWeight="600" fill="var(--primary)">回复</text>
+                  </svg>
+                </div>
+                <ul className="create-card-points">
+                  <li>可视化拖拽节点</li>
+                  <li>自定义对话与分支逻辑</li>
+                  <li>灵活对接多渠道</li>
+                </ul>
               </div>
             </div>
             <div className="modal-actions">
               <Button variant="ghost" size="sm" onClick={() => setCreateOpen(false)}>
                 取消
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除确认弹窗 */}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal-content confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="modal-close"
+              type="button"
+              onClick={() => setConfirmDelete(null)}
+              aria-label="关闭"
+            >
+              ×
+            </button>
+            <div className="confirm-icon">
+              <AlertTriangle size={28} />
+            </div>
+            <h3 className="confirm-title">已选择：{confirmDelete.name}</h3>
+            <p className="confirm-desc">删除后，将有0个会话取消托管，是否确认删除？</p>
+            <div className="confirm-actions">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>
+                取消
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleConfirmDelete}>
+                删除
               </Button>
             </div>
           </div>

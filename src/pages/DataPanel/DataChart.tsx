@@ -50,26 +50,34 @@ const MAX_BAR = 5
  * 由一系列点生成平滑曲线 path（Catmull-Rom 转三次贝塞尔）。
  * 曲线必然穿过所有数据点；tension 控制平滑度（0.5 为适中值，不出现过冲）。
  */
-function smoothPath(points: Array<{ x: number; y: number }>, tension = 0.5): string {
+function smoothPath(
+  points: Array<{ x: number; y: number }>,
+  tension = 0.5,
+  baselineY: number = Infinity,
+): string {
   if (points.length === 0) return ''
   if (points.length === 1) {
-    return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`
+    return `M${points[0].x.toFixed(1)},${Math.min(points[0].y, baselineY).toFixed(1)}`
   }
   const p = points
-  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`
+  // SVG 中 y 向下增大，baselineY 为 0 值对应的像素 y（最大值）。
+  // 所有数据点 y ≤ baselineY，只需钳制每段控制点与段末端点，即可保证整条
+  // 三次贝塞尔曲线不越过 baselineY（不会下穿 0 轴出现负值区域）。
+  const clampY = (v: number) => Math.min(v, baselineY)
+  let d = `M${p[0].x.toFixed(1)},${clampY(p[0].y).toFixed(1)}`
   for (let i = 0; i < p.length - 1; i++) {
     const p0 = p[i - 1] ?? p[i]
     const p1 = p[i]
     const p2 = p[i + 1]
     const p3 = p[i + 2] ?? p2
     const cp1x = p1.x + ((p2.x - p0.x) * tension) / 6
-    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 6
+    const cp1y = clampY(p1.y + ((p2.y - p0.y) * tension) / 6)
     const cp2x = p2.x - ((p3.x - p1.x) * tension) / 6
-    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 6
+    const cp2y = clampY(p2.y - ((p3.y - p1.y) * tension) / 6)
     d +=
       ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ` +
       `${cp2x.toFixed(1)},${cp2y.toFixed(1)} ` +
-      `${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+      `${p2.x.toFixed(1)},${clampY(p2.y).toFixed(1)}`
   }
   return d
 }
@@ -222,7 +230,7 @@ export const DataChart: React.FC<DataChartProps> = ({
       const cy = PADDING.top + chartH - (val / 100) * chartH
       return { x: cx, y: cy }
     })
-    const linePath = smoothPath(linePoints)
+    const linePath = smoothPath(linePoints, 0.5, PADDING.top + chartH)
     const color = LINE_COLORS[key] || '#000'
     return (
       <g key={`line-${key}`}>

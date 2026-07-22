@@ -20,6 +20,22 @@ import type {
   WechatSubjectDTO,
   WechatSubjectInput,
   HostingBotDTO,
+  WecomHostStartResp,
+  WecomHostVerifyResp,
+  WecomHostPollResp,
+  GroupDTO,
+  GroupDetailDTO,
+  SyncResultDTO,
+  SyncStatusDTO,
+  SendTextResultDTO,
+  LabelDTO,
+  LabelSyncResultDTO,
+  ContactSearchResultDTO,
+  AddSearchRequestDTO,
+  BackfillResultDTO,
+  SendMediaResultDTO,
+  ContactLabelDTO,
+  MessageExtDTO,
 } from '../types/channels'
 import type {
   CustomerListPage,
@@ -178,6 +194,7 @@ export const botsApi = {
   list: () => api.get<unknown>('/bots').then(normalizeArray),
   create: (data: unknown) => api.post<unknown>('/bots', data),
   train: (botId: string) => api.post<unknown>(`/bots/${botId}/train`),
+  delete: (botId: string) => api.delete<{ id: string; deleted: boolean }>(`/bots/${botId}`),
 }
 
 export const dashboardApi = {
@@ -195,6 +212,14 @@ export const channelsApi = {
 
   listAccounts: () => api.get<AccountDTO[]>('/channels/accounts'),
   createAccount: (data: unknown) => api.post<AccountDTO>('/channels/accounts', data),
+
+  // ---- 企业微信 iPad 协议托管（添加渠道账号向导） ----
+  startWecomScan: (d: { teamId: string; name?: string; channelType?: string }) =>
+    api.post<WecomHostStartResp>('/channels/accounts/wecom/start', d),
+  verifyWecomCode: (d: { uuid: string; qrcodeKey: string; code: string }) =>
+    api.post<WecomHostVerifyResp>('/channels/accounts/wecom/verify', d),
+  pollWecomLogin: (d: { uuid: string }) =>
+    api.post<WecomHostPollResp>('/channels/accounts/wecom/poll', d),
 
   listContacts: (params?: {
     accountId?: string
@@ -243,6 +268,101 @@ export const channelsApi = {
     api.put<WechatSubjectDTO>(`/channels/wechat-subjects/${id}`, data),
 
   listHostingBots: () => api.get<HostingBotDTO[]>('/channels/hosting-bots'),
+
+  // ---- iPad 协议同步域（/api/channels/...） ----
+  /** 手动触发全量同步（后台线程，立即返回 started/skipped）。 */
+  syncAccount: (accountId: string) =>
+    api.post<SyncResultDTO>(`/channels/${accountId}/sync`),
+  /** 查询账号同步状态。 */
+  getSyncStatus: (accountId: string) =>
+    api.get<SyncStatusDTO>(`/channels/${accountId}/sync-status`),
+  /** 发送文本消息（后端反查 user_id/room_id + isRoom）。 */
+  sendTextMessage: (
+    accountId: string,
+    targetType: 'contact' | 'room' | 'session',
+    targetId: string,
+    content: string
+  ) => api.post<SendTextResultDTO>(`/channels/${accountId}/send-text`, {
+    targetType,
+    targetId,
+    content,
+  }),
+  /** 群列表（groupType=customer_group|internal_group）。 */
+  listGroups: (accountId: string, groupType?: string) =>
+    api.get<GroupDTO[]>(`/channels/${accountId}/groups`, {
+      params: groupType ? { groupType } : undefined,
+    }),
+  /** 群成员详情（T04）。 */
+  getGroupMembers: (accountId: string, roomId: string) =>
+    api.get<GroupDetailDTO>(`/channels/${accountId}/group/${roomId}/members`),
+
+  // ---- P1-1 标签同步 / 查询 ----
+  /** 手动触发 iPad 标签同步（企业标签 + 个人标签，决策 #8）。 */
+  syncLabels: (accountId: string) =>
+    api.post<LabelSyncResultDTO>(`/channels/${accountId}/labels/sync`),
+  /** 查询已同步的 iPad 标签（syncType 可过滤 1=企业 2=个人）。 */
+  listLabels: (accountId: string, syncType?: number) =>
+    api.get<LabelDTO[]>(`/channels/${accountId}/labels`, {
+      params: syncType != null ? { syncType } : undefined,
+    }),
+  /** 查询联系人 iPad 标签（真实标签名，来自 ipad_label_map，决策 #2/#9）。 */
+  getContactLabels: (accountId: string, contactId: string) =>
+    api.get<ContactLabelDTO[]>(`/channels/${accountId}/contacts/${contactId}/labels`),
+  /** 编辑联系人 iPad 标签（双写端点，决策 #9）：先 iPad 生效，再 Morphix 落库。 */
+  updateContactLabels: (accountId: string, contactId: string, labelIds: string[]) =>
+    api.post<{ ok: boolean; contactId: string; labelIds: string[] }>(
+      `/channels/${accountId}/contacts/${contactId}/labels`,
+      { labelIds }
+    ),
+
+  // ---- P1-2 搜索 / 添加外部联系人 ----
+  /** 按手机号/关键词搜索企业微信外部联系人。 */
+  searchContact: (accountId: string, keyword: string) =>
+    api.post<ContactSearchResultDTO[]>(`/channels/${accountId}/contacts/search`, { keyword }),
+  /** 发送好友申请（AddSearch 主路径 / AddWxUser 兜底），并落库联系人。 */
+  addSearchContact: (accountId: string, payload: AddSearchRequestDTO) =>
+    api.post<{ ok: boolean; contactId: string; vid: string }>(
+      `/channels/${accountId}/contacts/add-search`,
+      payload
+    ),
+
+  // ---- P2-2 已读 ----
+  /** 进入会话时清除未读（MarkAsRead + 回写本地）。 */
+  markSessionRead: (accountId: string, sessionId: string) =>
+    api.post<{ ok: boolean; sessionId: string }>(
+      `/channels/${accountId}/sessions/${sessionId}/read`
+    ),
+
+  // ---- P2-1 消息历史回填 ----
+  /** 按会话回填消息历史（群走 GetGroupMsgList；1:1 走 SyncAllData 触发回调）。 */
+  backfillSessionMessages: (accountId: string, sessionId: string) =>
+    api.post<BackfillResultDTO>(
+      `/channels/${accountId}/sessions/${sessionId}/messages/backfill`
+    ),
+
+  // ---- P2-3 富媒体发送（后端代理 CDN 上传） ----
+  /** 发送图片或文件（后端代理 CDN 上传 + 发送）。 */
+  sendMediaMessage: (
+    accountId: string,
+    targetType: 'contact' | 'room' | 'session',
+    targetId: string,
+    mediaType: 'image' | 'file',
+    file: File
+  ) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('targetType', targetType)
+    fd.append('targetId', targetId)
+    fd.append('mediaType', mediaType)
+    return api.post<SendMediaResultDTO>(`/channels/${accountId}/send-media`, fd)
+  },
+
+  // ---- P2 扩展消息列表（带光标分页，含富媒体/已读等字段） ----
+  /** 分页加载会话消息（cursor 续查；返回 MessageExtDTO）。 */
+  getSessionMessages: (accountId: string, conversationId: string, cursor?: string, limit = 20) =>
+    api.get<MessageExtDTO[]>(`/channels/${accountId}/messages`, {
+      params: { conversationId, cursor: cursor || undefined, limit },
+    }),
 }
 
 export const tagsApi = {
