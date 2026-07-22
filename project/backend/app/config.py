@@ -72,6 +72,25 @@ class Settings:
     # 分页默认与上限
     default_page_size: int = field(default_factory=lambda: int(_env("MORPHIX_DEFAULT_PAGE_SIZE", "20")))
     max_page_size: int = field(default_factory=lambda: int(_env("MORPHIX_MAX_PAGE_SIZE", "100")))
+    # ---- iPad 协议客户端（企业微信托管接入） ----
+    # iPad 协议服务基址；real/auto 模式下向其发起 /wxwork/* 调用。
+    # 默认值指向用户指定的真实 iPad 协议服务地址 http://47.94.7.218:9912
+    # （已实测可达、接口契约已确认）；仍可用 IPAD_PROTOCOL_BASE_URL 环境变量覆盖。
+    ipad_protocol_base_url: str = field(
+        default_factory=lambda: _env("IPAD_PROTOCOL_BASE_URL", "http://47.94.7.218:9912")
+    )
+    # 协议模式：auto（先真实，失败转 mock，默认）/ real（强制真实，失败抛错）/ mock（直接走 mock）
+    ipad_protocol_mode: str = field(default_factory=lambda: _env("IPAD_PROTOCOL_MODE", "auto"))
+    # ---- iPad 实时回调（P2-4） ----
+    # 回调公网可达地址；为空则不注册回调、降级为「仅手动同步」（PRD §5 #5）。
+    # 生产环境配置为 Morphix 公网可达的 /wxwork/callback 地址（如内网穿透或正式域名）。
+    ipad_callback_public_url: str = field(
+        default_factory=lambda: _env("IPAD_CALLBACK_PUBLIC_URL", "")
+    )
+    # 回调类型：HTTP（默认）| RABBITMQ（企业内可切）。
+    ipad_callback_type: str = field(
+        default_factory=lambda: _env("IPAD_CALLBACK_TYPE", "HTTP")
+    )
 
 
 settings = Settings()

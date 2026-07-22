@@ -60,3 +60,15 @@ def train_bot(bot_id: str):
         BotRepository(tx).mark_trained(bot_id)
         AuditRepository(tx).record("train_bot", bot_id, "training completed")
     return {"id": bot_id, "status": "online", "message": "训练完成"}
+
+
+@router.delete("/bots/{bot_id}", response_model=dict)
+def delete_bot(bot_id: str):
+    """删除机器人（硬删），并写审计日志。"""
+    backend = get_backend()
+    with backend.transaction() as tx:
+        deleted = BotRepository(tx).delete(bot_id)
+        if not deleted:
+            return {"id": bot_id, "deleted": False, "found": False}
+        AuditRepository(tx).record("delete_bot", bot_id, "删除机器人")
+    return {"id": bot_id, "deleted": True}

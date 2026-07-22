@@ -29,6 +29,7 @@ from .contract.routers import auth, control, device, internal, management, runti
 from .database import get_backend
 from .observability import MetricsMiddleware
 from .routers import api_router
+from .routers import channel_callback
 from .schema import init_schema
 
 # 配置日志：慢请求和错误会通过 logger 输出
@@ -89,6 +90,9 @@ app.include_router(management.router)
 app.include_router(runtime.router)
 app.include_router(device.router)
 app.include_router(internal.router)
+
+# 挂载 iPad 实时回调路由（前缀 /wxwork，独立于资源域 /api，公网可达端点）
+app.include_router(channel_callback.router)
 
 
 # ---- 统一封套异常处理器（仅作用于契约域）----

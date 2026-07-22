@@ -208,7 +208,12 @@ CREATE TABLE IF NOT EXISTS channel_contacts (
   remark      TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
   add_time    TEXT NOT NULL DEFAULT '',
-  source      TEXT NOT NULL DEFAULT ''
+  source      TEXT NOT NULL DEFAULT '',
+  -- iPad 协议同步扩展字段（T01）
+  user_id     TEXT NOT NULL DEFAULT '',
+  label_ids   TEXT NOT NULL DEFAULT '[]',
+  raw_status  TEXT NOT NULL DEFAULT '',
+  extra_json  TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS customer_profiles (
@@ -226,6 +231,8 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
   add_channel TEXT NOT NULL DEFAULT '',
   signature   TEXT NOT NULL DEFAULT '',
   ai_summary_enabled INTEGER NOT NULL DEFAULT 0,
+  -- iPad 协议同步扩展字段（T01）：外部联系人 labelid[] 原样镜像
+  tags        TEXT NOT NULL DEFAULT '[]',
   created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -264,7 +271,43 @@ CREATE TABLE IF NOT EXISTS channel_sessions (
   session_type  TEXT NOT NULL DEFAULT '外部联系人',
   external_tag  TEXT NOT NULL DEFAULT '外部',
   add_time      TEXT NOT NULL DEFAULT '',
-  hosting_chain TEXT NOT NULL DEFAULT '-'
+  hosting_chain TEXT NOT NULL DEFAULT '-',
+  -- iPad 协议同步扩展字段（T01）
+  remote_session_id TEXT NOT NULL DEFAULT '',
+  msg_type    INTEGER NOT NULL DEFAULT 0,
+  begin_msg_seq TEXT NOT NULL DEFAULT ''
+);
+
+-- ---- iPad 协议：客户群 / 内部群（不污染 channel_contacts，决策 #1） ----
+CREATE TABLE IF NOT EXISTS channel_groups (
+  id          TEXT PRIMARY KEY,
+  account_id  TEXT NOT NULL DEFAULT '',
+  room_id     TEXT NOT NULL DEFAULT '',
+  group_type  TEXT NOT NULL DEFAULT 'customer_group',
+  nickname    TEXT NOT NULL DEFAULT '',
+  total       INTEGER NOT NULL DEFAULT 0,
+  room_url    TEXT NOT NULL DEFAULT '',
+  notice_content TEXT NOT NULL DEFAULT '',
+  create_time TEXT NOT NULL DEFAULT '',
+  update_time TEXT NOT NULL DEFAULT '',
+  extra_json  TEXT NOT NULL DEFAULT '{}',
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS channel_group_members (
+  id          TEXT PRIMARY KEY,
+  group_id    TEXT NOT NULL DEFAULT '',
+  uin         TEXT NOT NULL DEFAULT '',
+  user_id     TEXT NOT NULL DEFAULT '',
+  nickname    TEXT NOT NULL DEFAULT '',
+  realname    TEXT NOT NULL DEFAULT '',
+  avatar      TEXT NOT NULL DEFAULT '',
+  room_nickname TEXT NOT NULL DEFAULT '',
+  sex         INTEGER NOT NULL DEFAULT 0,
+  mobile      TEXT NOT NULL DEFAULT '',
+  join_time   TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS hosting_sessions (
@@ -401,6 +444,18 @@ CREATE TABLE IF NOT EXISTS system_messages (
   is_read INTEGER NOT NULL DEFAULT 0,
   is_warning INTEGER NOT NULL DEFAULT 0
 );
+
+-- ---- iPad 标签 ↔ Morphix 标签 映射（P1-1，幂等键 account_id + ipad_label_id） ----
+CREATE TABLE IF NOT EXISTS ipad_label_map (
+  account_id      TEXT NOT NULL DEFAULT '',
+  ipad_label_id   TEXT NOT NULL DEFAULT '',
+  label_name      TEXT NOT NULL DEFAULT '',
+  label_type      INTEGER NOT NULL DEFAULT 0,
+  label_group_id  TEXT NOT NULL DEFAULT '',
+  tag_id          TEXT NOT NULL DEFAULT '',   -- 对应 customer_tags.id
+  sync_type       INTEGER NOT NULL DEFAULT 0, -- 1=企业标签 2=个人标签
+  PRIMARY KEY (account_id, ipad_label_id)
+);
 """
 
 # ---- 索引定义（性能落地：高频查询列 + 排序列）----
@@ -441,6 +496,12 @@ CREATE INDEX IF NOT EXISTS idx_channel_contacts_account  ON channel_contacts(acc
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_account  ON channel_sessions(account_id, read_status, hosted_status, online_status);
 CREATE INDEX IF NOT EXISTS idx_hosting_sessions_account  ON hosting_sessions(account_id, hosted_status);
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_contact ON customer_profiles(contact_id);
+
+-- ---- iPad 协议同步域索引 ----
+CREATE INDEX IF NOT EXISTS idx_channel_contacts_user ON channel_contacts(account_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_channel_groups_account ON channel_groups(account_id, group_type);
+CREATE INDEX IF NOT EXISTS idx_channel_groups_room ON channel_groups(account_id, room_id);
+CREATE INDEX IF NOT EXISTS idx_channel_group_members_group ON channel_group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_communication_records_cust ON communication_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_custom_attributes_cust    ON custom_attributes(customer_id);
 
@@ -452,6 +513,11 @@ CREATE INDEX IF NOT EXISTS idx_customer_tag_relations_tag  ON customer_tag_relat
 CREATE INDEX IF NOT EXISTS idx_customer_groups_type       ON customer_groups(type);
 CREATE INDEX IF NOT EXISTS idx_customer_group_members_g   ON customer_group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_customer_group_members_c   ON customer_group_members(customer_id);
+
+-- ---- P1+P2 iPad 同步域索引 ----
+CREATE INDEX IF NOT EXISTS idx_ipad_label_map_account      ON ipad_label_map(account_id);
+CREATE INDEX IF NOT EXISTS idx_messages_account           ON messages(channel_account_id, conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_server            ON messages(conversation_id, server_id);
 
 -- ---- 运营任务域索引 ----
 CREATE INDEX IF NOT EXISTS idx_operation_tasks_type   ON operation_tasks(task_type, enabled);
@@ -520,10 +586,78 @@ def migrate_schema(backend: DatabaseBackend) -> None:
         "channel_type": "TEXT NOT NULL DEFAULT ''",
         "protocol": "TEXT NOT NULL DEFAULT ''",
         "sessions_count": "INTEGER NOT NULL DEFAULT 0",
+        # 企业微信 iPad 协议托管接入（T01）
+        "ipad_uuid": "TEXT NOT NULL DEFAULT ''",
+        "ipad_user_info": "TEXT NOT NULL DEFAULT '{}'",
+        "host_status": "TEXT NOT NULL DEFAULT 'pending'",
     }
     for col, ddl in _channel_account_cols.items():
         if not _has_column(backend, "channel_accounts", col):
             backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
+
+    # ---- iPad 协议同步域迁移（T01） ----
+    # channel_accounts 同步状态
+    _channel_account_sync_cols = {
+        "sync_status": "TEXT NOT NULL DEFAULT ''",
+        "last_sync_at": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, ddl in _channel_account_sync_cols.items():
+        if not _has_column(backend, "channel_accounts", col):
+            backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
+
+    # channel_contacts iPad 扩展字段
+    _channel_contacts_cols = {
+        "user_id": "TEXT NOT NULL DEFAULT ''",
+        "label_ids": "TEXT NOT NULL DEFAULT '[]'",
+        "raw_status": "TEXT NOT NULL DEFAULT ''",
+        "extra_json": "TEXT NOT NULL DEFAULT '{}'",
+    }
+    for col, ddl in _channel_contacts_cols.items():
+        if not _has_column(backend, "channel_contacts", col):
+            backend.execute(f"ALTER TABLE channel_contacts ADD COLUMN {col} {ddl}")
+
+    # channel_sessions iPad 扩展字段
+    _channel_sessions_cols = {
+        "remote_session_id": "TEXT NOT NULL DEFAULT ''",
+        "msg_type": "INTEGER NOT NULL DEFAULT 0",
+        "begin_msg_seq": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, ddl in _channel_sessions_cols.items():
+        if not _has_column(backend, "channel_sessions", col):
+            backend.execute(f"ALTER TABLE channel_sessions ADD COLUMN {col} {ddl}")
+
+    # customer_profiles.tags（外部联系人 labelid[] 原样镜像）
+    if not _has_column(backend, "customer_profiles", "tags"):
+        backend.execute("ALTER TABLE customer_profiles ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+
+    # ---- P1+P2 iPad 同步域迁移 ----
+    # channel_accounts 回调配置列（P2-4 实时回调；IPAD_CALLBACK_PUBLIC_URL 未配置则保持空）
+    _channel_account_callback_cols = {
+        "callback_url": "TEXT NOT NULL DEFAULT ''",
+        "callback_type": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, ddl in _channel_account_callback_cols.items():
+        if not _has_column(backend, "channel_accounts", col):
+            backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
+
+    # messages 表扩展（P2 消息历史回填 / 已读 / 富媒体；统一复用 messages 表，决策 #6）
+    _messages_cols = {
+        "server_id": "TEXT NOT NULL DEFAULT ''",
+        "msg_type": "INTEGER NOT NULL DEFAULT 0",     # 0文本 1图片 2文件 3应用 ...
+        "sender_id": "TEXT NOT NULL DEFAULT ''",       # iPad user_id/room_id
+        "direction": "TEXT NOT NULL DEFAULT 'inbound'",  # inbound|outbound
+        "content_type": "TEXT NOT NULL DEFAULT 'text'",  # text|image|file
+        "media_url": "TEXT NOT NULL DEFAULT ''",
+        "media_meta": "TEXT NOT NULL DEFAULT '{}'",    # {width,height,size,md5,fileName,...}
+        "is_read": "INTEGER NOT NULL DEFAULT 0",
+        "channel_account_id": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, ddl in _messages_cols.items():
+        if not _has_column(backend, "messages", col):
+            backend.execute(f"ALTER TABLE messages ADD COLUMN {col} {ddl}")
+
+    # ipad_label_map 为全新表，CREATE IF NOT EXISTS 同时覆盖新库与旧库，无需 ALTER。
+
     # 训练表为全新表，CREATE IF NOT EXISTS 同时覆盖新库与旧库，无需 ALTER。
 
     # ---- 客户管理域迁移 ----
@@ -576,20 +710,6 @@ def seed_defaults(backend: DatabaseBackend) -> None:
             backend.execute(
                 "INSERT INTO bots(id, name, project, status, workflow, tone, training_prompt, score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (bot["id"], bot["name"], bot["project"], bot["status"], bot["workflow"], bot["tone"], "围绕客户意图生成专业、合规、可转人工的话术。", bot["score"]),
-            )
-    if _count(backend, "SELECT COUNT(*) AS c FROM channel_accounts") == 0:
-        rows = [
-            # 对齐原型：竹绿-健康 / 恒康倍力 / 福寿康 / 邮箱账号
-            ("acc-zhulu", "企业微信", "竹绿-健康", "online", "yefengqiu", 600, "team-initial", "wecom", "ipad", 181),
-            ("acc-hengkang", "企业微信", "恒康倍力", "online", "yangqicheng", 300, "team-initial", "wecom", "ipad", 73),
-            ("acc-fushou", "微信", "福寿康", "offline", "yefengqiu", 120, "team-initial", "wechat", "", 12),
-            ("acc-email", "邮箱", "企业邮箱客服", "online", "fanfuni", 200, "team-initial", "email", "", 8),
-        ]
-        for row in rows:
-            backend.execute(
-                "INSERT INTO channel_accounts(id, channel, account_name, status, bound_bot, daily_quota, team_id, channel_type, protocol, sessions_count) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                row,
             )
     if _count(backend, "SELECT COUNT(*) AS c FROM customer_tags") == 0:
         rows = [
@@ -668,78 +788,12 @@ def seed_defaults(backend: DatabaseBackend) -> None:
                 "INSERT INTO bot_subscriptions(bot_id, hosted_sessions, expire_at) VALUES (?, ?, ?)",
                 row,
             )
-    if _count(backend, "SELECT COUNT(*) AS c FROM channel_seats") == 0:
-        seats = [
-            ("acc-zhulu", 580, 20),
-            ("acc-hengkang", 285, 15),
-            ("acc-fushou", 110, 10),
-            ("acc-email", 50, 5),
-        ]
-        for row in seats:
-            backend.execute(
-                "INSERT INTO channel_seats(channel_account_id, seats_left, online_sessions) VALUES (?, ?, ?)",
-                row,
-            )
 
     # ---- 渠道会话管理域种子（teams / contacts / sessions / hosting / wechat_subjects） ----
     if _count(backend, "SELECT COUNT(*) AS c FROM teams") == 0:
         backend.execute(
             "INSERT INTO teams(id, name, seats_left, energy_value) VALUES (?, ?, ?, ?)",
             ("team-initial", "初始团队", 1, 908),
-        )
-
-    if _count(backend, "SELECT COUNT(*) AS c FROM channel_contacts") == 0:
-        contacts = [
-            # 客户 (7)
-            ("c-cloud", "acc-zhulu", "@微信", "wechat", "Cloud", "Cloud", "customer", "online", "", "", "2026-06-30 18:27:31", "扫码"),
-            ("c-shiqi", "acc-zhulu", "@微信", "wechat", "拾柒", "拾柒", "customer", "online", "", "", "2026-06-30 18:27:32", "扫码"),
-            ("c-didi", "acc-zhulu", "@微信", "wechat", "didi", "didi", "customer", "online", "", "", "2026-06-30 18:27:33", "扫码"),
-            ("c-xiaoxingxing", "acc-zhulu", "@微信", "wechat", "小星星", "小星星", "customer", "offline", "", "", "2026-06-30 18:27:34", "扫码"),
-            ("c-changsheng", "acc-zhulu", "@微信", "wechat", "常胜将军", "常胜将军", "customer", "offline", "", "", "2026-06-30 18:27:35", "扫码"),
-            ("c-kuaile", "acc-zhulu", "@微信", "wechat", "快乐的小可爱", "快乐的小可爱", "customer", "offline", "", "", "2026-06-30 18:27:36", "扫码"),
-            ("c-kaixin", "acc-zhulu", "@微信", "wechat", "开心", "开心", "customer", "offline", "", "", "2026-06-30 18:27:37", "扫码"),
-            # 内部成员 (2)
-            ("c-zhangsan", "acc-zhulu", "@企业微信", "wecom", "张三", "张三", "internal", "online", "", "", "2026-06-30 18:27:38", "手动添加"),
-            ("c-lisi", "acc-zhulu", "@企业微信", "wecom", "李四", "李四", "internal", "offline", "", "", "2026-06-30 18:27:39", "手动添加"),
-            # 客户群聊 (2)
-            ("c-group1", "acc-zhulu", "@企业微信", "wecom", "远志-洪创鑫、竹绿-健康、DA星语...", "远志-洪创鑫、竹绿-健康、DA星语...", "customer_group", "online", "", "", "2026-06-30 18:27:40", "扫码"),
-            ("c-group2", "acc-zhulu", "@企业微信", "wecom", "中医流体学入门会员", "中医流体学入门会员", "customer_group", "online", "", "", "2026-06-30 18:27:41", "扫码"),
-            # 内部群聊 (1)
-            ("c-igroup1", "acc-zhulu", "@企业微信", "wecom", "内部运营群", "内部运营群", "internal_group", "offline", "", "", "2026-06-30 18:27:42", "手动添加"),
-        ]
-        for row in contacts:
-            backend.execute(
-                "INSERT INTO channel_contacts(id, account_id, channel, channel_type, name, nickname, type, status, remark, description, add_time, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                row,
-            )
-
-    if _count(backend, "SELECT COUNT(*) AS c FROM customer_profiles") == 0:
-        profiles = [
-            ("cp-cloud", "c-cloud", "13800001234", "cloud@example.com", "云康科技", "产品经理", "华东", 28, "1998-03-12", "重点跟进客户", "2026-06-30 18:29:18", "@微信", "健康生活，从今天开始", 1),
-            ("cp-didi", "c-didi", "", "", "", "", "", None, "", "已添加微信，待沟通", "2026-07-03 15:35:45", "@微信", "", 0),
-            ("cp-zhangsan", "c-zhangsan", "13900005678", "zhangsan@corp.com", "竹绿-健康", "运营专员", "总部", 32, "1994-11-02", "内部成员", "2026-06-30 18:29:20", "@企业微信", "", 0),
-            ("cp-changsheng", "c-changsheng", "", "", "", "", "", None, "", "中奖用户", "2026-07-03 11:20:00", "@微信", "", 1),
-            ("cp-kaixin", "c-kaixin", "", "", "", "", "", None, "", "新添加客户", "2026-07-03 09:05:00", "@微信", "", 0),
-        ]
-        for row in profiles:
-            backend.execute(
-                "INSERT INTO customer_profiles(id, contact_id, phone, email, company, position, region, age, birthday, remark, add_time, add_channel, signature, ai_summary_enabled) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                row,
-            )
-
-    if _count(backend, "SELECT COUNT(*) AS c FROM communication_records") == 0:
-        backend.execute(
-            "INSERT INTO communication_records(id, customer_id, content, ai_summary, type, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            ("cr-1", "cp-didi", "客户咨询了产品使用方式，已发送使用手册链接，客户表示满意。", "客户咨询产品使用方法，已提供使用手册。", "note", "2026-07-03 16:00:00"),
-        )
-
-    if _count(backend, "SELECT COUNT(*) AS c FROM custom_attributes") == 0:
-        backend.execute(
-            "INSERT INTO custom_attributes(id, customer_id, name, value, created_at) VALUES (?, ?, ?, ?, ?)",
-            ("ca-1", "cp-didi", "客户等级", "VIP", "2026-07-03 16:10:00"),
         )
 
     if _count(backend, "SELECT COUNT(*) AS c FROM channel_sessions") == 0:
@@ -1245,7 +1299,7 @@ def _seed_operation_sop_records(backend: DatabaseBackend) -> None:
 
 
 def _seed_customer_domain(backend: DatabaseBackend) -> None:
-    """客户管理域种子数据（9 个守卫块，均仅在空表时写入）。"""
+    """客户管理域种子数据（仅保留标签分组与标签两类种子，移除扩展联系人/标签关系/客户分组等 demo）。"""
     # 1. 标签分组（4 组，严格按原型 tagGroups 2202-2206）
     if _count(backend, "SELECT COUNT(*) AS c FROM customer_tag_groups WHERE id != 'tg-default'") == 0:
         groups = [
@@ -1288,245 +1342,6 @@ def _seed_customer_domain(backend: DatabaseBackend) -> None:
                 "INSERT INTO customer_tags(id, group_id, name, color, rule) VALUES (?, ?, ?, ?, ?)",
                 (tid, gid, name, color, rule),
             )
-
-    # 3. 扩展 channel_contacts（从 12 → ~35：新增 ~23 外部客户 + 19 内部成员）
-    _seed_ext_contacts(backend)
-
-    # 4. 扩展 customer_profiles + 5. communication_records + 6. custom_attributes
-    _seed_ext_profiles(backend)
-
-    # 7. 标签关系（~30 条）
-    if _count(backend, "SELECT COUNT(*) AS c FROM customer_tag_relations") == 0:
-        _seed_tag_relations(backend)
-
-    # 8. 客户分组（4 组）
-    if _count(backend, "SELECT COUNT(*) AS c FROM customer_groups") == 0:
-        groups_data = [
-            ("g-high-intent", "高意向客户", "system", 128, "2026-06-01 10:22:00", "2026-07-08 14:03:00", "江南竹绿"),
-            ("g-618", "618大促触达", "custom", 56, "2026-06-20 09:11:00", "2026-07-10 18:40:00", "林瞰"),
-            ("g-sleep", "沉睡唤醒", "custom", 312, "2026-05-12 16:45:00", "2026-07-09 11:20:00", "通天草"),
-            ("g-repurchase", "复购潜力", "system", 89, "2026-06-05 13:30:00", "2026-07-11 09:05:00", "江南竹绿"),
-        ]
-        for gid, name, gtype, cnt, cat, uat, editor in groups_data:
-            backend.execute(
-                "INSERT INTO customer_groups(id, name, type, count, created_at, updated_at, editor) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (gid, name, gtype, cnt, cat, uat, editor),
-            )
-
-    # 9. 客户分组成员（~30 条）
-    if _count(backend, "SELECT COUNT(*) AS c FROM customer_group_members") == 0:
-        # 获取所有 customer_profiles id
-        profiles = backend.query("SELECT id FROM customer_profiles ORDER BY id")
-        all_cp_ids = [r["id"] for r in profiles]
-        # 4 个分组各关联若干客户
-        # 高意向客户(system): 前 6 个
-        for cid in all_cp_ids[:6]:
-            backend.execute("INSERT INTO customer_group_members(group_id, customer_id) VALUES (?, ?)", ("g-high-intent", cid))
-        # 618大促(custom): 2-8
-        for cid in all_cp_ids[2:8]:
-            backend.execute("INSERT INTO customer_group_members(group_id, customer_id) VALUES (?, ?)", ("g-618", cid))
-        # 沉睡唤醒(custom): 5-13
-        for cid in all_cp_ids[5:13]:
-            backend.execute("INSERT INTO customer_group_members(group_id, customer_id) VALUES (?, ?)", ("g-sleep", cid))
-        # 复购潜力(system): 8-14
-        for cid in all_cp_ids[8:14]:
-            backend.execute("INSERT INTO customer_group_members(group_id, customer_id) VALUES (?, ?)", ("g-repurchase", cid))
-
-
-def _seed_ext_contacts(backend: DatabaseBackend) -> None:
-    """扩展 channel_contacts（保留现有 12 条 + 新增 ~23 外部客户 + 19 内部成员）。"""
-    existing = _count(backend, "SELECT COUNT(*) AS c FROM channel_contacts")
-    if existing >= 12 and _count(backend, "SELECT COUNT(*) AS c FROM channel_contacts WHERE type = 'internal'") >= 3:
-        # 内部成员已扩展，跳过
-        pass
-    else:
-        # 新增外部客户（原型 8535-8544 的 10 个 + 额外 13 个）
-        ext_customers = [
-            ("c-tongtian", "acc-zhulu", "@微信", "wechat", "通天草-林瞰", "通天草-林瞰", "customer", "online", "重点健康客户", "通天草 · 林瞰@微信", "2026-07-03 15:35:45", "扫码"),
-            ("c-zhizu", "acc-zhulu", "@微信", "wechat", "知足常乐【中奖】", "知足常乐", "customer", "online", "", "知足常乐@微信", "2026-06-30 18:29:34", "扫码"),
-            ("c-gaoxing", "acc-zhulu", "@微信", "wechat", "高-星", "高-星", "customer", "online", "", "高-星@微信", "2026-06-30 18:29:33", "扫码"),
-            ("c-kejie", "acc-zhulu", "@微信", "wechat", "客姐", "客姐", "customer", "online", "", "客姐@微信", "2026-06-30 18:29:33", "扫码"),
-            ("c-qingxian", "acc-zhulu", "@微信", "wechat", "清闲自在", "清闲自在", "customer", "offline", "", "清闲自在@微信", "2026-06-30 18:29:30", "扫码"),
-            ("c-xiao", "acc-zhulu", "@微信", "wechat", "小", "小", "customer", "offline", "", "小@微信", "2026-06-30 18:29:30", "扫码"),
-            ("c-maoxiaorui", "acc-zhulu", "@微信", "wechat", "毛小瑞", "毛小瑞", "customer", "online", "", "毛小瑞@微信", "2026-06-30 18:29:29", "扫码"),
-            ("c-mali", "acc-zhulu", "@微信", "wechat", "玛丽", "玛丽", "customer", "offline", "", "玛丽@微信", "2026-06-30 18:29:29", "扫码"),
-            ("c-yaoyao", "acc-zhulu", "@微信", "wechat", "瑶瑶【中奖】", "瑶瑶", "customer", "online", "中奖用户", "瑶瑶@微信", "2026-06-30 18:29:26", "扫码"),
-            ("c-kafei", "acc-zhulu", "@微信", "wechat", "咖啡~我行！我秀！", "咖啡", "customer", "offline", "", "咖啡@微信", "2026-06-30 18:29:26", "扫码"),
-            ("c-yangyang", "acc-hengkang", "@企业微信", "wecom", "洋洋", "洋洋", "customer", "online", "", "", "2026-06-30 18:29:12", "扫码"),
-            ("c-min", "acc-hengkang", "@企业微信", "wecom", "Min", "Min", "customer", "online", "", "", "2026-06-30 18:27:09", "扫码"),
-            ("c-xingyue", "acc-hengkang", "@企业微信", "wecom", "xıngyue", "xıngyue", "customer", "online", "", "", "2026-06-30 18:27:10", "扫码"),
-            ("c-wen", "acc-hengkang", "@企业微信", "wecom", "文", "文", "customer", "offline", "", "", "2026-06-30 18:27:10", "扫码"),
-            ("c-lili", "acc-hengkang", "@企业微信", "wecom", "丽丽", "丽丽", "customer", "offline", "", "", "2026-06-30 18:27:13", "扫码"),
-            ("c-chenwei", "acc-hengkang", "@企业微信", "wecom", "陈薇", "陈薇", "customer", "online", "", "", "2026-07-01 10:15:20", "扫码"),
-            ("c-lina", "acc-fushou", "@微信", "wechat", "李娜", "李娜", "customer", "online", "", "", "2026-07-02 14:22:30", "扫码"),
-            ("c-wangfang", "acc-fushou", "@微信", "wechat", "王芳", "王芳", "customer", "offline", "", "", "2026-07-03 09:10:00", "扫码"),
-            ("c-zhaoyun", "acc-fushou", "@微信", "wechat", "赵云龙", "赵云龙", "customer", "online", "", "", "2026-07-04 16:45:12", "扫码"),
-            ("c-sunli", "acc-fushou", "@微信", "wechat", "孙丽", "孙丽", "customer", "offline", "", "", "2026-07-05 11:30:00", "扫码"),
-            ("c-zhoujie", "acc-hengkang", "@企业微信", "wecom", "周杰", "周杰", "customer", "online", "", "", "2026-07-06 08:20:00", "扫码"),
-            ("c-wuqiang", "acc-hengkang", "@企业微信", "wecom", "吴强", "吴强", "customer", "offline", "", "", "2026-07-07 13:15:00", "扫码"),
-            ("c-liumei", "acc-fushou", "@微信", "wechat", "刘美玲", "刘美玲", "customer", "online", "", "", "2026-07-08 10:05:00", "扫码"),
-        ]
-        for row in ext_customers:
-            cid = row[0]
-            if _count(backend, "SELECT COUNT(*) AS c FROM channel_contacts WHERE id = ?", (cid,)) == 0:
-                backend.execute(
-                    "INSERT INTO channel_contacts(id, account_id, channel, channel_type, name, nickname, type, status, remark, description, add_time, source) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    row,
-                )
-
-        # 新增内部成员（19 个，对齐原型 8575-8593）
-        internal_members = [
-            ("c-sanqi", "acc-zhulu", "@企业微信", "wecom", "三七-彭佳英", "三七", "internal", "online", "", "", "2026-06-30 18:27:38", "手动添加"),
-            ("c-tongtian-internal", "acc-zhulu", "@企业微信", "wecom", "通天草-林瞰", "通天草", "internal", "online", "", "", "2026-06-30 18:27:39", "手动添加"),
-            ("c-qixingcao", "acc-zhulu", "@企业微信", "wecom", "七星草-陈晓", "七星草", "internal", "online", "", "", "2026-06-30 18:27:40", "手动添加"),
-            ("c-guanyi", "acc-zhulu", "@企业微信", "wecom", "管医-许小玲", "管医", "internal", "online", "", "", "2026-06-30 18:27:41", "手动添加"),
-            ("c-jibin", "acc-zhulu", "@企业微信", "wecom", "纪斌", "纪斌", "internal", "online", "", "", "2026-06-30 18:27:42", "手动添加"),
-            ("c-fuxiuxuan", "acc-zhulu", "@企业微信", "wecom", "福秀萱", "福秀萱", "internal", "online", "", "", "2026-06-30 18:27:43", "手动添加"),
-            ("c-kefu-meigui", "acc-zhulu", "@企业微信", "wecom", "客服-玫瑰", "玫瑰", "internal", "offline", "", "", "2026-06-30 18:27:44", "手动添加"),
-            ("c-chenyurong", "acc-zhulu", "@企业微信", "wecom", "陈语荣", "陈语荣", "internal", "online", "", "", "2026-06-30 18:27:45", "手动添加"),
-            ("c-wuhailong", "acc-zhulu", "@企业微信", "wecom", "吴海龙(灯心草)", "吴海龙", "internal", "online", "", "", "2026-06-30 18:27:46", "手动添加"),
-            ("c-yiyirui", "acc-zhulu", "@企业微信", "wecom", "依医瑞健康客服", "依医瑞", "internal", "online", "", "", "2026-06-30 18:27:47", "手动添加"),
-            ("c-guolao", "acc-zhulu", "@企业微信", "wecom", "国老-于成龙", "国老", "internal", "online", "", "", "2026-06-30 18:27:48", "手动添加"),
-            ("c-huangbodong", "acc-zhulu", "@企业微信", "wecom", "黄博栋", "黄博栋", "internal", "online", "", "", "2026-06-30 18:27:49", "手动添加"),
-            ("c-sudonglong", "acc-zhulu", "@企业微信", "wecom", "苏东龙", "苏东龙", "internal", "online", "", "", "2026-06-30 18:27:50", "手动添加"),
-            ("c-juemingzi", "acc-zhulu", "@企业微信", "wecom", "决明子-刘荣享", "决明子", "internal", "offline", "", "", "2026-06-30 18:27:51", "手动添加"),
-            ("c-baizhi", "acc-zhulu", "@企业微信", "wecom", "白芷-谢玉婷", "白芷", "internal", "online", "", "", "2026-06-30 18:27:52", "手动添加"),
-            ("c-jiaoshou", "acc-zhulu", "@企业微信", "wecom", "教授助理-张贤", "张贤", "internal", "online", "", "", "2026-06-30 18:27:53", "手动添加"),
-            ("c-situmin", "acc-zhulu", "@企业微信", "wecom", "司徒敏瑜", "司徒敏瑜", "internal", "online", "", "", "2026-06-30 18:27:54", "手动添加"),
-            ("c-zhulv", "acc-zhulu", "@企业微信", "wecom", "竹绿-健康", "竹绿", "internal", "online", "", "", "2026-06-30 18:27:55", "手动添加"),
-            ("c-yuanzhi", "acc-zhulu", "@企业微信", "wecom", "远志-洪恒鑫", "远志", "internal", "online", "", "", "2026-06-30 18:27:56", "手动添加"),
-        ]
-        for row in internal_members:
-            cid = row[0]
-            if _count(backend, "SELECT COUNT(*) AS c FROM channel_contacts WHERE id = ?", (cid,)) == 0:
-                backend.execute(
-                    "INSERT INTO channel_contacts(id, account_id, channel, channel_type, name, nickname, type, status, remark, description, add_time, source) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    row,
-                )
-
-
-def _seed_ext_profiles(backend: DatabaseBackend) -> None:
-    """扩展 customer_profiles + communication_records + custom_attributes。"""
-    # 获取所有 type='customer' 的 contacts
-    contacts = backend.query("SELECT id, name, add_time FROM channel_contacts WHERE type = 'customer' ORDER BY add_time")
-    # 获取已有 profiles
-    existing_profiles = _count(backend, "SELECT COUNT(*) AS c FROM customer_profiles")
-
-    profile_batch: list[tuple] = []
-    comm_batch: list[tuple] = []
-    attr_batch: list[tuple] = []
-
-    import random as _r
-    _r.seed(42)
-
-    profile_prefixes = [
-        ("138", "example.com", "", "", "华东", "健康生活每一天"),
-        ("139", "corp.com", "医林通健康科技", "健康顾问", "华南", ""),
-        ("150", "health.cn", "", "", "华北", "养生从我做起"),
-        ("186", "qq.com", "康源集团", "产品经理", "西南", ""),
-        ("137", "163.com", "", "", "华东", ""),
-        ("152", "gmail.com", "瑞康科技", "运营主管", "华中", "热爱中医"),
-        ("189", "sina.com", "", "", "华北", ""),
-        ("133", "yeah.net", "恒康倍力", "销售总监", "华南", ""),
-        ("158", "outlook.com", "", "", "西北", ""),
-        ("176", "foxmail.com", "福寿康", "客服经理", "华东", "服务至上"),
-    ]
-
-    for i, c in enumerate(contacts):
-        cid = c["id"]
-        name = c["name"]
-        add_time = c["add_time"] or "2026-07-01 00:00:00"
-        cp_id = f"cp-{cid.replace('c-', '')}"
-
-        if _count(backend, "SELECT COUNT(*) AS c FROM customer_profiles WHERE contact_id = ?", (cid,)) > 0:
-            continue
-
-        pf = profile_prefixes[i % len(profile_prefixes)]
-        phone = f"{pf[0]}{_r.randint(1000, 9999):04d}{_r.randint(1000, 9999):04d}"[:11]
-        profile_batch.append((
-            cp_id, cid,
-            phone if i % 3 != 0 else "",
-            f"{name[:2].lower()}{i}@{pf[1]}" if i % 2 == 0 else "",
-            pf[2], pf[3], pf[4],
-            _r.randint(20, 55) if i % 3 != 0 else None,
-            f"{_r.randint(1980, 2005)}-{_r.randint(1,12):02d}-{_r.randint(1,28):02d}" if i % 4 != 0 else "",
-            "" if i % 5 == 0 else ("重点跟进客户" if i % 7 == 0 else ""),
-            add_time, pf[0][:2] == "15" and "@企业微信" or "@微信",
-            pf[5],
-            int(i % 3 == 0),  # ai_summary_enabled: 约 1/3 开启
-        ))
-
-        # 沟通记录：每客户 1-3 条
-        comm_count = _r.randint(1, 3)
-        for j in range(comm_count):
-            cr_id = f"cr-{cid}-{j+1}"
-            if _count(backend, "SELECT COUNT(*) AS c FROM communication_records WHERE id = ?", (cr_id,)) > 0:
-                continue
-            day_offset = (3 - j) * _r.randint(1, 10)
-            from datetime import datetime as _dt, timedelta as _td
-            ts = (_dt(2026, 7, 14) - _td(days=day_offset)).strftime("%Y-%m-%d %H:%M:%S")
-            comm_batch.append((
-                cr_id, cp_id,
-                f"与客户{name}进行了{'产品咨询' if j % 2 == 0 else '售后服务'}沟通，客户{'满意' if _r.random() > 0.3 else '需跟进'}。" if j == 0 else f"第{j+1}次沟通记录：{'发送产品资料' if j % 2 == 0 else '确认订单信息'}",
-                f"AI总结：客户{name}{'对产品表示满意' if _r.random() > 0.4 else '需要进一步跟进'}，建议{'定期回访' if _r.random() > 0.5 else '推送优惠信息'}" if j == 0 and _r.random() > 0.3 else "",
-                "note",
-                ts,
-            ))
-
-        # 自定义属性：每客户 0-2 条
-        attr_count = _r.randint(0, 2)
-        for j in range(attr_count):
-            ca_id = f"ca-{cid}-{j+1}"
-            if _count(backend, "SELECT COUNT(*) AS c FROM custom_attributes WHERE id = ?", (ca_id,)) > 0:
-                continue
-            attr_pairs = [("客户等级", "VIP"), ("来源渠道", "扫码"), ("偏好产品", "大健康"), ("意向程度", "高"), ("跟进状态", "待回访")]
-            aname, aval = attr_pairs[(i + j) % len(attr_pairs)]
-            attr_batch.append((ca_id, cp_id, aname, aval))
-
-    for row in profile_batch:
-        backend.execute(
-            "INSERT INTO customer_profiles(id, contact_id, phone, email, company, position, region, age, birthday, remark, add_time, add_channel, signature, ai_summary_enabled) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            row,
-        )
-
-    for row in comm_batch:
-        backend.execute(
-            "INSERT INTO communication_records(id, customer_id, content, ai_summary, type, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            row,
-        )
-
-    for row in attr_batch:
-        backend.execute(
-            "INSERT INTO custom_attributes(id, customer_id, name, value, created_at) "
-            "VALUES (?, ?, ?, ?, datetime('now'))",
-            row,
-        )
-
-
-def _seed_tag_relations(backend: DatabaseBackend) -> None:
-    """为客户关联标签（~30 条）。"""
-    profiles = backend.query("SELECT id FROM customer_profiles ORDER BY id")
-    tags = backend.query("SELECT id, group_id FROM customer_tags WHERE group_id != '' AND group_id != 'tg-default'")
-    if not profiles or not tags:
-        return
-
-    import random as _r
-    _r.seed(42)
-    tag_ids = [t["id"] for t in tags]
-
-    for i, p in enumerate(profiles[:15]):
-        count = _r.randint(1, 3)
-        chosen = _r.sample(tag_ids, min(count, len(tag_ids)))
-        for tid in chosen:
-            backend.execute(
-                "INSERT OR IGNORE INTO customer_tag_relations(customer_id, tag_id) VALUES (?, ?)",
-                (p["id"], tid),
-            )
-
 
 def _seed_knowledge() -> list[tuple]:
     """知识库种子（yefengqiu / fanfuni 各 常见问题4 + 纠偏知识3）。

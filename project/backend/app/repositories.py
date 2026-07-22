@@ -25,6 +25,13 @@ def _generate_id(prefix: str) -> str:
 
 # ---- 行 -> DTO 映射（与原实现字段严格对齐）----
 def row_to_bot(row: dict) -> dict:
+    """行 -> 机器人 DTO。
+
+    在原有契约字段（id/name/project/status/workflow/tone/trainingPrompt/score）
+    基础上补充 created_at / updated_at：前端 Bots 列表需要「编辑于 {updatedAt}」
+    与按时间排序。updated_at 列在部分旧数据上可能为 NULL，统一兜底为 created_at。
+    """
+    created_at = row["created_at"]
     return {
         "id": row["id"],
         "name": row["name"],
@@ -34,6 +41,8 @@ def row_to_bot(row: dict) -> dict:
         "tone": row["tone"],
         "trainingPrompt": row["training_prompt"],
         "score": row["score"],
+        "createdAt": created_at,
+        "updatedAt": row.get("updated_at") or created_at,
     }
 
 
@@ -139,22 +148,34 @@ class BotRepository:
             "INSERT INTO bots(id, name, project, status, workflow, tone, training_prompt, score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (bot_id, name, project, "training", workflow, tone, training_prompt, 76),
         )
-        return {
-            "id": bot_id,
-            "name": name,
-            "project": project,
-            "status": "training",
-            "workflow": workflow,
-            "tone": tone,
-            "trainingPrompt": training_prompt,
-            "score": 76,
-        }
+        # 回查整行，补齐 created_at / updated_at，使返回结构与 GET /bots 一致
+        # （前端 mapBot 需要 createdAt / updatedAt，缺失会显示空「编辑于」）。
+        row = self._db.query_one("SELECT * FROM bots WHERE id = ?", (bot_id,))
+        if row is None:
+            return {
+                "id": bot_id,
+                "name": name,
+                "project": project,
+                "status": "training",
+                "workflow": workflow,
+                "tone": tone,
+                "trainingPrompt": training_prompt,
+                "score": 76,
+            }
+        return row_to_bot(row)
 
     def mark_trained(self, bot_id: str) -> None:
         self._db.execute(
             "UPDATE bots SET status = ?, score = MIN(score + 8, 99) WHERE id = ?",
             ("online", bot_id),
         )
+
+    def delete(self, bot_id: str) -> bool:
+        existing = self._db.query_one("SELECT id FROM bots WHERE id = ?", (bot_id,))
+        if not existing:
+            return False
+        self._db.execute("DELETE FROM bots WHERE id = ?", (bot_id,))
+        return True
 
 
 class ChannelRepository:
@@ -1066,6 +1087,11 @@ def row_to_account(row: dict) -> dict:
         "seatsLeft": row.get("seats_left"),
         "onlineSessions": row.get("online_sessions"),
         "teamName": row.get("team_name"),
+        "ipadUuid": row.get("ipad_uuid", ""),
+        "ipadUserInfo": (json.loads(row.get("ipad_user_info") or "{}") or None),
+        "hostStatus": row.get("host_status", "pending"),
+        "syncStatus": row.get("sync_status", ""),
+        "lastSyncAt": row.get("last_sync_at", ""),
     }
 
 
@@ -1091,6 +1117,7 @@ def row_to_session(row: dict) -> dict:
         "id": row["id"],
         "accountId": row["account_id"],
         "contactId": row.get("contact_id"),
+        "remoteSessionId": row.get("remote_session_id"),
         "name": row["name"],
         "channel": row["channel"],
         "channelType": row["channel_type"],
@@ -1125,6 +1152,7 @@ def row_to_customer_profile(row: dict) -> dict:
         "addChannel": row["add_channel"],
         "signature": row["signature"],
         "aiSummaryEnabled": bool(row.get("ai_summary_enabled", 0)),
+        "tags": _parse_json_field(row.get("tags", "[]"), []),
     }
 
 
@@ -1247,6 +1275,65 @@ class ChannelMgmtRepository:
                     "online": True, "sessionsCount": 0, "teamId": team_id, "boundBot": "yefengqiu"}
         return row_to_account(row)
 
+    def create_account_with_ipad(
+        self,
+        channel_type: str,
+        protocol: str,
+        team_id: str,
+        name: str | None,
+        ipad_uuid: str,
+        ipad_user_info: dict | str | None,
+        host_status: str = "hosted",
+    ) -> dict:
+        """企业微信 iPad 协议托管落库（loginType==2 时由路由自动调用）。
+
+        复用 `_generate_id("acc")`；channel_label 同 `create_account`；
+        status='online'、bound_bot='yefengqiu'、daily_quota=0、sessions_count=0。
+        `ipad_user_info` 以 JSON 字符串持久化（已是 str 则原样落库）。
+        """
+        account_id = _generate_id("acc")
+        channel_label = {
+            "wecom": "企业微信",
+            "wechat": "微信",
+            "whatsapp": "WhatsApp",
+            "business_whatsapp": "企业WhatsApp",
+        }.get(channel_type, "渠道账号")
+        account_name = name or f"{channel_label}-新账号"
+        if isinstance(ipad_user_info, str):
+            ipad_user_info_str = ipad_user_info or "{}"
+        elif ipad_user_info is None:
+            ipad_user_info_str = "{}"
+        else:
+            ipad_user_info_str = json.dumps(ipad_user_info, ensure_ascii=False)
+        self._db.execute(
+            "INSERT INTO channel_accounts("
+            "id, channel, account_name, status, bound_bot, daily_quota, team_id, "
+            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status) "
+            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?)",
+            (
+                account_id, channel_label, account_name, "yefengqiu", team_id,
+                channel_type, protocol, ipad_uuid, ipad_user_info_str, host_status,
+            ),
+        )
+        row = self._db.query_one(
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name "
+            "FROM channel_accounts a "
+            "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
+            "LEFT JOIN teams t ON t.id = a.team_id "
+            "WHERE a.id = ?",
+            (account_id,),
+        )
+        if row is None:
+            return {
+                "id": account_id, "name": account_name, "channel": channel_label,
+                "channelType": channel_type, "protocol": protocol, "status": "online",
+                "online": True, "sessionsCount": 0, "teamId": team_id,
+                "boundBot": "yefengqiu", "ipadUuid": ipad_uuid,
+                "ipadUserInfo": (ipad_user_info if isinstance(ipad_user_info, dict) else None),
+                "hostStatus": host_status,
+            }
+        return row_to_account(row)
+
     # ---- contacts ----
     def list_contacts(
         self,
@@ -1307,25 +1394,42 @@ class ChannelMgmtRepository:
         online: str | None = None,
         search: str | None = None,
     ) -> list[dict]:
-        sql = "SELECT * FROM channel_sessions WHERE 1=1"
+        # LEFT JOIN channel_contacts，把真实昵称作为会话显示名带出，避免会话列表 /
+        # 右侧面板展示 raw sessionid 编号（见任务 Issue #2）。
+        # 关联条件覆盖「按 contact_id」与「按 remote_session_id 反查 user_id」两种情形；
+        # COALESCE 优先取联系人的真实昵称，兜底回退到会话自身 name。
+        sql = (
+            "SELECT cs.*, "
+            "COALESCE(cc.nickname, cc.name, cg.nickname, cs.name) AS name "
+            "FROM channel_sessions cs "
+            "LEFT JOIN channel_contacts cc ON cc.account_id = cs.account_id "
+            "AND (cc.id = cs.contact_id OR cc.user_id = cs.remote_session_id) "
+            "LEFT JOIN channel_groups cg ON cg.account_id = cs.account_id "
+            "AND cg.room_id = cs.remote_session_id "
+            "WHERE 1=1"
+        )
         params: list = []
         if account_id:
-            sql += " AND account_id = ?"
+            sql += " AND cs.account_id = ?"
             params.append(account_id)
         if read in ("read", "unread"):
-            sql += " AND read_status = ?"
+            sql += " AND cs.read_status = ?"
             params.append(read)
         if hosted in ("hosted", "unhosted"):
-            sql += " AND hosted_status = ?"
+            sql += " AND cs.hosted_status = ?"
             params.append(hosted)
         if online in ("online", "offline"):
-            sql += " AND online_status = ?"
+            sql += " AND cs.online_status = ?"
             params.append(online)
         if search:
-            sql += " AND name LIKE ?"
+            # 搜索同时匹配会话名与联系人昵称，保证昵称可被检索。
+            sql += " AND (cs.name LIKE ? OR cc.nickname LIKE ?)"
             params.append(f"%{search}%")
-        sql += " ORDER BY last_time DESC, id"
+            params.append(f"%{search}%")
+        sql += " ORDER BY cs.last_time DESC, cs.id"
         rows = self._db.query(sql, tuple(params))
+        # 结果集中 `name` 已由 COALESCE(cc.nickname, cc.name, s.name) 覆盖为真实昵称，
+        # 直接交给 row_to_session 映射即可（见任务 Issue #2）。
         return [row_to_session(r) for r in rows]
 
     def list_session_messages(self, session_id: str) -> list[dict]:
@@ -1483,6 +1587,506 @@ class ChannelMgmtRepository:
     # ---- hosting bots（静态） ----
     def list_hosting_bots(self) -> list[dict]:
         return [dict(b) for b in HOSTING_BOTS]
+
+    # ---- iPad 协议同步域（T01/T02） ----
+    def get_account_by_id(self, account_id: str) -> dict | None:
+        """按 id 取账号（扩展 DTO）。"""
+        row = self._db.query_one(
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name "
+            "FROM channel_accounts a "
+            "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
+            "LEFT JOIN teams t ON t.id = a.team_id "
+            "WHERE a.id = ?",
+            (account_id,),
+        )
+        return row_to_account(row) if row else None
+
+    def set_account_sync_status(
+        self, account_id: str, sync_status: str, last_sync_at: str
+    ) -> None:
+        """写入同步状态 / 最近同步时间。"""
+        self._db.execute(
+            "UPDATE channel_accounts SET sync_status = ?, last_sync_at = ? WHERE id = ?",
+            (sync_status, last_sync_at, account_id),
+        )
+
+    def get_contact_by_id(self, contact_id: str) -> dict | None:
+        """按 id 取联系人原始行（反查 user_id 用）。"""
+        return self._db.query_one(
+            "SELECT * FROM channel_contacts WHERE id = ?", (contact_id,)
+        )
+
+    def get_group_by_room_id(self, account_id: str, room_id: str) -> dict | None:
+        """按 (account_id, room_id) 取群，返回 row_to_group DTO（与 get_group_by_id 一致）。
+
+        注意：必须返回 DTO（camelCase: accountId/roomId/...），否则
+        routers/ipad_sync.group_members 直接将其作为 GroupDetailDTO.group 返回时，
+        FastAPI 响应校验会因字段为 snake_case 而抛出 ResponseValidationError（生产 500）。
+        """
+        row = self._db.query_one(
+            "SELECT * FROM channel_groups WHERE account_id = ? AND room_id = ?",
+            (account_id, room_id),
+        )
+        return row_to_group(row) if row else None
+
+    def get_session_by_id(self, session_id: str) -> dict | None:
+        """按 id 取会话原始行（反查 user_id/room_id + isRoom 用）。"""
+        return self._db.query_one(
+            "SELECT * FROM channel_sessions WHERE id = ?", (session_id,)
+        )
+
+    def upsert_channel_contact(self, contact: dict) -> None:
+        """upsert 渠道联系人（自然键 id = {account_id}:{user_id}）。"""
+        self._db.execute(
+            "INSERT OR REPLACE INTO channel_contacts("
+            "id, account_id, channel, channel_type, name, nickname, type, status, "
+            "remark, description, add_time, source, user_id, label_ids, raw_status, extra_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                contact["id"], contact["account_id"], contact["channel"],
+                contact["channel_type"], contact["name"], contact["nickname"],
+                contact["type"], contact["status"], contact["remark"],
+                contact["description"], contact["add_time"], contact["source"],
+                contact["user_id"], contact["label_ids"], contact["raw_status"],
+                contact["extra_json"],
+            ),
+        )
+
+    def upsert_customer_profile_for_contact(
+        self, contact_id: str, fields: dict
+    ) -> None:
+        """upsert 客户档案（id = contact_id 保证幂等；写入 iPad 标签 tags）。
+
+        fields 约定：phone / company / position / remark / add_time /
+        add_channel / tags(JSON 数组，外部联系人 labelid[] 原样镜像，决策 #2)。
+        """
+        tags = fields.get("tags", [])
+        tags_json = tags if isinstance(tags, str) else json.dumps(tags, ensure_ascii=False)
+        self._db.execute(
+            "INSERT OR REPLACE INTO customer_profiles("
+            "id, contact_id, phone, email, company, position, region, age, birthday, "
+            "remark, add_time, add_channel, signature, ai_summary_enabled, tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                contact_id, contact_id,
+                fields.get("phone", ""),
+                "",
+                fields.get("company", ""),
+                fields.get("position", ""),
+                "",
+                fields.get("age"),
+                "",
+                fields.get("remark", ""),
+                fields.get("add_time", ""),
+                fields.get("add_channel", ""),
+                "",
+                0,
+                tags_json,
+            ),
+        )
+
+    def upsert_channel_session(self, session: dict) -> None:
+        """upsert 渠道会话（自然键 id = {account_id}:{sessionid}）。"""
+        self._db.execute(
+            "INSERT OR REPLACE INTO channel_sessions("
+            "id, account_id, contact_id, name, channel, channel_type, last_message, "
+            "last_time, unread_count, read_status, hosted_status, hosted_bot_id, owner, "
+            "online_status, session_type, external_tag, add_time, hosting_chain, "
+            "remote_session_id, msg_type, begin_msg_seq) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session["id"], session["account_id"], session.get("contact_id"),
+                session["name"], session["channel"], session["channel_type"],
+                session.get("last_message", ""), session.get("last_time", ""),
+                session.get("unread_count", 0), session.get("read_status", "unread"),
+                session.get("hosted_status", "unhosted"), session.get("hosted_bot_id"),
+                session.get("owner", ""), session.get("online_status", "online"),
+                session.get("session_type", ""), session.get("external_tag", ""),
+                session.get("add_time", ""), session.get("hosting_chain", "-"),
+                session.get("remote_session_id", ""), session.get("msg_type", 0),
+                session.get("begin_msg_seq", ""),
+            ),
+        )
+
+    def upsert_channel_group(self, group: dict) -> None:
+        """upsert 客户群（自然键 id = {account_id}:{room_id}）。"""
+        self._db.execute(
+            "INSERT OR REPLACE INTO channel_groups("
+            "id, account_id, room_id, group_type, nickname, total, room_url, "
+            "notice_content, create_time, update_time, extra_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                group["id"], group["account_id"], group["room_id"],
+                group.get("group_type", "customer_group"), group["nickname"],
+                group.get("total", 0), group.get("room_url", ""),
+                group.get("notice_content", ""), group.get("create_time", ""),
+                group.get("update_time", ""), group.get("extra_json", "{}"),
+            ),
+        )
+
+    def upsert_channel_group_member(self, member: dict) -> None:
+        """upsert 群成员（自然键 id = {group_id}:{uin|user_id}）。"""
+        self._db.execute(
+            "INSERT OR REPLACE INTO channel_group_members("
+            "id, group_id, uin, user_id, nickname, realname, avatar, room_nickname, "
+            "sex, mobile, join_time) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                member["id"], member["group_id"], member.get("uin", ""),
+                member.get("user_id", ""), member.get("nickname", ""),
+                member.get("realname", ""), member.get("avatar", ""),
+                member.get("room_nickname", ""), member.get("sex", 0),
+                member.get("mobile", ""), member.get("join_time", ""),
+            ),
+        )
+
+    def list_groups(
+        self, account_id: str, group_type: str | None = None
+    ) -> list[dict]:
+        """列出某账号下的群（默认按人数降序）。"""
+        if group_type:
+            rows = self._db.query(
+                "SELECT * FROM channel_groups WHERE account_id = ? AND group_type = ? "
+                "ORDER BY total DESC, nickname",
+                (account_id, group_type),
+            )
+        else:
+            rows = self._db.query(
+                "SELECT * FROM channel_groups WHERE account_id = ? "
+                "ORDER BY total DESC, nickname",
+                (account_id,),
+            )
+        return [row_to_group(r) for r in rows]
+
+    def list_group_members(self, group_id: str) -> list[dict]:
+        """列出某群成员（按昵称排序）。"""
+        rows = self._db.query(
+            "SELECT * FROM channel_group_members WHERE group_id = ? ORDER BY nickname",
+            (group_id,),
+        )
+        return [row_to_group_member(r) for r in rows]
+
+    def get_group_by_id(self, group_id: str) -> dict | None:
+        """按 id 取群（含成员聚合）。"""
+        row = self._db.query_one("SELECT * FROM channel_groups WHERE id = ?", (group_id,))
+        return row_to_group(row) if row else None
+
+
+    # ---- P1+P2 iPad 同步域扩展方法 ----
+    def upsert_ipad_label(self, account_id: str, label: dict) -> str | None:
+        """同步一个 iPad 标签 → 每账号一个 iPad 标签组 + 标签 + ipad_label_map 映射。"""
+        ipad_label_id = str(label.get("id") or "")
+        if not ipad_label_id:
+            return None
+        name = label.get("name") or ipad_label_id
+        # 协议常省略/返回 null 的 label_type / sync_type；用 `or` 让 None 回落默认值，
+        # 而非依赖 .get(..., default)（仅在“缺省键”时生效，key 存在且为 None 时仍崩）。
+        sync_type = int(label.get("sync_type") or 1)
+        label_type = int(label.get("label_type") or 0)
+        label_groupid = str(label.get("label_groupid") or "")
+        group_id = f"tg-ipad-{account_id}"
+        tag_id = f"itag-{account_id}-{ipad_label_id}"
+        if not self._db.query_one(
+            "SELECT id FROM customer_tag_groups WHERE id = ?", (group_id,)
+        ):
+            self._db.execute(
+                "INSERT INTO customer_tag_groups(id, name, is_hot) VALUES (?, ?, 0)",
+                (group_id, "iPad 标签"),
+            )
+        self._db.execute(
+            "INSERT OR REPLACE INTO customer_tags(id, group_id, name, color, rule) "
+            "VALUES (?, ?, ?, 'blue', '')",
+            (tag_id, group_id, name),
+        )
+        self._db.execute(
+            "INSERT OR REPLACE INTO ipad_label_map("
+            "account_id, ipad_label_id, label_name, label_type, label_group_id, "
+            "tag_id, sync_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (account_id, ipad_label_id, name, label_type, label_groupid, tag_id, sync_type),
+        )
+        return tag_id
+
+    def get_ipad_labels(self, account_id: str, sync_type: int | None = None) -> list[dict]:
+        """列出某账号的 iPad 标签（按名称排序；sync_type 可过滤 1=企业 2=个人）。"""
+        if sync_type is None:
+            rows = self._db.query(
+                "SELECT * FROM ipad_label_map WHERE account_id = ? ORDER BY label_name",
+                (account_id,),
+            )
+        else:
+            rows = self._db.query(
+                "SELECT * FROM ipad_label_map WHERE account_id = ? AND sync_type = ? ORDER BY label_name",
+                (account_id, int(sync_type)),
+            )
+        return [self.row_to_label(r) for r in rows]
+
+    @staticmethod
+    def row_to_label(row: dict) -> dict:
+        """ipad_label_map 行 -> LabelDTO。"""
+        return {
+            "accountId": row["account_id"],
+            "labelId": row["ipad_label_id"],
+            "labelName": row["label_name"],
+            "labelType": row["label_type"],
+            "labelGroupId": row["label_group_id"],
+            "tagId": row["tag_id"],
+            "syncType": row["sync_type"],
+        }
+
+    def map_ipad_labels_to_names(
+        self, account_id: str, label_ids: list[str]
+    ) -> list[dict]:
+        """把 iPad labelid[] 映射为真实标签名列表（保持入参顺序）。"""
+        if not label_ids:
+            return []
+        placeholders = ", ".join("?" for _ in label_ids)
+        rows = self._db.query(
+            f"SELECT ipad_label_id, label_name FROM ipad_label_map "
+            f"WHERE account_id = ? AND ipad_label_id IN ({placeholders})",
+            (account_id, *label_ids),
+        )
+        by_id = {r["ipad_label_id"]: r["label_name"] for r in rows}
+        return [{"labelId": lid, "labelName": by_id.get(lid, lid)} for lid in label_ids]
+
+    def get_contact_ipad_labels(self, account_id: str, contact_id: str) -> list[dict]:
+        """取联系人 iPad 标签并以真实标签名呈现（来自 customer_profiles.tags 镜像）。"""
+        profile = self._db.query_one(
+            "SELECT tags FROM customer_profiles WHERE contact_id = ?", (contact_id,)
+        )
+        if not profile:
+            return []
+        label_ids = _parse_json_field(profile.get("tags"), [])
+        if not isinstance(label_ids, list):
+            label_ids = []
+        return self.map_ipad_labels_to_names(account_id, label_ids)
+
+    def set_contact_ipad_labels(
+        self, account_id: str, contact_id: str, label_ids: list[str]
+    ) -> None:
+        """持久化联系人 iPad 标签（Morphix 侧双写）。
+
+        - 重写 `customer_profiles.tags` 为 labelid[] 镜像；
+        - 重建该客户的 iPad 标签关系（保留非 iPad 标签关系）。
+        iPad 侧生效由服务层先调 `UserAddLabelsReq` 保证（决策 #9）。
+        """
+        profile = self._db.query_one(
+            "SELECT id FROM customer_profiles WHERE contact_id = ?", (contact_id,)
+        )
+        if profile is None:
+            return
+        customer_id = profile["id"]
+        self._db.execute(
+            "UPDATE customer_profiles SET tags = ? WHERE contact_id = ?",
+            (json.dumps(label_ids, ensure_ascii=False), contact_id),
+        )
+        ipad_tags = self._db.query(
+            "SELECT tag_id FROM ipad_label_map WHERE account_id = ?", (account_id,)
+        )
+        ipad_tag_ids = {r["tag_id"] for r in ipad_tags}
+        cur = self._db.query(
+            "SELECT tag_id FROM customer_tag_relations WHERE customer_id = ?", (customer_id,)
+        )
+        for r in cur:
+            if r["tag_id"] in ipad_tag_ids:
+                self._db.execute(
+                    "DELETE FROM customer_tag_relations WHERE customer_id = ? AND tag_id = ?",
+                    (customer_id, r["tag_id"]),
+                )
+        for lid in label_ids:
+            m = self._db.query_one(
+                "SELECT tag_id FROM ipad_label_map WHERE account_id = ? AND ipad_label_id = ?",
+                (account_id, lid),
+            )
+            if m:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO customer_tag_relations(customer_id, tag_id) VALUES (?, ?)",
+                    (customer_id, m["tag_id"]),
+                )
+
+    def set_account_callback(
+        self, account_id: str, url: str, callback_type: str
+    ) -> None:
+        """写入账号回调配置（P2-4）。"""
+        self._db.execute(
+            "UPDATE channel_accounts SET callback_url = ?, callback_type = ? WHERE id = ?",
+            (url or "", callback_type or "", account_id),
+        )
+
+    def add_contact_from_search(self, account_id: str, item: dict) -> str | None:
+        """把搜索添加结果落为渠道联系人 + 客户档案（extra_json 存 vid/openId/ticket）。"""
+        user_id = str(item.get("user_id") or "")
+        if not user_id:
+            return None
+        cid = f"{account_id}:{user_id}"
+        name = item.get("name") or ""
+        extra = {
+            "headImg": item.get("headImg"),
+            "ticket": item.get("ticket"),
+            "openId": item.get("openId"),
+            "corp_id": item.get("corp_id"),
+            "state": item.get("state"),
+        }
+        self._db.execute(
+            "INSERT OR REPLACE INTO channel_contacts("
+            "id, account_id, channel, channel_type, name, nickname, type, status, "
+            "remark, description, add_time, source, user_id, label_ids, raw_status, extra_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                cid, account_id, "企业微信", "wecom", name, name, "customer", "online",
+                "", "", "", "search", user_id, "[]", "", json.dumps(extra, ensure_ascii=False),
+            ),
+        )
+        self._db.execute(
+            "INSERT OR REPLACE INTO customer_profiles("
+            "id, contact_id, phone, email, company, position, region, age, birthday, "
+            "remark, add_time, add_channel, signature, ai_summary_enabled, tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (cid, cid, "", "", "", "", "", None, "", "", "", "search", "", "[]"),
+        )
+        return cid
+
+    def message_exists(self, conversation_id: str, server_id: str) -> bool:
+        """按 (conversation_id, server_id) 判断消息是否已落库（回调幂等）。"""
+        if not server_id:
+            return False
+        row = self._db.query_one(
+            "SELECT id FROM messages WHERE conversation_id = ? AND server_id = ?",
+            (conversation_id, server_id),
+        )
+        return row is not None
+
+    def upsert_channel_message(self, msg: dict) -> None:
+        """upsert 渠道消息（P2；复用 messages 表，按 id 幂等，server_id 作为去重键）。"""
+        media_meta = msg.get("media_meta", "{}")
+        if not isinstance(media_meta, str):
+            media_meta = json.dumps(media_meta, ensure_ascii=False)
+        self._db.execute(
+            "INSERT OR REPLACE INTO messages("
+            "id, conversation_id, sender_type, content, created_at, "
+            "server_id, msg_type, sender_id, direction, content_type, "
+            "media_url, media_meta, is_read, channel_account_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                msg["id"], msg["conversation_id"], msg.get("sender_type", "user"),
+                msg.get("content", ""), msg.get("created_at") or datetime.now().isoformat(timespec="seconds"),
+                msg.get("server_id", ""), int(msg.get("msg_type", 0)), msg.get("sender_id", ""),
+                msg.get("direction", "inbound"), msg.get("content_type", "text"),
+                msg.get("media_url", ""), media_meta, int(msg.get("is_read", 0)),
+                msg.get("channel_account_id", ""),
+            ),
+        )
+
+    def row_to_message_ext(self, row: dict) -> dict:
+        """messages 行 -> MessageExtDTO（含 serverId/msgType/direction/contentType/media）。"""
+        return {
+            "id": row["id"],
+            "conversationId": row["conversation_id"],
+            "senderType": row["sender_type"],
+            "content": row["content"],
+            "createdAt": row["created_at"],
+            "serverId": row.get("server_id", ""),
+            "msgType": int(row.get("msg_type", 0) or 0),
+            "senderId": row.get("sender_id", ""),
+            "direction": row.get("direction", "inbound"),
+            "contentType": row.get("content_type", "text"),
+            "mediaUrl": row.get("media_url", ""),
+            "mediaMeta": _parse_json_field(row.get("media_meta"), {}),
+            "isRead": bool(row.get("is_read", 0)),
+            "channelAccountId": row.get("channel_account_id", ""),
+        }
+
+    def list_session_messages_ext(
+        self, conversation_id: str, cursor: str = "", limit: int = 20
+    ) -> list[dict]:
+        """分页加载会话消息（游标续查；cursor 为最旧已加载消息的 server_id）。
+
+        返回按时间升序，便于前端直接追加渲染；无 cursor 取最新一页。
+        """
+        if cursor:
+            cur = self._db.query_one(
+                "SELECT created_at FROM messages WHERE conversation_id = ? AND server_id = ?",
+                (conversation_id, cursor),
+            )
+            if cur:
+                rows = self._db.query(
+                    "SELECT * FROM messages WHERE conversation_id = ? AND created_at < ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (conversation_id, cur["created_at"], int(limit)),
+                )
+            else:
+                rows = self._db.query(
+                    "SELECT * FROM messages WHERE conversation_id = ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (conversation_id, int(limit)),
+                )
+        else:
+            rows = self._db.query(
+                "SELECT * FROM messages WHERE conversation_id = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT ?",
+                (conversation_id, int(limit)),
+            )
+        rows.reverse()
+        return [self.row_to_message_ext(r) for r in rows]
+
+    def mark_session_read_db(self, session_id: str) -> dict | None:
+        """将会话未读清零并标记已读（P2-2）。"""
+        self._db.execute(
+            "UPDATE channel_sessions SET unread_count = 0, read_status = 'read' WHERE id = ?",
+            (session_id,),
+        )
+        row = self._db.query_one("SELECT * FROM channel_sessions WHERE id = ?", (session_id,))
+        return row_to_session(row) if row else None
+
+    def increment_session_unread(self, conversation_id: str, account_id: str) -> None:
+        """回调收到新消息时，将对应会话未读 +1、标记 unread（P2-4）。
+
+        conversation_id 即 iPad 会话标识；优先按 `remote_session_id` 命中本地会话，
+        否则按 conversation_id 直接匹配（兼容 1:1 与群）。
+        """
+        sess = self._db.query_one(
+            "SELECT id FROM channel_sessions WHERE account_id = ? AND remote_session_id = ?",
+            (account_id, conversation_id),
+        )
+        final = sess["id"] if sess else conversation_id
+        self._db.execute(
+            "UPDATE channel_sessions SET unread_count = unread_count + 1, "
+            "read_status = 'unread' WHERE id = ?",
+            (final,),
+        )
+
+
+def row_to_group(row: dict) -> dict:
+    """行 -> 群 DTO。"""
+    return {
+        "id": row["id"],
+        "accountId": row["account_id"],
+        "roomId": row["room_id"],
+        "groupType": row["group_type"],
+        "name": row["nickname"],
+        "total": row["total"],
+        "roomUrl": row["room_url"],
+        "noticeContent": row["notice_content"],
+        "createTime": row["create_time"],
+        "updateTime": row["update_time"],
+        "extra": _parse_json_field(row.get("extra_json"), {}),
+    }
+
+
+def row_to_group_member(row: dict) -> dict:
+    """行 -> 群成员 DTO。"""
+    return {
+        "id": row["id"],
+        "groupId": row["group_id"],
+        "uin": row["uin"],
+        "userId": row["user_id"],
+        "nickname": row["nickname"],
+        "realname": row["realname"],
+        "avatar": row["avatar"],
+        "roomNickname": row["room_nickname"],
+        "sex": row["sex"],
+        "mobile": row["mobile"],
+        "joinTime": row["join_time"],
+    }
 
 
 # ---- 客户管理域 Repository ----

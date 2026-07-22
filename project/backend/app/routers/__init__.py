@@ -11,9 +11,11 @@ from . import (
     bots,
     channels,
     channel_mgmt,
+    channel_hosting,
     conversations,
     customers,
     data_panel,
+    ipad_sync,
     knowledge,
     llm_config,
     materials,
@@ -34,6 +36,8 @@ api_router.include_router(meta.router)
 api_router.include_router(bots.router)
 api_router.include_router(channels.router)
 api_router.include_router(channel_mgmt.router)
+api_router.include_router(channel_hosting.router)
+api_router.include_router(ipad_sync.router)
 api_router.include_router(tags.router)
 api_router.include_router(customers.router)
 api_router.include_router(customers._customer_groups_router)
