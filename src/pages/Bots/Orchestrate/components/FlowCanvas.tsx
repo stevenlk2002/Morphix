@@ -49,8 +49,18 @@ function findSchema(nodeType: string): NodeSchema | null {
 export type OrchestrateNode = Node<NodeInstanceData>;
 export type OrchestrateEdge = Edge;
 
-/** React Flow 自定义节点/边类型注册表 */
-const nodeTypes = { customNode: CustomNode };
+/** React Flow 自定义节点/边类型注册表。
+ * 兼容旧工作流数据：后端早期持久化将 data.nodeType 直接作为 node.type，
+ * 统一兜底到 CustomNode，避免未知类型导致 MiniMap 崩溃白屏。
+ */
+const nodeTypes = {
+  customNode: CustomNode,
+  userInput: CustomNode,
+  kbSearch: CustomNode,
+  aiChat: CustomNode,
+  msgOutput: CustomNode,
+  agentEmbed: CustomNode,
+};
 const edgeTypes = { customEdge: CustomEdge };
 
 interface FlowCanvasProps {

@@ -1,13 +1,21 @@
-/** 渠道会话管理（SES）：四栏工作区 — 账号 / 会话列表 / 聊天 / 客户详情。 */
+/** 渠道会话管理（SES）：三栏工作区 — 账号 / 会话列表 / 聊天+客户详情合并区域。 */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Globe, RefreshCw } from 'lucide-react'
-import { channelsApi } from '../../api/client'
+import {
+  Globe,
+  ArrowUpToLine,
+  MessageCircleWarning,
+  LocateFixed,
+  UsersRound,
+  CheckCheck,
+} from 'lucide-react'
+import { channelsApi, ApiClientError } from '../../api/client'
 import type {
   AccountDTO,
   ContactDTO,
   ContactDetailDTO,
   GroupDTO,
+  GroupMemberDTO,
   HostingBotDTO,
   MessageExtDTO,
   SessionDTO,
@@ -16,13 +24,18 @@ import type {
 } from '../../types/channels'
 import TeamSelector from './shared/TeamSelector'
 import AccountListPanel from './shared/AccountListPanel'
-import SessionChatPanel from './sessions/SessionChatPanel'
-import SessionCustomerDetail from './sessions/SessionCustomerDetail'
+import RightPanelArea from './sessions/RightPanelArea'
 import { avatarColor, avatarChar } from './shared/avatar'
 import { toast, errText } from '../../utils/toast'
+import { useResizablePanels } from './shared/useResizablePanels'
+import Resizer from './shared/Resizer'
+import { useSessionActions } from './shared/useSessionActions'
+import CreateGroupModal from './shared/CreateGroupModal'
 import '../../pages/prototype.css'
 import './Channels.css'
 import { useSearchParams } from 'react-router-dom'
+
+const DEFAULT_DETAIL_WIDTH = 360
 
 export default function ChannelSessionsPage() {
   const [teams, setTeams] = useState<TeamDTO[]>([])
@@ -35,17 +48,31 @@ export default function ChannelSessionsPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<MessageExtDTO[]>([])
   const [contact, setContact] = useState<ContactDetailDTO | null>(null)
-  const [detailOpen, setDetailOpen] = useState(true)
 
-  // 中栏 Tab：会话 / 好友 / 群聊
-  const [activeTab, setActiveTab] = useState<'sessions' | 'friends' | 'groups'>('sessions')
+  // 合并区域右栏：客户详情宽度（拖拽）+ 折叠
+  const [detailWidth, setDetailWidth] = useState<number>(DEFAULT_DETAIL_WIDTH)
+  const [detailCollapsed, setDetailCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('morphix.detailCollapsed') === '1'
+    } catch {
+      return false
+    }
+  })
+
+  // 群聊：群信息 + 群成员
+  const [currentGroup, setCurrentGroup] = useState<GroupDTO | null>(null)
+  const [groupMembers, setGroupMembers] = useState<GroupMemberDTO[]>([])
+
+  // 统一会话列表（单聊 + 群聊聚合在一起，不再分 Tab）
   const [friends, setFriends] = useState<ContactDTO[]>([])
-  const [groups, setGroups] = useState<GroupDTO[]>([])
 
   // 列表筛选
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all')
   const [hostedFilter, setHostedFilter] = useState<'all' | 'hosted' | 'unhosted'>('all')
   const [search, setSearch] = useState('')
+
+  // 建群弹窗开关
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
 
   // 从联系人/群详情「发消息」跳转而来的 URL 参数
   const [searchParams] = useSearchParams()
@@ -54,11 +81,17 @@ export default function ChannelSessionsPage() {
   const navRoomId = searchParams.get('roomId')
 
   // iPad 协议同步状态（手动触发 + 轮询）
-  const [syncStatus, setSyncStatus] = useState<SyncStatusDTO | null>(null)
-  const [syncBusy, setSyncBusy] = useState(false)
+  const [, setSyncStatus] = useState<SyncStatusDTO | null>(null)
   const syncTimer = useRef<number | null>(null)
   // 消息 / 未读实时轮询定时器（P2-4 回调入站 + P2-2 未读实时清零）
   const pollTimer = useRef<number | null>(null)
+
+  // 左中栏可拖拽分隔（Q5）：宽度由 CSS 变量驱动 + localStorage 持久化
+  const { startResize } = useResizablePanels()
+  // 会话列表滚动容器（供 useSessionActions 定位 / 回到顶部）
+  const listRef = useRef<HTMLDivElement | null>(null)
+  // 进入页自动同步节流（Q7）：同账号 30s 内不重复触发
+  const lastAutoSyncAt = useRef<Record<string, number>>({})
 
   const stopPoll = () => {
     if (pollTimer.current) {
@@ -121,25 +154,6 @@ export default function ChannelSessionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, navContactId, navRoomId, selectedAccountId, navAccountId])
 
-  // 好友 / 群聊 Tab：按账号加载列表
-  useEffect(() => {
-    if (!selectedAccountId) return
-    if (activeTab === 'friends') {
-      channelsApi
-        .listContacts({ accountId: selectedAccountId })
-        .then(setFriends)
-        .catch(() => setFriends([]))
-    } else if (activeTab === 'groups') {
-      Promise.all([
-        channelsApi.listGroups(selectedAccountId, 'customer_group'),
-        channelsApi.listGroups(selectedAccountId, 'internal_group'),
-      ])
-        .then(([a, b]) => setGroups([...a, ...b]))
-        .catch(() => setGroups([]))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccountId, activeTab])
-
   // 账号切换 → 加载同步状态
   useEffect(() => {
     if (!selectedAccountId) return
@@ -148,6 +162,65 @@ export default function ChannelSessionsPage() {
       .getSyncStatus(selectedAccountId)
       .then(setSyncStatus)
       .catch(() => setSyncStatus(null))
+  }, [selectedAccountId])
+
+  // 选中会话变化：群聊时拉取群信息 + 群成员
+  useEffect(() => {
+    const session = sessions.find((s) => s.id === selectedSessionId)
+    if (!session || !selectedAccountId) {
+      setCurrentGroup(null)
+      setGroupMembers([])
+      return
+    }
+    if (session.sessionType !== '群聊') {
+      setCurrentGroup(null)
+      setGroupMembers([])
+      return
+    }
+    // 通过 roomId 查群
+    const roomId = session.remoteSessionId ?? session.id.split(':').slice(1).join(':')
+    if (!roomId) return
+    channelsApi
+      .listGroups(selectedAccountId)
+      .then((list) => {
+        const g = list.find((x) => x.roomId === roomId) ?? null
+        setCurrentGroup(g)
+      })
+      .catch(() => setCurrentGroup(null))
+    channelsApi
+      .getGroupMembers(selectedAccountId, roomId)
+      .then((detail) => setGroupMembers(detail.members ?? []))
+      .catch(() => setGroupMembers([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionId, selectedAccountId])
+
+  const reloadGroupMembers = () => {
+    if (!currentGroup || !selectedAccountId) return
+    channelsApi
+      .getGroupMembers(selectedAccountId, currentGroup.roomId)
+      .then((detail) => setGroupMembers(detail.members ?? []))
+      .catch(() => setGroupMembers([]))
+  }
+
+  // 进入页自动同步（Q2 + Q7）：进入页面或切换账号时触发全量同步，30s 内同账号不重复
+  useEffect(() => {
+    if (!selectedAccountId) return
+    const now = Date.now()
+    const last = lastAutoSyncAt.current[selectedAccountId] ?? 0
+    if (last && now - last < 30000) return
+    lastAutoSyncAt.current[selectedAccountId] = now
+    channelsApi
+      .syncAccount(selectedAccountId)
+      .then(() => startSyncPolling(selectedAccountId))
+      .catch((e) => {
+        // 409 = 后端正在同步，视为「已跳过」仍启动轮询，不弹错误（决策 §6.2）
+        if (e instanceof ApiClientError && e.code === 'HTTP_409') {
+          startSyncPolling(selectedAccountId)
+        } else {
+          toast(`同步触发失败：${errText(e)}`)
+        }
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId])
 
   // 会话切换 → 加载消息 + 进入即清除未读 + 触发历史回填（P2-2 / P2-1）
@@ -190,36 +263,25 @@ export default function ChannelSessionsPage() {
     [sessions, selectedSessionId]
   )
 
-  const handleHostingChange = (next: SessionDTO) => {
-    setSessions((prev) => prev.map((s) => (s.id === next.id ? next : s)))
+  // 右栏详情抽屉折叠状态持久化（刷新后记住用户偏好）
+  const handleDetailCollapsedChange = (next: boolean) => {
+    setDetailCollapsed(next)
+    try {
+      localStorage.setItem('morphix.detailCollapsed', next ? '1' : '0')
+    } catch {
+      /* 隐私模式等无 localStorage 时静默忽略 */
+    }
   }
 
-  const openByContact = (contactId: string) => {
-    const session = sessions.find((s) => s.contactId === contactId)
-    if (session) {
-      setSelectedSessionId(session.id)
-      setActiveTab('sessions')
-    } else {
-      toast('该好友暂无会话，请先同步或发消息')
-    }
-  }
-  const openByRoom = (roomId: string) => {
-    const session = sessions.find((s) => s.remoteSessionId === roomId)
-    if (session) {
-      setSelectedSessionId(session.id)
-      setActiveTab('sessions')
-    } else {
-      toast('该群聊暂无会话，请先同步')
-    }
+  const handleHostingChange = (next: SessionDTO) => {
+    setSessions((prev) => prev.map((s) => (s.id === next.id ? next : s)))
   }
 
   const handleMessageSent = (msg: MessageExtDTO) => {
     setMessages((prev) => [...prev, msg])
   }
 
-  // ---- iPad 协议全量同步（手动触发 + 轮询状态） ----
-  const syncRunning = syncBusy || !!syncStatus?.syncing
-
+  // ---- iPad 协议同步轮询（手动触发也复用） ----
   const stopSyncPolling = () => {
     if (syncTimer.current) {
       window.clearInterval(syncTimer.current)
@@ -244,18 +306,55 @@ export default function ChannelSessionsPage() {
     }, 2000)
   }
 
-  const handleSync = async () => {
+  // ---- 中栏会话列表滚动定位 / 一键已读（R5-P0） ----
+  const reloadSessions = () => {
     if (!selectedAccountId) return
-    setSyncBusy(true)
-    try {
-      await channelsApi.syncAccount(selectedAccountId)
-      toast('已触发后台同步，进度请稍候…')
-      startSyncPolling(selectedAccountId)
-    } catch (e) {
-      toast(`同步触发失败：${errText(e)}`)
-    } finally {
-      setSyncBusy(false)
+    const params: Record<string, string> = { accountId: selectedAccountId }
+    if (readFilter !== 'all') params.read = readFilter === 'unread' ? 'unread' : 'read'
+    if (hostedFilter !== 'all') params.hosted = hostedFilter
+    if (search) params.search = search
+    channelsApi.listSessions(params).then(setSessions).catch(() => undefined)
+  }
+
+  const sessionActions = useSessionActions(sessions, selectedSessionId, listRef, {
+    accountId: selectedAccountId ?? '',
+    reloadSessions,
+    setSelectedSessionId: (id: string) => setSelectedSessionId(id),
+  })
+
+  // 会话列表始终挂载（已无 Tab 切换），直接执行滚动类动作
+  const ensureSessionsTabThen = (fn: () => void) => {
+    fn()
+  }
+
+  // ---- 建群（T04） ----
+  const openCreateGroup = () => {
+    if (!selectedAccountId) {
+      toast('请先选择账号')
+      return
     }
+    // 确保好友列表已加载（建群数据源，复用 listContacts，决策 §6.8）
+    if (friends.length === 0) {
+      channelsApi
+        .listContacts({ accountId: selectedAccountId })
+        .then(setFriends)
+        .catch(() => setFriends([]))
+    }
+    setCreateGroupOpen(true)
+  }
+
+  const handleGroupCreated = (group: GroupDTO) => {
+    setCreateGroupOpen(false)
+    // 新群聊已落库并生成会话，重载会话列表即可在统一列表中看到
+    channelsApi
+      .listSessions({ accountId: selectedAccountId ?? '' })
+      .then((list) => {
+        setSessions(list)
+        const created = list.find((s) => s.remoteSessionId === group.roomId)
+        if (created) setSelectedSessionId(created.id)
+      })
+      .catch(() => undefined)
+    toast(`已创建群聊：${group.name}`)
   }
 
   return (
@@ -281,40 +380,66 @@ export default function ChannelSessionsPage() {
           onSelect={setSelectedAccountId}
         />
 
-        {/* 中栏：会话列表 */}
-        <section className="session-main">
-          <div className="session-toolbar">
-            <div className="session-toolbar-top">
-              <div className="session-search">
-                <span className="session-search-icon">🔍</span>
-                <input
-                  className="input"
-                  placeholder="请输入会话名称"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <div className="session-sync-wrap">
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={handleSync}
-                  disabled={!selectedAccountId || syncRunning}
-                >
-                  <RefreshCw size={14} className={syncRunning ? 'spin' : ''} />
-                  {syncRunning ? '同步中…' : '同步'}
-                </button>
-                {syncStatus?.lastSyncAt && (
-                  <span className="session-sync-status">
-                    {syncStatus.syncStatus === 'degraded'
-                      ? '上次降级'
-                      : syncStatus.syncStatus === 'error'
-                      ? '上次失败'
-                      : '已同步'}
-                    · {syncStatus.lastSyncAt.slice(5, 16)}
-                  </span>
-                )}
-              </div>
+        {/* 左中栏可拖拽分隔条（grid 第 2 track，Q5） */}
+        <Resizer onResizeStart={startResize} />
+
+        {/* 中栏 + 右栏 合并容器（grid 第 3 track，内部 flex） */}
+        <div className="session-mgmt-content">
+          {/* 中栏：会话列表 */}
+          <section className="session-main">
+          {/* 搜索框独占一行（R4-P0） */}
+          <div className="session-search-top">
+            <div className="session-search">
+              <span className="session-search-icon">🔍</span>
+              <input
+                className="input"
+                placeholder="请输入会话名称"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
+          </div>
+
+          {/* 功能按钮行（R5-P0：5 个图标按钮，hover 显示提示） */}
+          <div className="session-action-bar">
+            <button
+              className="session-action-btn"
+              data-tip="回到顶部"
+              onClick={() => ensureSessionsTabThen(sessionActions.scrollToTop)}
+            >
+              <ArrowUpToLine size={16} />
+            </button>
+            <button
+              className="session-action-btn"
+              data-tip="定位有未读消息的聊天"
+              onClick={() => ensureSessionsTabThen(sessionActions.scrollToFirstUnread)}
+            >
+              <MessageCircleWarning size={16} />
+            </button>
+            <button
+              className="session-action-btn"
+              data-tip="定位当前选中的聊天"
+              onClick={() => ensureSessionsTabThen(sessionActions.scrollToSelected)}
+            >
+              <LocateFixed size={16} />
+            </button>
+            <button
+              className="session-action-btn"
+              data-tip="创建群聊"
+              onClick={openCreateGroup}
+            >
+              <UsersRound size={16} />
+            </button>
+            <button
+              className="session-action-btn"
+              data-tip="一键已读，一键清除本地的未读状态（不包含原渠道的状态）"
+              onClick={sessionActions.markAllReadLocal}
+            >
+              <CheckCheck size={16} />
+            </button>
+          </div>
+
+          <div className="session-toolbar">
             <div className="session-filters-row">
               <div className="session-filter-select">
                 <div
@@ -377,145 +502,82 @@ export default function ChannelSessionsPage() {
             </div>
           </div>
 
-          <div className="detail-tabs">
-            <button
-              className={`detail-tab${activeTab === 'sessions' ? ' active' : ''}`}
-              onClick={() => setActiveTab('sessions')}
-            >
-              会话
-            </button>
-            <button
-              className={`detail-tab${activeTab === 'friends' ? ' active' : ''}`}
-              onClick={() => setActiveTab('friends')}
-            >
-              好友
-            </button>
-            <button
-              className={`detail-tab${activeTab === 'groups' ? ' active' : ''}`}
-              onClick={() => setActiveTab('groups')}
-            >
-              群聊
-            </button>
+          {/* 统一会话列表：单聊 + 群聊聚合在一列，不再分 Tab */}
+          <div className="session-list" ref={listRef}>
+            {sessions.map((s) => (
+              <div
+                key={s.id}
+                data-session-id={s.id}
+                className={`session-row${s.id === selectedSessionId ? ' active' : ''}`}
+                onClick={() => setSelectedSessionId(s.id)}
+              >
+                <div className="session-row-avatar" style={{ background: avatarColor(s.id) }}>
+                  {avatarChar(s.name)}
+                </div>
+                <div className="session-row-body">
+                  <div className="session-row-top">
+                    <div className="session-row-name-wrap">
+                      <span className="session-row-name">{s.name}</span>
+                      {s.sessionType === '群聊' && <span className="session-row-type">群</span>}
+                      {s.externalTag && <span className="session-row-tag">{s.externalTag}</span>}
+                    </div>
+                    <span className="session-row-time">{s.lastTime}</span>
+                  </div>
+                  <div className="session-row-bottom">
+                    <span className="session-row-msg">{s.lastMessage}</span>
+                    <span className={`session-row-status ${s.onlineStatus === 'online' ? 'online' : ''}`}>
+                      <span className="dot" />
+                      {s.onlineStatus === 'online' ? '在线' : '离线'}
+                    </span>
+                  </div>
+                </div>
+                <div className="session-row-right">
+                  {s.unreadCount > 0 && <span className="unread-badge">{s.unreadCount}</span>}
+                  {s.owner && <span className="session-row-owner">{s.owner}</span>}
+                </div>
+              </div>
+            ))}
+            {sessions.length === 0 && (
+              <div className="placeholder" style={{ minHeight: 200 }}>
+                <p>该账号下暂无会话</p>
+              </div>
+            )}
           </div>
-
-          {activeTab === 'sessions' && (
-            <div className="session-list">
-              {sessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={`session-row${s.id === selectedSessionId ? ' active' : ''}`}
-                  onClick={() => setSelectedSessionId(s.id)}
-                >
-                  {/* 以下为原 session-row 内容，保持不变 */}
-                  <div className="session-row-avatar" style={{ background: avatarColor(s.id) }}>
-                    {avatarChar(s.name)}
-                  </div>
-                  <div className="session-row-body">
-                    <div className="session-row-top">
-                      <div className="session-row-name-wrap">
-                        <span className="session-row-name">{s.name}</span>
-                        {s.externalTag && <span className="session-row-tag">{s.externalTag}</span>}
-                      </div>
-                      <span className="session-row-time">{s.lastTime}</span>
-                    </div>
-                    <div className="session-row-bottom">
-                      <span className="session-row-msg">{s.lastMessage}</span>
-                      <span className={`session-row-status ${s.onlineStatus === 'online' ? 'online' : ''}`}>
-                        <span className="dot" />
-                        {s.onlineStatus === 'online' ? '在线' : '离线'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="session-row-right">
-                    {s.unreadCount > 0 && <span className="unread-badge">{s.unreadCount}</span>}
-                    {s.owner && <span className="session-row-owner">{s.owner}</span>}
-                  </div>
-                </div>
-              ))}
-              {sessions.length === 0 && (
-                <div className="placeholder" style={{ minHeight: 200 }}>
-                  <p>该账号下暂无会话</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'friends' && (
-            <div className="session-list">
-              {friends.map((c) => (
-                <div
-                  key={c.id}
-                  className="session-row"
-                  onClick={() => openByContact(c.id)}
-                >
-                  <div className="session-row-avatar" style={{ background: avatarColor(c.id) }}>
-                    {avatarChar(c.nickname || c.name)}
-                  </div>
-                  <div className="session-row-body">
-                    <div className="session-row-top">
-                      <span className="session-row-name">{c.nickname || c.name}</span>
-                    </div>
-                    <div className="session-row-bottom">
-                      <span className="session-row-msg">
-                        {c.type === 'internal' ? '内部成员' : '客户'}
-                        {c.remark ? ` · ${c.remark}` : ''}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {friends.length === 0 && (
-                <div className="placeholder" style={{ minHeight: 200 }}>
-                  <p>该账号下暂无好友</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'groups' && (
-            <div className="session-list">
-              {groups.map((g) => (
-                <div
-                  key={g.id}
-                  className="session-row"
-                  onClick={() => openByRoom(g.roomId)}
-                >
-                  <div className="session-row-avatar" style={{ background: avatarColor(g.id) }}>
-                    {avatarChar(g.name)}
-                  </div>
-                  <div className="session-row-body">
-                    <div className="session-row-top">
-                      <span className="session-row-name">{g.name}</span>
-                    </div>
-                    <div className="session-row-bottom">
-                      <span className="session-row-msg">群成员 {g.total}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {groups.length === 0 && (
-                <div className="placeholder" style={{ minHeight: 200 }}>
-                  <p>该账号下暂无群聊</p>
-                </div>
-              )}
-            </div>
-          )}
         </section>
 
-        {/* 右一栏：聊天 */}
-        <SessionChatPanel
+        {/* 合并区域：聊天 + 客户详情/群管理 */}
+        <RightPanelArea
           session={selectedSession}
           messages={messages}
           bots={bots}
-          accountId={selectedAccountId ?? ''}
-          onToggleDetail={() => setDetailOpen((v) => !v)}
+          account={accounts.find((a) => a.id === selectedAccountId) ?? null}
+          contact={contact}
+          group={currentGroup}
+          detailWidth={detailWidth}
+          onDetailWidthChange={setDetailWidth}
           onHostingChange={handleHostingChange}
           onMessageSent={handleMessageSent}
+          onClearContext={() => setMessages([])}
+          onGroupChanged={(g) => setCurrentGroup(g)}
+          groupMembers={groupMembers}
+          reloadGroupMembers={reloadGroupMembers}
+          onContactUpdated={(c) => setContact(c)}
+          onCommunicationAdded={() => { /* 通信记录变更触发器，可用于重载 */ }}
+          detailCollapsed={detailCollapsed}
+          onDetailCollapsedChange={handleDetailCollapsedChange}
         />
-
-        {/* 右二栏：客户详情 */}
-        {detailOpen && <SessionCustomerDetail contact={contact} session={selectedSession} />}
+        </div>
       </div>
+
+      {/* 创建群聊弹窗（T04，mock-first 建群，失败仍落库） */}
+      {createGroupOpen && selectedAccountId && (
+        <CreateGroupModal
+          accountId={selectedAccountId}
+          friends={friends}
+          onClose={() => setCreateGroupOpen(false)}
+          onCreate={handleGroupCreated}
+        />
+      )}
     </div>
   )
 }

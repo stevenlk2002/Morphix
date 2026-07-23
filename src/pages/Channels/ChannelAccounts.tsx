@@ -5,10 +5,17 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Settings, Link2, Users } from 'lucide-react'
 import Button from '../../components/common/Button'
 import { channelsApi } from '../../api/client'
-import type { AccountDTO, SyncStatusDTO, TeamDTO } from '../../types/channels'
-import TeamInfoBar from './shared/TeamInfoBar'
+import type {
+  AccountDTO,
+  AvailableBotDTO,
+  SetDefaultBotsRequest,
+  TeamDTO,
+} from '../../types/channels'
+import TeamSelector from './shared/TeamSelector'
 import ChannelTypeBadge from './shared/ChannelTypeBadge'
-import { avatarColor } from './shared/avatar'
+import WecomNameIcon from './shared/WecomNameIcon'
+import AccountSettingsModal from './shared/AccountSettingsModal'
+import { avatarColor, avatarChar } from './shared/avatar'
 import { toast, errText } from '../../utils/toast'
 import '../../pages/prototype.css'
 import './Channels.css'
@@ -19,53 +26,46 @@ function onlineBadge(status: string, protocol: string): { text: string; offline:
   return { text: protocol ? 'ipad在线' : '在线', offline: false }
 }
 
-/** 同步状态徽标颜色（绿=成功 / 蓝=同步中 / 黄=降级 / 红=失败 / 灰=未同步）。 */
-function syncStatusColor(status?: string): string {
-  if (status === 'success') return '#22c55e'
-  if (status === 'syncing') return '#3b82f6'
-  if (status === 'degraded') return '#eab308'
-  if (status === 'error') return '#ef4444'
-  return '#9ca3af'
-}
-
-/** 同步状态徽标文案。 */
-function syncStatusLabel(status?: string): string {
-  if (status === 'success') return '已同步'
-  if (status === 'syncing') return '同步中'
-  if (status === 'degraded') return '上次降级'
-  if (status === 'error') return '上次失败'
-  return '未同步'
+/** 圆形真实头像：有图用 <img>，加载失败回退首字母 + 底色。 */
+function AccountAvatar({ account }: { account: AccountDTO }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  if (account.avatar && !imgFailed) {
+    return (
+      <img
+        className="channel-account-avatar-img"
+        src={account.avatar}
+        alt={account.name}
+        onError={() => setImgFailed(true)}
+      />
+    )
+  }
+  return <span className="channel-account-avatar-initial">{avatarChar(account.name)}</span>
 }
 
 export default function ChannelAccountsPage() {
   const navigate = useNavigate()
   const [teams, setTeams] = useState<TeamDTO[]>([])
   const [accounts, setAccounts] = useState<AccountDTO[]>([])
-  const [syncStatuses, setSyncStatuses] = useState<Record<string, string>>({})
+  const [availableBots, setAvailableBots] = useState<AvailableBotDTO[]>([])
   const [loading, setLoading] = useState(true)
+  // 当前选中团队 id（P0 仅 UI 切换，不做账号列表数据联动）
+  const [currentTeamId, setCurrentTeamId] = useState<string>('')
+  // 设置弹层状态（整层：默认机器人配置 + 上下线切换）
+  const [modal, setModal] = useState<{ accountId: string } | null>(null)
 
   useEffect(() => {
     let alive = true
-    Promise.all([channelsApi.listTeams(), channelsApi.listAccounts()])
-      .then(([t, a]) => {
+    Promise.all([
+      channelsApi.listTeams(),
+      channelsApi.listAccounts(),
+      channelsApi.listAvailableBots(),
+    ])
+      .then(([t, a, bots]) => {
         if (!alive) return
         setTeams(t)
         setAccounts(a)
-        // 批量拉取各账号同步状态（展示同步徽标）
-        Promise.all(
-          a.map((ac) =>
-            channelsApi
-              .getSyncStatus(ac.id)
-              .then((s: SyncStatusDTO) => [ac.id, s.syncStatus] as const)
-              .catch(() => [ac.id, ''] as const)
-          )
-        ).then((entries) => {
-          const map: Record<string, string> = {}
-          entries.forEach(([id, st]) => {
-            map[id] = st
-          })
-          if (alive) setSyncStatuses(map)
-        })
+        setAvailableBots(bots)
+        setCurrentTeamId(t[0]?.id ?? '')
       })
       .catch((e) => toast(`加载失败：${errText(e)}`))
       .finally(() => alive && setLoading(false))
@@ -74,27 +74,47 @@ export default function ChannelAccountsPage() {
     }
   }, [])
 
-  const currentTeam = teams[0]
+  const modalAccount = modal ? accounts.find((a) => a.id === modal.accountId) : undefined
+
+  /** 「设置」弹层内保存默认机器人。 */
+  const handleSaveSettings = async (payload: SetDefaultBotsRequest) => {
+    if (!modalAccount) return
+    const accountId = modalAccount.id
+    try {
+      const updated = await channelsApi.setDefaultBots(accountId, payload)
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === accountId ? { ...a, ...updated } : a))
+      )
+      toast('已更新默认机器人')
+      setModal(null)
+    } catch (e) {
+      toast(`保存失败：${errText(e)}`)
+    }
+  }
+
+  /** 「设置」弹层内切换上下线（立即生效，不关闭弹层）。 */
+  const handleStatusChange = async (status: 'online' | 'offline') => {
+    if (!modalAccount) return
+    const accountId = modalAccount.id
+    try {
+      const updated = await channelsApi.updateAccountStatus(accountId, { status })
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === accountId ? { ...a, ...updated } : a))
+      )
+      toast(status === 'offline' ? '账号已下线' : '账号已上线')
+    } catch (e) {
+      toast(`操作失败：${errText(e)}`)
+    }
+  }
 
   return (
     <div className="channel-accounts-page">
       <div className="filter-bar channel-accounts-header">
-        {currentTeam ? (
-          <TeamInfoBar
-            name={currentTeam.name}
-            seatsLeft={currentTeam.seatsLeft}
-            energyValue={currentTeam.energyValue}
-          />
-        ) : (
-          <div className="channel-team-info">
-            <span className="channel-team-name">初始团队</span>
-          </div>
-        )}
-        <div className="channel-header-actions">
-          <Button icon={<Plus size={16} />} onClick={() => navigate('/channels/accounts/add')}>
-            添加渠道账号
-          </Button>
-        </div>
+        <TeamSelector
+          teams={teams}
+          currentTeamId={currentTeamId}
+          onSelect={(teamId) => setCurrentTeamId(teamId)}
+        />
       </div>
 
       {loading ? (
@@ -118,15 +138,22 @@ export default function ChannelAccountsPage() {
             const badge = onlineBadge(a.status, a.protocol)
             return (
               <div className="channel-account-card" key={a.id}>
-                <div className="channel-account-main">
-                  <div className="channel-account-avatar" style={{ background: avatarColor(a.id) }}>
-                    {a.name.charAt(0)}
+                {/* 顶部：圆形头像 + 名称 + 企微图标 + 在线徽标 */}
+                <div className="channel-account-top">
+                  <div
+                    className="channel-account-avatar"
+                    style={{ background: avatarColor(a.id) }}
+                  >
+                    <AccountAvatar account={a} />
                     <ChannelTypeBadge channelType={a.channelType} />
                   </div>
-                  <div className="channel-account-info">
+                  <div className="channel-account-head">
                     <div className="channel-account-name">
-                      <span>{a.name}</span>
-                      <span className={`channel-online-badge${badge.offline ? ' offline' : ' ipad'}`}>
+                      <span className="channel-account-name-text">{a.name}</span>
+                      <WecomNameIcon size={14} />
+                      <span
+                        className={`channel-online-badge${badge.offline ? ' offline' : ' ipad'}`}
+                      >
                         {!badge.offline && (
                           <svg
                             width="12"
@@ -142,43 +169,24 @@ export default function ChannelAccountsPage() {
                         {badge.text}
                       </span>
                     </div>
-                  <div className="channel-account-protocol">
-                    {a.channel} · {a.protocol ? `${a.protocol}协议` : '未配置协议'}
-                  </div>
-                  <div className="channel-account-sync">
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontSize: 11,
-                        color: syncStatusColor(syncStatuses[a.id]),
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          background: syncStatusColor(syncStatuses[a.id]),
-                          display: 'inline-block',
-                        }}
-                      />
-                      {syncStatusLabel(syncStatuses[a.id])}
-                    </span>
-                  </div>
+                    <div className="channel-account-protocol">
+                      {a.channel} · {a.protocol ? `${a.protocol}协议` : '未配置协议'}
+                    </div>
                   </div>
                 </div>
-                <div className="channel-account-stats">
-                  <div className="channel-stat-label">账号会话</div>
-                  <div className="channel-stat-value">{a.sessionsCount}</div>
+
+                {/* 账号会话数 */}
+                <div className="channel-account-sessions">
+                  账号会话 <b>{a.sessionsCount}</b>
                 </div>
+
+                {/* 底部横排操作 */}
                 <div className="channel-account-actions">
                   <Button
                     variant="outline"
                     size="sm"
                     icon={<Settings size={14} />}
-                    onClick={() => navigate(`/channels/accounts/${a.id}/hosting`)}
+                    onClick={() => setModal({ accountId: a.id })}
                   >
                     设置
                   </Button>
@@ -203,6 +211,18 @@ export default function ChannelAccountsPage() {
             )
           })}
         </div>
+      )}
+
+      {/* 设置弹层（默认机器人 + 上下线切换） */}
+      {modal && modalAccount && (
+        <AccountSettingsModal
+          open={!!modal}
+          account={modalAccount}
+          bots={availableBots}
+          onClose={() => setModal(null)}
+          onSave={handleSaveSettings}
+          onStatusChange={handleStatusChange}
+        />
       )}
     </div>
   )

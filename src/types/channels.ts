@@ -6,6 +6,30 @@ export interface TeamDTO {
   name: string
   seatsLeft: number
   energyValue: number
+  /** 团队简介（本期新增）。 */
+  description: string
+}
+
+/** 团队成员（冗余 account/nickname/role，来自授权用户）。 */
+export interface TeamMemberDTO {
+  id: string
+  teamId: string
+  userId: string
+  account: string
+  nickname: string
+  role: string
+  joinedAt: string
+}
+
+/** 更新团队请求体。 */
+export interface TeamUpdateRequest {
+  name?: string
+  description?: string
+}
+
+/** 批量添加团队成员请求体。 */
+export interface AddTeamMembersRequest {
+  userIds: string[]
 }
 
 /** 渠道账号（扩展 DTO）。 */
@@ -23,6 +47,34 @@ export interface AccountDTO {
   seatsLeft?: number | null
   onlineSessions?: number | null
   teamName?: string | null
+  // —— 账号卡片增强（本期） ——
+  /** 企微真实头像 URL；空串表示未设置。 */
+  avatar?: string | null
+  /** 默认单聊机器人 id；空串表示未设置。 */
+  defaultSingleBotId?: string | null
+  /** 默认群聊机器人 id；空串表示未设置。 */
+  defaultGroupBotId?: string | null
+  /** 默认单聊机器人显示名（列表 JOIN 聚合）；空态为 null。 */
+  defaultSingleBotName?: string | null
+  /** 默认群聊机器人显示名（列表 JOIN 聚合）；空态为 null。 */
+  defaultGroupBotName?: string | null
+}
+
+/** 已上线机器人枚举项（默认机器人选择器数据源）。 */
+export interface AvailableBotDTO {
+  id: string
+  name: string
+}
+
+/** 设置默认单聊/群聊机器人请求体（null = 清空）。 */
+export interface SetDefaultBotsRequest {
+  singleBotId?: string | null
+  groupBotId?: string | null
+}
+
+/** 切换账号上下线状态请求体。 */
+export interface UpdateAccountStatusRequest {
+  status: 'online' | 'offline'
 }
 
 /** 渠道联系人。 */
@@ -339,4 +391,15 @@ export interface MessageExtDTO {
   mediaMeta: unknown
   isRead: boolean
   channelAccountId: string
+}
+
+/** 建群请求体（memberIds = Morphix 联系人 id；后端解析为 iPad user_id）。 */
+export interface CreateGroupRequestDTO {
+  memberIds: string[]
+  roomName?: string
+}
+
+/** 一键已读（本地）响应。 */
+export interface MarkReadLocalResultDTO {
+  updated: number
 }

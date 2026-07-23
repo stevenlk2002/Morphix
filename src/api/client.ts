@@ -10,6 +10,11 @@
 
 import type {
   AccountDTO,
+  AvailableBotDTO,
+  CreateGroupRequestDTO,
+  MarkReadLocalResultDTO,
+  SetDefaultBotsRequest,
+  UpdateAccountStatusRequest,
   ContactDTO,
   ContactDetailDTO,
   SessionDTO,
@@ -17,6 +22,8 @@ import type {
   HostingSessionDTO,
   HostingRuleDTO,
   TeamDTO,
+  TeamMemberDTO,
+  TeamUpdateRequest,
   WechatSubjectDTO,
   WechatSubjectInput,
   HostingBotDTO,
@@ -210,8 +217,35 @@ export const channelsApi = {
   listTeams: () => api.get<TeamDTO[]>('/channels/teams'),
   createTeam: (data: unknown) => api.post<TeamDTO>('/channels/teams', data),
 
+  // ---- 团队管理链路（本期） ----
+  /** 更新团队基础信息（name / description 部分更新）。 */
+  updateTeam: (id: string, data: TeamUpdateRequest) =>
+    api.put<TeamDTO>(`/channels/teams/${id}`, data),
+  /** 删除团队（最后一个团队后端返回 400）。 */
+  deleteTeam: (id: string) =>
+    api.delete<{ deleted: boolean; id: string }>(`/channels/teams/${id}`),
+  /** 获取团队成员列表。 */
+  listTeamMembers: (id: string) =>
+    api.get<TeamMemberDTO[]>(`/channels/teams/${id}/members`),
+  /** 批量添加成员（userIds 为授权用户 id 列表）。 */
+  addTeamMembers: (id: string, userIds: string[]) =>
+    api.post<{ added: number; members: TeamMemberDTO[] }>(
+      `/channels/teams/${id}/members`,
+      { userIds }
+    ),
+
   listAccounts: () => api.get<AccountDTO[]>('/channels/accounts'),
   createAccount: (data: unknown) => api.post<AccountDTO>('/channels/accounts', data),
+
+  // ---- 账号卡片增强（T01/T03）：默认机器人配置 ----
+  /** 已上线机器人枚举（默认机器人选择器数据源）。 */
+  listAvailableBots: () => api.get<AvailableBotDTO[]>('/channels/accounts/available-bots'),
+  /** 设置账号默认单聊/群聊机器人（乐观更新卡片）。 */
+  setDefaultBots: (accountId: string, data: SetDefaultBotsRequest) =>
+    api.put<AccountDTO>(`/channels/accounts/${accountId}/default-bots`, data),
+  /** 切换账号上线/下线状态（乐观更新卡片）。 */
+  updateAccountStatus: (accountId: string, body: UpdateAccountStatusRequest) =>
+    api.put<AccountDTO>(`/channels/accounts/${accountId}/status`, body),
 
   // ---- 企业微信 iPad 协议托管（添加渠道账号向导） ----
   startWecomScan: (d: { teamId: string; name?: string; channelType?: string }) =>
@@ -296,6 +330,31 @@ export const channelsApi = {
   getGroupMembers: (accountId: string, roomId: string) =>
     api.get<GroupDetailDTO>(`/channels/${accountId}/group/${roomId}/members`),
 
+  // ---- 群管理（mock-first，T04） ----
+  addGroupMembers: (accountId: string, roomId: string, contactIds: string[]) =>
+    api.post<{ added: number; groupId: string; total: number }>(
+      `/channels/${accountId}/group/${roomId}/members`,
+      { contactIds }
+    ),
+  removeGroupMember: (accountId: string, roomId: string, memberId: string) =>
+    api.delete<{ deleted: number; groupId: string; total: number }>(
+      `/channels/${accountId}/group/${roomId}/members/${memberId}`
+    ),
+  setGroupNotice: (accountId: string, roomId: string, notice: string) =>
+    api.put<{ groupId: string; noticeContent: string }>(
+      `/channels/${accountId}/group/${roomId}/notice`,
+      { notice }
+    ),
+  transferGroupOwner: (accountId: string, roomId: string, newOwnerUserId: string) =>
+    api.post<{ groupId: string; ownerUserId: string }>(
+      `/channels/${accountId}/group/${roomId}/transfer`,
+      { newOwnerUserId }
+    ),
+  dismissGroup: (accountId: string, roomId: string) =>
+    api.delete<{ dismissed: boolean; groupId: string }>(
+      `/channels/${accountId}/group/${roomId}`
+    ),
+
   // ---- P1-1 标签同步 / 查询 ----
   /** 手动触发 iPad 标签同步（企业标签 + 个人标签，决策 #8）。 */
   syncLabels: (accountId: string) =>
@@ -332,6 +391,16 @@ export const channelsApi = {
     api.post<{ ok: boolean; sessionId: string }>(
       `/channels/${accountId}/sessions/${sessionId}/read`
     ),
+
+  /** 建群（mock-first：真实失败仍落库返回 GroupDTO）。 */
+  createGroup: (accountId: string, payload: CreateGroupRequestDTO) =>
+    api.post<GroupDTO>(`/channels/${accountId}/groups`, payload),
+
+  /** 一键已读（仅清本地未读，不动 iPad）。sessionIds 省略=清空当前账号全部。 */
+  markSessionsReadLocal: (accountId: string, sessionIds?: string[]) =>
+    api.post<MarkReadLocalResultDTO>(`/channels/${accountId}/sessions/read-local`, {
+      sessionIds: sessionIds ?? null,
+    }),
 
   // ---- P2-1 消息历史回填 ----
   /** 按会话回填消息历史（群走 GetGroupMsgList；1:1 走 SyncAllData 触发回调）。 */

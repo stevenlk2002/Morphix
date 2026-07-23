@@ -18,6 +18,8 @@ interface SessionChatPanelProps {
   onHostingChange: (next: SessionDTO) => void
   /** 本地发送成功后乐观追加消息（消息历史回填为 P2，先本地呈现）。 */
   onMessageSent?: (msg: MessageExtDTO) => void
+  /** 不渲染内置头部（区域级头部已渲染）。 */
+  hideHeader?: boolean
 }
 
 export default function SessionChatPanel({
@@ -28,6 +30,7 @@ export default function SessionChatPanel({
   onToggleDetail,
   onHostingChange,
   onMessageSent,
+  hideHeader = false,
 }: SessionChatPanelProps) {
   const navigate = useNavigate()
   const [botId, setBotId] = useState<string>('')
@@ -165,56 +168,58 @@ export default function SessionChatPanel({
 
   return (
     <section className="session-chat">
-      <div className="chat-header">
-        <div className="chat-header-left">
-          <span className="chat-title">{session.name}</span>
-          <span className="chat-channel">{session.channel}</span>
-        </div>
-        <div className="chat-header-right">
-          <span className="chat-header-label">机器人托管</span>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={hosted}
-              disabled={busy}
-              onChange={(e) => toggleHosting(e.target.checked)}
-            />
-            <span className="slider" />
-          </label>
-          <div className="import-select">
-            <div
-              className="import-select-trigger"
-              onClick={(e) => {
-                const dd = e.currentTarget.nextElementSibling as HTMLElement
-                dd.style.display = dd.style.display === 'block' ? 'none' : 'block'
-              }}
-            >
-              {botName}
-            </div>
-            <div className="import-select-dropdown" style={{ display: 'none' }}>
-              {bots.map((b) => (
-                <div
-                  key={b.id}
-                  className={`import-select-option${b.id === (session.hostedBotId ?? botId) ? ' active' : ''}`}
-                  onClick={(e) => {
-                    setBotId(b.id)
-                    ;(e.currentTarget.parentElement as HTMLElement).style.display = 'none'
-                    ;(e.currentTarget.parentElement?.previousElementSibling as HTMLElement).textContent = b.name
-                  }}
-                >
-                  {b.name}
-                </div>
-              ))}
-            </div>
+      {!hideHeader && (
+        <div className="chat-header">
+          <div className="chat-header-left">
+            <span className="chat-title">{session.name}</span>
+            <span className="chat-channel">{session.channel}</span>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/channels/accounts/${accountId}/hosting`)}>
-            托管管理
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={onToggleDetail}>
-            客户详情
-          </button>
+          <div className="chat-header-right">
+            <span className="chat-header-label">机器人托管</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={hosted}
+                disabled={busy}
+                onChange={(e) => toggleHosting(e.target.checked)}
+              />
+              <span className="slider" />
+            </label>
+            <div className="import-select">
+              <div
+                className="import-select-trigger"
+                onClick={(e) => {
+                  const dd = e.currentTarget.nextElementSibling as HTMLElement
+                  dd.style.display = dd.style.display === 'block' ? 'none' : 'block'
+                }}
+              >
+                {botName}
+              </div>
+              <div className="import-select-dropdown" style={{ display: 'none' }}>
+                {bots.map((b) => (
+                  <div
+                    key={b.id}
+                    className={`import-select-option${b.id === (session.hostedBotId ?? botId) ? ' active' : ''}`}
+                    onClick={(e) => {
+                      setBotId(b.id)
+                      ;(e.currentTarget.parentElement as HTMLElement).style.display = 'none'
+                      ;(e.currentTarget.parentElement?.previousElementSibling as HTMLElement).textContent = b.name
+                    }}
+                  >
+                    {b.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/channels/accounts/${accountId}/hosting`)}>
+              托管管理
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={onToggleDetail}>
+              客户详情
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="chat-messages">
         {messages.length === 0 && (
@@ -278,20 +283,23 @@ export default function SessionChatPanel({
           onChange={(e) => handleFileChange(e, 'file')}
         />
         <div className="chat-input-box">
-          <input
+          <textarea
             className="chat-input"
             placeholder={
               hosted
                 ? '已开启机器人托管'
                 : isAppSession
                 ? '应用类会话不支持发送消息'
-                : '“Enter”发送或点击右边按钮发送'
+                : '“Enter”发送，Shift+Enter 换行'
             }
             value={draft}
             disabled={inputDisabled}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSend()
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSend()
+              }
             }}
           />
           <button className="btn btn-primary" disabled={inputDisabled || sending} onClick={handleSend}>

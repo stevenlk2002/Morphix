@@ -62,12 +62,16 @@ function OrchestratePageInner() {
       const persisted = await loadWorkflow(id);
       if (persisted) {
         // 恢复持久化数据
-        const restoredNodes: OrchestrateNode[] = persisted.nodes.map((n) => ({
+      const restoredNodes: OrchestrateNode[] = persisted.nodes.map((n) => {
+        // 兼容旧数据：后端早期将业务类型存在 node.type，data 里没有 nodeType
+        const nodeType = n.data.nodeType || n.type || 'unknown';
+        return {
           id: n.id,
-          type: n.type,
+          // 统一使用 customNode 渲染组件，data.nodeType 保留具体业务类型
+          type: 'customNode',
           position: n.position,
           data: {
-            nodeType: n.data.nodeType,
+            nodeType,
             config: { ...n.data.config },
             inputs: { ...n.data.inputs },
             ...(n.data.subflowId ? { subflowId: n.data.subflowId } : {}),
@@ -76,7 +80,8 @@ function OrchestratePageInner() {
             ...(n.data.inputPortsCount !== undefined ? { inputPortsCount: n.data.inputPortsCount } : {}),
             ...(n.data.outputPortsCount !== undefined ? { outputPortsCount: n.data.outputPortsCount } : {}),
           },
-        }));
+        };
+      });
         const restoredEdges: OrchestrateEdge[] = persisted.edges.map((e) => ({
           id: e.id,
           source: e.source,

@@ -86,7 +86,7 @@ function loadSubflowFromLS(subflowId: string): SubflowPersisted | null {
  * 支持 subflowCall 类型：动态端口 + 虚线边框 + 特殊标题。
  */
 function CustomNode({ data, selected }: NodeProps<Node<NodeInstanceData>>) {
-  const nodeType: string = data.nodeType;
+  const nodeType: string = data.nodeType || 'unknown';
   const testMode = useOrchestrateStore((s) => s.testMode);
   const debugSession = useOrchestrateStore((s) => s.debugSession);
 

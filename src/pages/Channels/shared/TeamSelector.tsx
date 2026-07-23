@@ -1,6 +1,7 @@
-/** SES 顶栏团队选择器（含剩余席位 + 新建/管理占位入口）。 */
+/** ACC/SES 顶栏团队选择器（含下拉新建/管理入口）。 */
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Plus, Settings } from 'lucide-react'
 import type { TeamDTO } from '../../../types/channels'
 
@@ -9,39 +10,41 @@ interface TeamSelectorProps {
   teams: TeamDTO[]
   /** 当前选中团队 id。 */
   currentTeamId: string
-  /** 切换团队回调。 */
+  /** 切换团队回调（P0 仅 UI 高亮）。 */
   onSelect: (teamId: string) => void
 }
 
 /**
- * 会话管理顶栏团队选择器，对齐原型 L8088-8102。
- * 下拉含「新建团队」「管理」入口（P2，本期仅占位）。
+ * 团队选择器，对齐原型：
+ * 触发器字体与侧边栏登录账号（.brand-name）一致；
+ * 下拉含「新建团队」+ 当前团队行「管理」。
  */
 export default function TeamSelector({ teams, currentTeamId, onSelect }: TeamSelectorProps) {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const current = teams.find((t) => t.id === currentTeamId) ?? teams[0]
 
   return (
     <div className="team-selector" onClick={(e) => e.stopPropagation()}>
-      <div className="team-selector-header">
-        <div
-          className="team-selector-trigger"
-          onClick={(e) => {
-            e.stopPropagation()
-            setOpen((v) => !v)
-          }}
-        >
-          <span id="currentTeamName">{current?.name ?? '初始团队'}</span>
-          <ChevronDown size={14} />
-        </div>
+      <div className="team-selector-trigger" onClick={() => setOpen((v) => !v)}>
+        <span className="team-selector-name">{current?.name ?? '初始团队'}</span>
+        <ChevronDown size={14} />
       </div>
+
+      {current && (
+        <div className="team-selector-badges">
+          <span className="badge badge-default">剩余席位 {current.seatsLeft}</span>
+          <span className="badge badge-default">动能值 {current.energyValue}</span>
+        </div>
+      )}
+
       {open && (
         <div className="team-selector-dropdown" onClick={(e) => e.stopPropagation()}>
           <button
             className="team-selector-new"
-            onClick={(e) => {
-              e.stopPropagation()
+            onClick={() => {
               setOpen(false)
+              navigate('/teams/create')
             }}
           >
             <Plus size={14} /> 新建团队
@@ -50,8 +53,7 @@ export default function TeamSelector({ teams, currentTeamId, onSelect }: TeamSel
             <div
               key={t.id}
               className={`team-selector-option${t.id === currentTeamId ? ' active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation()
+              onClick={() => {
                 onSelect(t.id)
                 setOpen(false)
               }}
@@ -62,18 +64,13 @@ export default function TeamSelector({ teams, currentTeamId, onSelect }: TeamSel
                 onClick={(e) => {
                   e.stopPropagation()
                   setOpen(false)
+                  navigate(`/teams/${t.id}/manage`)
                 }}
               >
                 <Settings size={12} /> 管理
               </span>
             </div>
           ))}
-        </div>
-      )}
-      {current && (
-        <div className="team-selector-seats">
-          <span>剩余席位</span>
-          <span className="seats-value">{current.seatsLeft}</span>
         </div>
       )}
     </div>

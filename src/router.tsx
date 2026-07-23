@@ -10,6 +10,8 @@ import AccountAddPage from './pages/Channels/AccountAdd'
 import ChannelHostingPage from './pages/Channels/ChannelHosting'
 import ChannelContactsPage from './pages/Channels/ChannelContacts'
 import ChannelSessionsPage from './pages/Channels/ChannelSessions'
+import TeamCreatePage from './pages/Teams/TeamCreate'
+import TeamManagePage from './pages/Teams/TeamManage'
 import CustomerListPage from './pages/Customers/CustomerList'
 import CustomerGroupsPage from './pages/Customers/Groups'
 import TagsPage from './pages/Customers/Tags'
@@ -53,6 +55,8 @@ export default function AppRoutes() {
       <Route path="/channels/accounts" element={<ChannelAccountsPage />} />
       <Route path="/channels/accounts/add" element={<AccountAddPage />} />
       <Route path="/channels/accounts/:id/hosting" element={<ChannelHostingPage />} />
+      <Route path="/teams/create" element={<TeamCreatePage />} />
+      <Route path="/teams/:id/manage" element={<TeamManagePage />} />
       <Route path="/channels/contacts" element={<ChannelContactsPage />} />
       <Route path="/channels/sessions" element={<ChannelSessionsPage />} />
       <Route path="/channels/settings" element={<ChannelSettingsPage />} />
