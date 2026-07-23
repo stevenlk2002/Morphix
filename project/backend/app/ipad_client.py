@@ -126,17 +126,20 @@ def get_qrcode(uuid: str) -> dict:
 def check_code(uuid: str, key: str, code: str) -> dict:
     """POST `{base}/wxwork/CheckCode` → `{ok, skip}`。
 
-    `qrcode_not need verify` 视为 `ok=True, skip=True`。
+    真实协议成功响应为 `{"data": null, "errcode": 0, "errmsg": "ok"}`，
+    没有 `ok` 字段，因此以 `errcode == 0` / `errmsg` 表示成功。
+    `qrcode_not need verify` / `qrode_not need verify` 视为 `ok=True, skip=True`。
     """
     data = _post("wxwork/CheckCode", {"uuid": uuid, "qrcodeKey": key, "code": code})
     body = _norm(data)
-    msg = str(body.get("msg", "") or data.get("msg", "")).lower()
-    if "qrcode_not need verify" in msg or "not need verify" in msg:
+    # 协议文档 typo：qrode_not need verify；同时兼容 qrcode_not need verify / not need verify
+    errmsg = str(body.get("errmsg", "") or data.get("errmsg", "") or body.get("msg", "") or data.get("msg", "")).lower()
+    if "qrode_not need verify" in errmsg or "qrcode_not need verify" in errmsg or "not need verify" in errmsg:
         return {"ok": True, "skip": True}
-    return {
-        "ok": bool(body.get("ok", data.get("ok", False))),
-        "skip": bool(body.get("skip", data.get("skip", False))),
-    }
+    # 真实协议用 errcode/errmsg 表示结果；_post 已对非 0 errcode 抛 IPadProtocolError，能走到这里说明 errcode 为 0
+    errcode = body.get("errcode") if isinstance(body, dict) else data.get("errcode")
+    ok = errcode in (0, "0") or (errcode is None and "ok" in errmsg)
+    return {"ok": ok, "skip": False}
 
 
 def get_run_client_info(uuid: str) -> dict:
