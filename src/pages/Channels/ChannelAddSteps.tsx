@@ -202,7 +202,7 @@ export function StepQr({ startData, countdown, expired, onBack, onRefresh }: Ste
               )}
             </div>
             <div className="channel-qr-caption">扫码添加渠道账号</div>
-            <div className="channel-qr-hint">二维码 2 分钟内有效，过期后请刷新</div>
+            <div className="channel-qr-hint">二维码 10 分钟内有效（600 秒），过期后请刷新</div>
             <div className="channel-qr-countdown">剩余 {countdown} 秒</div>
           </>
         )}
