@@ -82,6 +82,23 @@ async def update_org_info(body: OrgInfoUpdateRequest):
 
 # ---- 授权用户 ----
 
+def find_auth_user(user_id: str) -> Optional[dict]:
+    """按 id 查找授权用户（供 channel_mgmt 解析团队成员冗余字段）。
+
+    返回 ``{id, account, nickname, role}``；用户不存在时返回 ``None``。
+    解析失败不抛错（channel_mgmt 侧据此跳过该用户）。
+    """
+    for u in _auth_users:
+        if u.id == user_id:
+            return {
+                "id": u.id,
+                "account": u.account,
+                "nickname": u.nickname,
+                "role": u.role,
+            }
+    return None
+
+
 @router.get("/auth-users", response_model=list[AuthUserResponse])
 async def list_auth_users(
     account: Optional[str] = Query(None),

@@ -14,17 +14,22 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from ..database import get_backend
-from ..repositories import ChannelMgmtRepository, CustomerRepository
+from ..repositories import ChannelMgmtRepository, CustomerRepository, BotRepository, assert_online_bot
 from ..schemas import (
+    AccountDefaultBotsRequest,
+    AccountStatusRequest,
+    AddTeamMembersRequest,
     ChannelAccountUpsertRequest,
     CustomerProfileUpdateRequest,
     HostingBatchUpdateRequest,
     HostingRuleRequest,
     SessionHostingRequest,
     TeamCreateRequest,
+    TeamUpdateRequest,
     WechatSubjectCreateRequest,
     WechatSubjectUpdateRequest,
 )
+from ..routers.organization import find_auth_user
 
 router = APIRouter(prefix="/channels", tags=["channels"])
 
@@ -37,10 +42,79 @@ def list_teams():
 
 @router.post("/teams")
 def create_team(payload: TeamCreateRequest):
-    """新建团队（P2：前端暂未接入，后端预留）。"""
+    """新建团队（向导第一步创建空基础信息团队）。"""
+    # seats/energy 缺省回落 1/0（PRD Q1）；description 缺省空串
+    seats = payload.seatsLeft if payload.seatsLeft is not None else 1
+    energy = payload.energyValue if payload.energyValue is not None else 0
     return ChannelMgmtRepository(get_backend()).create_team(
-        payload.name, payload.seatsLeft or 0, payload.energyValue or 0
+        payload.name, seats, energy, payload.description or ""
     )
+
+
+@router.put("/teams/{team_id}")
+def update_team(team_id: str, payload: TeamUpdateRequest):
+    """更新团队基础信息（name / description 部分更新）。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if repo.get_team(team_id) is None:
+        return JSONResponse(status_code=404, content={"detail": "团队不存在"})
+    updated = repo.update_team(team_id, name=payload.name, description=payload.description)
+    return updated
+
+
+@router.delete("/teams/{team_id}")
+def delete_team(team_id: str):
+    """删除团队（先清关联账号 team_id，再删成员，最后删团队）。
+
+    守卫：禁止删除最后一个团队（前端 disabled + 后端 400 双保险）。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    if repo.get_team(team_id) is None:
+        return JSONResponse(status_code=404, content={"detail": "团队不存在"})
+    if repo.count_teams() <= 1:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "当前团队为最后一个团队，无法删除"},
+        )
+    ok = repo.delete_team(team_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"detail": "团队不存在"})
+    return {"deleted": True, "id": team_id}
+
+
+@router.get("/teams/{team_id}/members")
+def list_team_members(team_id: str):
+    """获取团队成员列表。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if repo.get_team(team_id) is None:
+        return JSONResponse(status_code=404, content={"detail": "团队不存在"})
+    return repo.list_team_members(team_id)
+
+
+@router.post("/teams/{team_id}/members")
+def add_team_members(team_id: str, payload: AddTeamMembersRequest):
+    """批量添加团队成员。
+
+    请求体仅传 userIds，由 organization 导出的 find_auth_user 解析
+    account/nickname/role 后冗余落库（user_id 解析失败则该用户跳过）。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    if repo.get_team(team_id) is None:
+        return JSONResponse(status_code=404, content={"detail": "团队不存在"})
+    members: list[dict] = []
+    for uid in payload.userIds:
+        user = find_auth_user(uid)
+        if user is None:
+            continue
+        members.append(
+            {
+                "user_id": user["id"],
+                "account": user["account"],
+                "nickname": user["nickname"],
+                "role": user["role"],
+            }
+        )
+    added = repo.add_team_members(team_id, members)
+    return {"added": len(added), "members": added}
 
 
 @router.get("/accounts")
@@ -182,3 +256,47 @@ def update_wechat_subject(subject_id: str, payload: WechatSubjectUpdateRequest):
 def list_hosting_bots():
     """托管可选机器人（静态配置）。"""
     return ChannelMgmtRepository(get_backend()).list_hosting_bots()
+
+
+@router.get("/accounts/available-bots")
+def list_available_bots():
+    """已上线机器人枚举（账号卡片「默认机器人」选择器数据源）。
+
+    当前返回全部 `status='online'` 的机器人（团队隔离因 bots 表无 team_id 暂未实现）。
+    资源域裸数组，与 `GET /bots` 一致。
+    """
+    return BotRepository(get_backend()).list_online_bots()
+
+
+@router.put("/accounts/{account_id}/default-bots")
+def set_default_bots(account_id: str, payload: AccountDefaultBotsRequest):
+    """设置账号默认单聊/群聊机器人。
+
+    - 账号不存在 → 404 {detail}
+    - 任一 bot 不存在 / 未上线 → 400 {message}
+    - 成功 → 返回更新后的扩展 AccountDTO（含聚合的默认机器人名）
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    if repo.get_account_by_id(account_id) is None:
+        return JSONResponse(status_code=404, content={"detail": "账号不存在"})
+    bot_repo = BotRepository(get_backend())
+    try:
+        assert_online_bot(bot_repo, payload.singleBotId)
+        assert_online_bot(bot_repo, payload.groupBotId)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"message": str(e)})
+    repo.set_default_bots(
+        account_id, payload.singleBotId or "", payload.groupBotId or ""
+    )
+    return repo.get_account_by_id(account_id)
+
+
+@router.put("/accounts/{account_id}/status")
+def update_account_status(account_id: str, payload: AccountStatusRequest):
+    """切换账号上线/下线状态。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if repo.get_account_by_id(account_id) is None:
+        return JSONResponse(status_code=404, content={"detail": "账号不存在"})
+    if payload.status not in ("online", "offline"):
+        return JSONResponse(status_code=400, content={"message": "status 必须是 online 或 offline"})
+    return repo.update_account_status(account_id, payload.status)

@@ -24,8 +24,11 @@ from .. import ipad_client, ipad_sync
 from ..database import get_backend
 from ..repositories import ChannelMgmtRepository
 from ..schemas import (
+    AddGroupMembersRequest,
     AddSearchRequest,
     BackfillResultDTO,
+    CreateGroupRequest,
+    MarkSessionsReadLocalRequest,
     ContactSearchResultDTO,
     GroupDTO,
     GroupDetailDTO,
@@ -38,8 +41,10 @@ from ..schemas import (
     SetContactLabelsRequest,
     SendTextRequest,
     SendTextResultDTO,
+    SetGroupNoticeRequest,
     SyncResultDTO,
     SyncStatusDTO,
+    TransferGroupOwnerRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,6 +257,49 @@ def mark_session_read_endpoint(account_id: str, session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# T02 建群（mock-first）+ 一键已读（本地持久化）
+# ---------------------------------------------------------------------------
+@router.post("/{account_id}/groups", response_model=GroupDTO)
+def create_group_endpoint(account_id: str, payload: CreateGroupRequest):
+    """建群（mock-first）：memberIds 解析为 iPad user_id → create_chatroom → 落库。
+
+    错误码（共享知识 #3）：404 账号不存在；400 memberIds 空 / 参数解析失败；
+    502 real 模式 iPad 协议真实失败。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    if not payload.memberIds:
+        return JSONResponse(status_code=400, content={"message": "memberIds 不能为空"})
+    try:
+        return ipad_sync.create_group(account_id, payload.memberIds, payload.roomName)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+    except ipad_client.IPadProtocolError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"message": f"iPad 协议服务不可用（CreateChatRoom）：{exc}"},
+        )
+
+
+@router.post("/{account_id}/sessions/read-local")
+def mark_sessions_read_local_endpoint(account_id: str, payload: MarkSessionsReadLocalRequest):
+    """一键已读（本地）：仅清本地未读，不调 iPad。
+
+    sessionIds=None 表示清空当前账号全部会话未读。返回 {"updated": int}。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    try:
+        return ipad_sync.mark_sessions_read_local(account_id, payload.sessionIds)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+# ---------------------------------------------------------------------------
 # P2-1 消息历史回填
 # ---------------------------------------------------------------------------
 @router.post(
@@ -270,6 +318,81 @@ def backfill_session_messages_endpoint(account_id: str, session_id: str):
         return JSONResponse(status_code=404, content={"message": "账号不存在"})
     try:
         return ipad_sync.backfill_session_messages(account_id, session_id)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+# ---------------------------------------------------------------------------
+# T04 群管理（mock-first）
+# ---------------------------------------------------------------------------
+@router.post("/{account_id}/group/{room_id}/members")
+def add_group_members_endpoint(
+    account_id: str, room_id: str, payload: AddGroupMembersRequest
+):
+    """添加群成员（mock-first：仅落库，不调 iPad 协议）。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    if not payload.contactIds:
+        return JSONResponse(status_code=400, content={"message": "contactIds 不能为空"})
+    try:
+        return ipad_sync.add_group_members(account_id, room_id, payload.contactIds)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+@router.delete("/{account_id}/group/{room_id}/members/{member_id}")
+def remove_group_member_endpoint(account_id: str, room_id: str, member_id: str):
+    """移除群成员。member_id 可为 contactId 或 user_id（前端按 contactId 传）。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    try:
+        return ipad_sync.remove_group_member(account_id, room_id, member_id)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+@router.put("/{account_id}/group/{room_id}/notice")
+def set_group_notice_endpoint(
+    account_id: str, room_id: str, payload: SetGroupNoticeRequest
+):
+    """更新群公告。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    try:
+        return ipad_sync.set_group_notice(account_id, room_id, payload.notice or "")
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+@router.post("/{account_id}/group/{room_id}/transfer")
+def transfer_group_owner_endpoint(
+    account_id: str, room_id: str, payload: TransferGroupOwnerRequest
+):
+    """转让群主（mock-first）。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    if not payload.newOwnerUserId:
+        return JSONResponse(status_code=400, content={"message": "newOwnerUserId 不能为空"})
+    try:
+        return ipad_sync.transfer_group_owner(
+            account_id, room_id, payload.newOwnerUserId
+        )
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+@router.delete("/{account_id}/group/{room_id}")
+def dismiss_group_endpoint(account_id: str, room_id: str):
+    """解散群（mock-first：删群 + 群成员 + 群会话）。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    try:
+        return ipad_sync.dismiss_group(account_id, room_id)
     except ipad_sync.IPadSyncError as exc:
         return JSONResponse(status_code=400, content={"message": str(exc)})
 

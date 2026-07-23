@@ -15,12 +15,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any, Optional
 
 import httpx
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 # 1x1 透明 PNG（base64），用于 mock 二维码数据占位。
 _MOCK_QRCODE_DATA = (
@@ -278,6 +281,50 @@ def send_text_msg(
         "sendtime": body.get("sendtime") or body.get("sendTime") or "",
         "sender": body.get("sender", ""),
         "receiver": body.get("receiver", ""),
+    }
+
+
+def create_chatroom(uuid: str, wxids: list[str], room_name: str = "") -> dict:
+    """POST `{base}/wxwork/CreateChatRoom` → 创建群聊。
+
+    入参 `wxids` 为好友 user_id 列表；`room_name` 可选群名。
+    返回 `{room_id, ok, mock}`；`real` 模式失败抛 `IPadProtocolError`，
+    `auto`/`mock` 模式失败则降级 mock，保证前端 UI 不阻塞。
+    """
+    if not wxids:
+        raise IPadProtocolError("创建群聊成员列表为空")
+
+    mode = _mode()
+    if mode == "real":
+        data = _post(
+            "wxwork/CreateChatRoom",
+            {"uuid": uuid, "wxids": wxids, "roomName": room_name or ""},
+        )
+        body = _norm(data)
+        return {
+            "room_id": str(body.get("room_id") or body.get("roomId") or ""),
+            "ok": True,
+            "mock": False,
+        }
+    if mode == "auto":
+        try:
+            data = _post(
+                "wxwork/CreateChatRoom",
+                {"uuid": uuid, "wxids": wxids, "roomName": room_name or ""},
+            )
+            body = _norm(data)
+            return {
+                "room_id": str(body.get("room_id") or body.get("roomId") or ""),
+                "ok": True,
+                "mock": False,
+            }
+        except IPadProtocolError as exc:
+            logger.warning("CreateChatRoom 真实调用失败，降级 mock: %s", exc)
+    # auto 失败降级 / mock 模式：本地生成 room_id
+    return {
+        "room_id": f"mock_room_{uuid.uuid4().hex[:8]}",
+        "ok": True,
+        "mock": True,
     }
 
 
@@ -568,10 +615,160 @@ def mark_as_read(uuid: str, send_userid: str, isRoom: bool) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# 群操作系列（协议文档 2026-07-23）
+# 全部走 _post + _norm，失败抛 IPadProtocolError；由 ipad_sync 服务层按模式
+# auto/real/mock 降级处理。
+#
+# roomid 在协议中为整数，客户端统一 str 化传出。
+# vid / vids（user_id）在协议中为整数，客户端按入参类型逐项 int 化。
+# ---------------------------------------------------------------------------
+def _to_int_id(val: Any) -> int:
+    """将 user_id 转为协议期望的整数。"""
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return 0
+
+
+# ---- 创建群聊（对接真实协���） ----
+def create_room_nei(uuid: str, vids: list[Any], room_name: str = "") -> dict:
+    """创建内部群聊 POST wxwork/CreateRoomNei。"""
+    data = _post(
+        "wxwork/CreateRoomNei",
+        {"uuid": uuid, "vids": [_to_int_id(v) for v in vids], "roomName": room_name},
+    )
+    body = _norm(data)
+    return {
+        "room_id": str(body.get("roomid") or body.get("room_id") or ""),
+        "room_name": body.get("roomname") or room_name,
+        "ok": True,
+        "mock": False,
+    }
+
+
+def create_room_wx(uuid: str, vids: list[Any], room_name: str = "") -> dict:
+    """创建外部群聊 POST wxwork/CreateRoomWx。"""
+    data = _post(
+        "wxwork/CreateRoomWx",
+        {"uuid": uuid, "vids": [_to_int_id(v) for v in vids], "roomName": room_name},
+    )
+    body = _norm(data)
+    return {
+        "room_id": str(body.get("roomid") or body.get("room_id") or ""),
+        "room_name": body.get("roomname") or room_name,
+        "ok": True,
+        "mock": False,
+    }
+
+
+def create_chatroom(uuid: str, wxids: list[str], room_name: str = "", is_inner: bool = False) -> dict:
+    """
+    建群（带 auto/real/mock 降级，兼容旧调用方）。
+    内部群走 CreateRoomNei，外部群走 CreateRoomWx。
+    """
+    fn = create_room_nei if is_inner else create_room_wx
+    mode = _mode()
+    if mode == "real":
+        return fn(uuid, wxids, room_name)
+    if mode == "auto":
+        try:
+            return fn(uuid, wxids, room_name)
+        except IPadProtocolError as exc:
+            logger.warning("建群真实失败，降级 mock: %s", exc)
+    import secrets
+    return {
+        "room_id": f"mock_room_{secrets.token_hex(4)}",
+        "room_name": room_name,
+        "ok": True,
+        "mock": True,
+    }
+
+
+# ---- 群公告 ----
+def send_notice(uuid: str, room_id: Any, msg: str) -> dict:
+    """发送群公告 POST wxwork/SendNotice。"""
+    data = _post(
+        "wxwork/SendNotice",
+        {"uuid": uuid, "roomid": _to_int_id(room_id), "msg": msg},
+    )
+    _norm(data)
+    return {"ok": True, "room_id": str(room_id)}
+
+
+# ---- 修改群名 ----
+def update_room_name(uuid: str, room_id: Any, room_name: str) -> dict:
+    """修改群名 POST wxwork/UpdateRoomName。"""
+    data = _post(
+        "wxwork/UpdateRoomName",
+        {"uuid": uuid, "roomid": _to_int_id(room_id), "roomname": room_name},
+    )
+    body = _norm(data)
+    return {"room_id": str(body.get("roomid") or room_id), "room_name": room_name, "ok": True}
+
+
+# ---- 直接邀请进群 ----
+def invitation_to_room(uuid: str, room_id: Any, vids: list[Any]) -> dict:
+    """直接邀请进群 POST wxwork/InvitationToRoom。"""
+    data = _post(
+        "wxwork/InvitationToRoom",
+        {"uuid": uuid, "roomid": _to_int_id(room_id), "vids": [_to_int_id(v) for v in vids]},
+    )
+    _norm(data)
+    return {"ok": True, "room_id": str(room_id), "added": len(vids)}
+
+
+# ---- 移除群成员 ----
+def del_room_users(uuid: str, room_id: Any, vids: list[Any]) -> dict:
+    """移除群成员 POST wxwork/DelRoomUsers。"""
+    data = _post(
+        "wxwork/DelRoomUsers",
+        {"uuid": uuid, "roomid": _to_int_id(room_id), "vids": [_to_int_id(v) for v in vids]},
+    )
+    _norm(data)
+    return {"ok": True, "room_id": str(room_id), "removed": len(vids)}
+
+
+# ---- 转让群主 ----
+def transfer_chatroom_owner(uuid: str, room_id: Any, vid: Any) -> dict:
+    """转让群主 POST wxwork/TransferChatroomOwner。"""
+    data = _post(
+        "wxwork/TransferChatroomOwner",
+        {"uuid": uuid, "roomid": _to_int_id(room_id), "vid": _to_int_id(vid)},
+    )
+    _norm(data)
+    return {"ok": True, "room_id": str(room_id), "new_owner_vid": str(vid)}
+
+
+# ---- 解散群 ----
+def dissolution_room(uuid: str, room_id: Any) -> dict:
+    """解散群 POST wxwork/DissolutionRoom。"""
+    data = _post(
+        "wxwork/DissolutionRoom",
+        {"uuid": uuid, "roomid": _to_int_id(room_id)},
+    )
+    _norm(data)
+    return {"ok": True, "room_id": str(room_id)}
+
+
+# ---- 获取群二维码 ----
+def wx_room_invite(uuid: str, room_id: Any) -> dict:
+    """获取群二维码 POST wxwork/WxRoomInvite。"""
+    data = _post(
+        "wxwork/WxRoomInvite",
+        {"uuid": uuid, "roomid": _to_int_id(room_id)},
+    )
+    body = _norm(data)
+    return {
+        "room_id": str(body.get("roomid") or room_id),
+        "qr_code_path": body.get("QrCodePath") or body.get("qr_code_path") or "",
+    }
+
+
+# ---- 媒体上传辅助 ----
 def cdn_upload_img(file_bytes: bytes, file_name: str, uuid: str) -> dict:
     """POST `{base}/wxwork/CdnUploadImg`（multipart） → 图片 CDN 上传。
 
-    入参 `files={file: (file_name, bytes, octet-stream)}` + `data={uuid}`。
     返回 `cdn_key`/`aes_key`/`md5`/`width`/`height`/`size`。
     """
     files = {"file": (file_name or "image.png", file_bytes, "application/octet-stream")}

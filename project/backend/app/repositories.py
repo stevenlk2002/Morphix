@@ -23,6 +23,40 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{_uuid.uuid4().hex[:8]}"
 
 
+# ---- 模块级 helper（账号卡片增强，T01） ----
+def _resolve_avatar_url(user_info: dict | None) -> str:
+    """从 iPad 协议 userInfo 解析真实头像 URL。
+
+    优先级：`avatar` > `headImgUrl` > `headimgurl`；空值/缺失返回空串 `''`
+    （与项目「空串表示未设置」约定一致，避免 NULL 判空分支）。
+    """
+    if not isinstance(user_info, dict):
+        return ""
+    for key in ("avatar", "headImgUrl", "headimgurl"):
+        val = user_info.get(key)
+        if val and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def assert_online_bot(repo: "BotRepository", bot_id: str | None) -> dict | None:
+    """校验「已上线」机器人（唯一来源）。
+
+    - `bot_id` 为空 → 返回 None（允许空态，不清空默认机器人）
+    - 机器人不存在 → 抛 ValueError("机器人不存在")
+    - 机器人未上线(status!='online') → 抛 ValueError("机器人未上线，无法设为默认接管方")
+    路由层捕获 ValueError → 400。
+    """
+    if not bot_id:
+        return None
+    bot = repo.get(bot_id)
+    if bot is None:
+        raise ValueError("机器人不存在")
+    if bot.get("status") != "online":
+        raise ValueError("机器人未上线，无法设为默认接管方")
+    return bot
+
+
 # ---- 行 -> DTO 映射（与原实现字段严格对齐）----
 def row_to_bot(row: dict) -> dict:
     """行 -> 机器人 DTO。
@@ -176,6 +210,18 @@ class BotRepository:
             return False
         self._db.execute("DELETE FROM bots WHERE id = ?", (bot_id,))
         return True
+
+    def get(self, bot_id: str) -> dict | None:
+        """按 id 取机器人（完整 DTO）。不存在返回 None。"""
+        row = self._db.query_one("SELECT * FROM bots WHERE id = ?", (bot_id,))
+        return row_to_bot(row) if row else None
+
+    def list_online_bots(self) -> list[dict]:
+        """列出所有已上线(status='online')的机器人（选择器数据源）。"""
+        rows = self._db.query(
+            "SELECT id, name FROM bots WHERE status = 'online' ORDER BY name"
+        )
+        return [{"id": r["id"], "name": r["name"]} for r in rows]
 
 
 class ChannelRepository:
@@ -1092,6 +1138,13 @@ def row_to_account(row: dict) -> dict:
         "hostStatus": row.get("host_status", "pending"),
         "syncStatus": row.get("sync_status", ""),
         "lastSyncAt": row.get("last_sync_at", ""),
+        # —— 账号卡片增强（本期） ——
+        "avatar": row.get("avatar", ""),
+        "defaultSingleBotId": row.get("default_single_bot_id", ""),
+        "defaultGroupBotId": row.get("default_group_bot_id", ""),
+        # 聚合的默认机器人显示名（双 LEFT JOIN bots，可能为 None）
+        "defaultSingleBotName": row.get("default_single_bot_name"),
+        "defaultGroupBotName": row.get("default_group_bot_name"),
     }
 
 
@@ -1223,25 +1276,151 @@ class ChannelMgmtRepository:
                 "name": r["name"],
                 "seatsLeft": r["seats_left"],
                 "energyValue": r["energy_value"],
+                "description": r.get("description", ""),
             }
             for r in rows
         ]
 
-    def create_team(self, name: str, seats_left: int = 0, energy_value: int = 0) -> dict:
+    def count_teams(self) -> int:
+        """团队总数（用于删除末团队守卫）。"""
+        row = self._db.query_one("SELECT COUNT(*) AS c FROM teams")
+        return int(row["c"]) if row else 0
+
+    def get_team(self, team_id: str) -> dict | None:
+        """按 id 取团队（含 description）；不存在返回 None。"""
+        row = self._db.query_one("SELECT * FROM teams WHERE id=?", (team_id,))
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "seatsLeft": row["seats_left"],
+            "energyValue": row["energy_value"],
+            "description": row.get("description", ""),
+        }
+
+    def create_team(
+        self, name: str, seats_left: int = 1, energy_value: int = 0, description: str = ""
+    ) -> dict:
+        # seats 默认 1 / energy 默认 0（对齐种子「初始团队」逻辑，详见 PRD Q1）
         team_id = _generate_id("team")
         self._db.execute(
-            "INSERT INTO teams(id, name, seats_left, energy_value) VALUES (?, ?, ?, ?)",
-            (team_id, name, seats_left, energy_value),
+            "INSERT INTO teams(id, name, seats_left, energy_value, description) VALUES (?, ?, ?, ?, ?)",
+            (team_id, name, seats_left, energy_value, description),
         )
-        return {"id": team_id, "name": name, "seatsLeft": seats_left, "energyValue": energy_value}
+        return {
+            "id": team_id,
+            "name": name,
+            "seatsLeft": seats_left,
+            "energyValue": energy_value,
+            "description": description,
+        }
+
+    def update_team(
+        self, team_id: str, name: str | None = None, description: str | None = None
+    ) -> dict | None:
+        """部分更新团队（name / description 至少其一）；回查返回最新快照。"""
+        fields: list[str] = []
+        params: list[object] = []
+        if name is not None:
+            fields.append("name = ?")
+            params.append(name)
+        if description is not None:
+            fields.append("description = ?")
+            params.append(description)
+        if fields:
+            params.append(team_id)
+            self._db.execute(
+                f"UPDATE teams SET {', '.join(fields)} WHERE id=?", params
+            )
+        return self.get_team(team_id)
+
+    def delete_team(self, team_id: str) -> bool:
+        """硬删团队：先清关联账号 team_id、再删成员、最后删团队（避免 FK 冲突）。"""
+        # 1) 关联渠道账号 team_id 置空（保留账号数据可用，不清删）
+        self._db.execute(
+            "UPDATE channel_accounts SET team_id='' WHERE team_id=?", (team_id,)
+        )
+        # 2) 删除团队成员（team_members.team_id 外键关联 teams，须先于团队删除）
+        self._db.execute("DELETE FROM team_members WHERE team_id=?", (team_id,))
+        # 3) 删除团队
+        return self._db.execute("DELETE FROM teams WHERE id=?", (team_id,)) > 0
+
+    def list_team_members(self, team_id: str) -> list[dict]:
+        """团队成员列表（snake_case DB → camelCase）。"""
+        rows = self._db.query(
+            "SELECT * FROM team_members WHERE team_id=? ORDER BY joined_at, id",
+            (team_id,),
+        )
+        return [
+            {
+                "id": r["id"],
+                "teamId": r["team_id"],
+                "userId": r["user_id"],
+                "account": r["account"],
+                "nickname": r["nickname"],
+                "role": r["role"],
+                "joinedAt": r["joined_at"],
+            }
+            for r in rows
+        ]
+
+    def add_team_members(self, team_id: str, members: list[dict]) -> list[dict]:
+        """批量添加成员（members: 已解析的 {user_id, account, nickname, role}）。
+
+        按 (team_id, user_id) 去重（UNIQUE 约束 + 预查），仅返回本次新增成员。
+        """
+        existing = {
+            r["user_id"]
+            for r in self._db.query(
+                "SELECT user_id FROM team_members WHERE team_id=?", (team_id,)
+            )
+        }
+        inserted: list[dict] = []
+        for m in members:
+            user_id = m.get("user_id", "")
+            if not user_id or user_id in existing:
+                continue
+            member_id = _generate_id("tm")
+            joined_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._db.execute(
+                "INSERT INTO team_members(id, team_id, user_id, account, nickname, role, joined_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    member_id,
+                    team_id,
+                    user_id,
+                    m.get("account", ""),
+                    m.get("nickname", ""),
+                    m.get("role", ""),
+                    joined_at,
+                ),
+            )
+            inserted.append(
+                {
+                    "id": member_id,
+                    "teamId": team_id,
+                    "userId": user_id,
+                    "account": m.get("account", ""),
+                    "nickname": m.get("nickname", ""),
+                    "role": m.get("role", ""),
+                    "joinedAt": joined_at,
+                }
+            )
+            existing.add(user_id)
+        return inserted
 
     # ---- accounts（扩展 DTO，JOIN channel_seats + teams） ----
     def list_accounts_enriched(self) -> list[dict]:
         sql = (
-            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name "
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name, "
+            "       b1.name AS default_single_bot_name, "
+            "       b2.name AS default_group_bot_name "
             "FROM channel_accounts a "
             "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
             "LEFT JOIN teams t ON t.id = a.team_id "
+            "LEFT JOIN bots b1 ON b1.id = a.default_single_bot_id "
+            "LEFT JOIN bots b2 ON b2.id = a.default_group_bot_id "
             "ORDER BY a.created_at, a.id"
         )
         rows = self._db.query(sql)
@@ -1284,6 +1463,7 @@ class ChannelMgmtRepository:
         ipad_uuid: str,
         ipad_user_info: dict | str | None,
         host_status: str = "hosted",
+        avatar: str = "",
     ) -> dict:
         """企业微信 iPad 协议托管落库（loginType==2 时由路由自动调用）。
 
@@ -1308,18 +1488,23 @@ class ChannelMgmtRepository:
         self._db.execute(
             "INSERT INTO channel_accounts("
             "id, channel, account_name, status, bound_bot, daily_quota, team_id, "
-            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status) "
-            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?)",
+            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status, avatar) "
+            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?, ?)",
             (
                 account_id, channel_label, account_name, "yefengqiu", team_id,
                 channel_type, protocol, ipad_uuid, ipad_user_info_str, host_status,
+                avatar or "",
             ),
         )
         row = self._db.query_one(
-            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name "
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name, "
+            "       b1.name AS default_single_bot_name, "
+            "       b2.name AS default_group_bot_name "
             "FROM channel_accounts a "
             "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
             "LEFT JOIN teams t ON t.id = a.team_id "
+            "LEFT JOIN bots b1 ON b1.id = a.default_single_bot_id "
+            "LEFT JOIN bots b2 ON b2.id = a.default_group_bot_id "
             "WHERE a.id = ?",
             (account_id,),
         )
@@ -1331,6 +1516,11 @@ class ChannelMgmtRepository:
                 "boundBot": "yefengqiu", "ipadUuid": ipad_uuid,
                 "ipadUserInfo": (ipad_user_info if isinstance(ipad_user_info, dict) else None),
                 "hostStatus": host_status,
+                "avatar": avatar or "",
+                "defaultSingleBotId": "",
+                "defaultGroupBotId": "",
+                "defaultSingleBotName": None,
+                "defaultGroupBotName": None,
             }
         return row_to_account(row)
 
@@ -1590,16 +1780,42 @@ class ChannelMgmtRepository:
 
     # ---- iPad 协议同步域（T01/T02） ----
     def get_account_by_id(self, account_id: str) -> dict | None:
-        """按 id 取账号（扩展 DTO）。"""
+        """按 id 取账号（扩展 DTO，含聚合的默认机器人名）。"""
         row = self._db.query_one(
-            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name "
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name, "
+            "       b1.name AS default_single_bot_name, "
+            "       b2.name AS default_group_bot_name "
             "FROM channel_accounts a "
             "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
             "LEFT JOIN teams t ON t.id = a.team_id "
+            "LEFT JOIN bots b1 ON b1.id = a.default_single_bot_id "
+            "LEFT JOIN bots b2 ON b2.id = a.default_group_bot_id "
             "WHERE a.id = ?",
             (account_id,),
         )
         return row_to_account(row) if row else None
+
+    def set_default_bots(
+        self, account_id: str, single_bot_id: str, group_bot_id: str
+    ) -> None:
+        """写回账号默认单聊/群聊机器人（空串表示未设置）。
+
+        空值统一用空串 `''`，前端判空用 `!botId`（不使用 NULL）。
+        """
+        self._db.execute(
+            "UPDATE channel_accounts "
+            "SET default_single_bot_id = ?, default_group_bot_id = ? "
+            "WHERE id = ?",
+            (single_bot_id or "", group_bot_id or "", account_id),
+        )
+
+    def update_account_status(self, account_id: str, status: str) -> dict | None:
+        """更新账号状态并返回更新后的账号 DTO。"""
+        self._db.execute(
+            "UPDATE channel_accounts SET status=? WHERE id=?",
+            (status, account_id),
+        )
+        return self.get_account_by_id(account_id)
 
     def set_account_sync_status(
         self, account_id: str, sync_status: str, last_sync_at: str
@@ -1770,6 +1986,35 @@ class ChannelMgmtRepository:
         """按 id 取群（含成员聚合）。"""
         row = self._db.query_one("SELECT * FROM channel_groups WHERE id = ?", (group_id,))
         return row_to_group(row) if row else None
+
+    # ---- 群成员 / 群 / 群会话 维护（T04 群管理） ----
+    def count_group_members(self, group_id: str) -> int:
+        """群成员数。"""
+        row = self._db.query_one(
+            "SELECT COUNT(*) AS c FROM channel_group_members WHERE group_id = ?",
+            (group_id,),
+        )
+        return int(row["c"]) if row else 0
+
+    def delete_channel_group_member(self, group_id: str, user_id: str) -> int:
+        """按 (group_id, user_id) 删群成员，返回受影响行数。"""
+        return self._db.execute(
+            "DELETE FROM channel_group_members WHERE group_id = ? AND user_id = ?",
+            (group_id, user_id),
+        )
+
+    def delete_all_channel_group_members(self, group_id: str) -> int:
+        return self._db.execute(
+            "DELETE FROM channel_group_members WHERE group_id = ?", (group_id,)
+        )
+
+    def delete_channel_group(self, group_id: str) -> int:
+        return self._db.execute("DELETE FROM channel_groups WHERE id = ?", (group_id,))
+
+    def delete_session_for_room(self, account_id: str, room_id: str) -> int:
+        """删某账号下某 room 的群会话（id = {account_id}:{room_id}）。"""
+        sid = f"{account_id}:{room_id}"
+        return self._db.execute("DELETE FROM channel_sessions WHERE id = ?", (sid,))
 
 
     # ---- P1+P2 iPad 同步域扩展方法 ----
@@ -2036,6 +2281,70 @@ class ChannelMgmtRepository:
         )
         row = self._db.query_one("SELECT * FROM channel_sessions WHERE id = ?", (session_id,))
         return row_to_session(row) if row else None
+
+    def create_session_for_room(
+        self,
+        account_id: str,
+        room_id: str,
+        name: str,
+        channel: str,
+        channel_type: str,
+    ) -> dict | None:
+        """为新建群落一个群会话行（支撑「直接点击聊天」）。
+
+        session_type='group'、msg_type=1、unread_count=0、read_status='read'、
+        remote_session_id=room_id、online_status='offline'、hosted_status='unhosted'。
+        已存在（按 id）则跳过，返回既有行（DTO）；否则插入并返回新行（DTO）。
+        """
+        sid = f"{account_id}:{room_id}"
+        existing = self._db.query_one(
+            "SELECT id FROM channel_sessions WHERE id = ?", (sid,)
+        )
+        if existing:
+            row = self._db.query_one(
+                "SELECT * FROM channel_sessions WHERE id = ?", (sid,)
+            )
+            return row_to_session(row) if row else None
+        now = datetime.now().isoformat(timespec="seconds")
+        self._db.execute(
+            "INSERT INTO channel_sessions("
+            "id, account_id, contact_id, name, channel, channel_type, last_message, "
+            "last_time, unread_count, read_status, hosted_status, hosted_bot_id, owner, "
+            "online_status, session_type, external_tag, add_time, hosting_chain, "
+            "remote_session_id, msg_type, begin_msg_seq) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                sid, account_id, None, name, channel, channel_type,
+                "", now, 0, "read", "unhosted", None, "",
+                "offline", "群聊", "外部", now, "-",
+                room_id, 1, "",
+            ),
+        )
+        row = self._db.query_one("SELECT * FROM channel_sessions WHERE id = ?", (sid,))
+        return row_to_session(row) if row else None
+
+    def mark_sessions_read_local(
+        self, account_id: str, session_ids: list[str] | None = None
+    ) -> int:
+        """仅本地清零未读（不调 iPad）。
+
+        session_ids 为 None → 清空当前账号全部会话未读；
+        否则逐条 UPDATE。返回更新行数。
+        """
+        if session_ids is None:
+            return self._db.execute(
+                "UPDATE channel_sessions SET unread_count = 0, read_status = 'read' "
+                "WHERE account_id = ?",
+                (account_id,),
+            )
+        updated = 0
+        for sid in session_ids:
+            updated += self._db.execute(
+                "UPDATE channel_sessions SET unread_count = 0, read_status = 'read' "
+                "WHERE id = ? AND account_id = ?",
+                (sid, account_id),
+            )
+        return updated
 
     def increment_session_unread(self, conversation_id: str, account_id: str) -> None:
         """回调收到新消息时，将对应会话未读 +1、标记 unread（P2-4）。

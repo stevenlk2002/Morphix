@@ -112,6 +112,287 @@ def get_sync_status(account_id: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# 群聊 / 已读（T04 UI 改造新增）
+# ---------------------------------------------------------------------------
+def create_group(account_id: str, member_ids: list[str], room_name: str = "") -> dict:
+    """创建群聊：解析联系人 user_id → 调 iPad 建群 → 落库 → 返回 GroupDTO。
+
+    mock-first：真实协议失败或 mock 模式均本地生成 room_id 并落库，前端不阻塞。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    uuid = account.get("ipadUuid", "")
+    if not uuid:
+        raise IPadSyncError("账号未托管 iPad")
+    if not member_ids:
+        raise IPadSyncError("至少选择一位好友")
+
+    channel = account.get("channel", "企业微信")
+    channel_type = account.get("channel_type", "wecom")
+
+    wxids: list[str] = []
+    nicknames: list[str] = []
+    for cid in member_ids:
+        contact = repo.get_contact_by_id(cid)
+        if not contact:
+            continue
+        user_id = str(contact.get("user_id") or "")
+        if user_id:
+            wxids.append(user_id)
+            nicknames.append(str(contact.get("nickname") or contact.get("name") or "未知"))
+    if len(wxids) < 1:
+        raise IPadSyncError("未能解析到有效的好友 user_id")
+
+    room_name = room_name or (
+        "、".join(nicknames[:3]) + (" 等" if len(nicknames) > 3 else "") + " 的群聊"
+    )
+
+    result = ipad_client.create_chatroom(uuid, wxids, room_name)
+    room_id = str(result.get("room_id") or "")
+    if not room_id:
+        raise IPadSyncError("iPad 建群返回 room_id 为空")
+
+    gid = f"{account_id}:{room_id}"
+    now = _now()
+    repo.upsert_channel_group(
+        {
+            "id": gid,
+            "account_id": account_id,
+            "room_id": room_id,
+            "group_type": "customer_group",
+            "nickname": room_name,
+            "total": len(wxids),
+            "room_url": "",
+            "notice_content": "",
+            "create_time": now,
+            "update_time": now,
+            "extra_json": "{}",
+        }
+    )
+    # 同时写一条 channel_sessions，支撑「直接点击聊天」
+    repo.create_session_for_room(account_id, room_id, room_name, channel, channel_type)
+    return repo.get_group_by_room_id(account_id, room_id)
+
+
+# ---------------------------------------------------------------------------
+# 群成员管理 / 群公告 / 转让群主 / 解散群（mock-first，T04）
+# ---------------------------------------------------------------------------
+def _resolve_group(account_id: str, room_id: str) -> dict:
+    """按 (account_id, room_id) 查群，不存在抛 IPadSyncError。"""
+    repo = ChannelMgmtRepository(get_backend())
+    g = repo.get_group_by_room_id(account_id, room_id)
+    if not g:
+        raise IPadSyncError("群不存在")
+    return g
+
+
+def add_group_members(
+    account_id: str, room_id: str, member_ids: list[str]
+) -> dict:
+    """添加群成员：先调真实协议 InvitationToRoom，成功后再落库。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    g = _resolve_group(account_id, room_id)
+    if not member_ids:
+        raise IPadSyncError("成员列表为空")
+    uuid = account.get("ipadUuid", "")
+
+    wxids: list[str] = []
+    for cid in member_ids:
+        contact = repo.get_contact_by_id(cid)
+        if not contact:
+            continue
+        user_id = str(contact.get("user_id") or "")
+        if user_id:
+            wxids.append(user_id)
+    if not wxids:
+        raise IPadSyncError("未能解析到有效的好友 user_id")
+
+    # 先调真实协议邀请进群（auto 模式降级不影响落库）
+    if uuid:
+        try:
+            ipad_client.invitation_to_room(uuid, room_id, wxids)
+        except ipad_client.IPadProtocolError as exc:
+            logger.warning("InvitationToRoom 失败: %s, 继续落库", exc)
+
+    added = 0
+    for cid in member_ids:
+        contact = repo.get_contact_by_id(cid)
+        if not contact:
+            continue
+        uin = str(contact.get("user_id") or "")
+        mid = f"{g['id']}:{uin or contact.get('nickname', '')}"
+        repo.upsert_channel_group_member(
+            {
+                "id": mid,
+                "group_id": g["id"],
+                "uin": uin,
+                "user_id": uin,
+                "nickname": str(contact.get("nickname") or contact.get("name") or ""),
+                "realname": str(contact.get("name") or ""),
+                "avatar": str(contact.get("avatar") or ""),
+                "room_nickname": "",
+                "sex": 0,
+                "mobile": "",
+                "join_time": _now(),
+            }
+        )
+        added += 1
+    new_total = repo.count_group_members(g["id"])
+    repo.upsert_channel_group(_group_dto_to_row(g, total=new_total))
+    return {"added": added, "groupId": g["id"], "total": new_total}
+
+
+def remove_group_member(
+    account_id: str, room_id: str, member_id: str
+) -> dict:
+    """移除群成员：先调真实协议 DelRoomUsers，成功后再从本地删。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    g = _resolve_group(account_id, room_id)
+    contact = repo.get_contact_by_id(member_id)
+    uin = str(contact.get("user_id") or "") if contact else str(member_id)
+
+    uuid = account.get("ipadUuid", "")
+    if uuid and uin:
+        try:
+            ipad_client.del_room_users(uuid, room_id, [uin])
+        except ipad_client.IPadProtocolError as exc:
+            logger.warning("DelRoomUsers 失败: %s, 继续本地删", exc)
+
+    deleted = repo.delete_channel_group_member(g["id"], uin)
+    new_total = repo.count_group_members(g["id"])
+    repo.upsert_channel_group(_group_dto_to_row(g, total=new_total))
+    return {"deleted": deleted, "groupId": g["id"], "total": new_total}
+
+
+def set_group_notice(account_id: str, room_id: str, notice: str) -> dict:
+    """更新群公告：先调真实协议 SendNotice，成功后再落库。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    g = _resolve_group(account_id, room_id)
+
+    uuid = account.get("ipadUuid", "")
+    if uuid:
+        try:
+            ipad_client.send_notice(uuid, room_id, notice)
+        except ipad_client.IPadProtocolError as exc:
+            logger.warning("SendNotice 失败: %s, 继续落库", exc)
+
+    repo.upsert_channel_group(_group_dto_to_row(g, notice_content=notice))
+    return {"groupId": g["id"], "noticeContent": notice}
+
+
+def transfer_group_owner(
+    account_id: str, room_id: str, new_owner_user_id: str
+) -> dict:
+    """转让群主：先调真实协议 TransferChatroomOwner，成功后再落库。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    g = _resolve_group(account_id, room_id)
+
+    uuid = account.get("ipadUuid", "")
+    if uuid:
+        try:
+            ipad_client.transfer_chatroom_owner(uuid, room_id, new_owner_user_id)
+        except ipad_client.IPadProtocolError as exc:
+            logger.warning("TransferChatroomOwner 失败: %s, 继续落库", exc)
+
+    import json as _json
+    extra = g.get("extra") or {}
+    if not isinstance(extra, dict):
+        try:
+            extra = _json.loads(extra)
+        except Exception:
+            extra = {}
+    extra["ownerUserId"] = new_owner_user_id
+    repo.upsert_channel_group(
+        _group_dto_to_row(g, extra_json=_json.dumps(extra, ensure_ascii=False))
+    )
+    return {"groupId": g["id"], "ownerUserId": new_owner_user_id}
+
+
+def _group_dto_to_row(g: dict, **overrides) -> dict:
+    """将 row_to_group 返回的 camelCase DTO 转为 upsert_channel_group 期望的 snake_case 行。"""
+    import json as _json
+    extra = g.get("extra")
+    if isinstance(extra, dict):
+        extra_json = _json.dumps(extra, ensure_ascii=False)
+    elif isinstance(extra, str):
+        extra_json = extra
+    else:
+        extra_json = "{}"
+    row = {
+        "id": g["id"],
+        "account_id": g["accountId"],
+        "room_id": g["roomId"],
+        "group_type": g.get("groupType", "customer_group"),
+        "nickname": g.get("name", ""),
+        "total": int(g.get("total", 0)),
+        "room_url": g.get("roomUrl", ""),
+        "notice_content": g.get("noticeContent", ""),
+        "create_time": g.get("createTime", ""),
+        "update_time": g.get("updateTime", ""),
+        "extra_json": extra_json,
+    }
+    # snake_case 覆盖优先
+    key_map = {
+        "noticeContent": "notice_content",
+        "createTime": "create_time",
+        "updateTime": "update_time",
+        "roomUrl": "room_url",
+        "groupType": "group_type",
+    }
+    for k, v in overrides.items():
+        snake = key_map.get(k, k)
+        row[snake] = v
+    return row
+
+
+def dismiss_group(account_id: str, room_id: str) -> dict:
+    """解散群：先调真实协议 DissolutionRoom，成功后再从本地删。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    g = _resolve_group(account_id, room_id)
+
+    uuid = account.get("ipadUuid", "")
+    if uuid:
+        try:
+            ipad_client.dissolution_room(uuid, room_id)
+        except ipad_client.IPadProtocolError as exc:
+            logger.warning("DissolutionRoom 失败: %s, 继续本地删", exc)
+
+    repo.delete_all_channel_group_members(g["id"])
+    repo.delete_session_for_room(account_id, room_id)
+    repo.delete_channel_group(g["id"])
+    return {"dismissed": True, "groupId": g["id"]}
+
+
+def mark_sessions_read_local(
+    account_id: str, session_ids: list[str] | None = None
+) -> dict:
+    """仅本地清零未读（不调用 iPad mark_as_read），返回更新行数。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    updated = repo.mark_sessions_read_local(account_id, session_ids)
+    return {"updated": updated}
+
+
+# ---------------------------------------------------------------------------
 # 全量同步核心
 # ---------------------------------------------------------------------------
 def run_full_sync(account_id: str) -> dict:
@@ -697,6 +978,96 @@ def mark_session_read(account_id: str, session_id: str) -> dict:
         logger.warning("MarkAsRead 失败 account=%s session=%s: %s", account_id, session_id, exc)
     repo.mark_session_read_db(session_id)
     return {"ok": True, "sessionId": session_id}
+
+
+# ---- T02 建群（mock-first）+ 一键已读（本地持久化） ----
+def create_group(account_id: str, member_ids: list[str], room_name: str = "") -> dict:
+    """建群（mock-first）：解析 user_id → create_chatroom → upsert 群 + 群会话。
+
+    返回 GroupDTO(dict)；real 模式协议失败抛 `IPadProtocolError`（路由转 502），
+    auto/mock 降级仍落库返回 GroupDTO（决策 #7）。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account or not account.get("ipadUuid"):
+        raise IPadSyncError("账号不存在或未托管 iPad")
+    uuid: str = account["ipadUuid"]
+    channel: str = account.get("channel", "企业微信")
+    channel_type: str = account.get("channelType", "wecom")
+
+    # 1) 解析 memberIds → iPad user_id（wxids）
+    wxids: list[str] = []
+    nicknames: list[str] = []
+    for cid in member_ids:
+        c = repo.get_contact_by_id(cid)
+        if c and c.get("user_id"):
+            wxids.append(c["user_id"])
+            nicknames.append(c.get("nickname") or c.get("name") or "")
+
+    # 2) 调 iPad 建群（mock-first 降级；real 失败抛异常）
+    room = ipad_client.create_chatroom(uuid, wxids, room_name)
+    room_id: str = room.get("room_id") or f"mock_room_{uuid[:8]}"
+    _ = bool(room.get("mock"))
+
+    # 3) upsert channel_groups（group_type=customer_group）
+    #    名称优先 room_name，否则拼接成员昵称 + "的群聊"
+    if room_name:
+        group_name = room_name
+    elif nicknames:
+        picked = [n for n in nicknames if n][:3]
+        group_name = "、".join(picked)
+        if len(nicknames) > 3:
+            group_name += "等"
+        group_name += "的群聊"
+    else:
+        group_name = "新建群聊"
+    repo.upsert_channel_group(
+        {
+            "id": f"{account_id}:{room_id}",
+            "account_id": account_id,
+            "room_id": room_id,
+            "group_type": "customer_group",
+            "nickname": group_name,
+            "total": len(wxids),
+            "room_url": "",
+            "notice_content": "",
+            "create_time": _now(),
+            "update_time": _now(),
+            "extra_json": "{}",
+        }
+    )
+
+    # 4) 一并落群会话，支撑「直接点击聊天」
+    repo.create_session_for_room(account_id, room_id, group_name, channel, channel_type)
+
+    group = repo.get_group_by_room_id(account_id, room_id)
+    if group is None:
+        # 兜底（极少见）：直接构造返回
+        return {
+            "id": f"{account_id}:{room_id}",
+            "accountId": account_id,
+            "roomId": room_id,
+            "groupType": "customer_group",
+            "name": group_name,
+            "total": len(wxids),
+            "roomUrl": "",
+            "noticeContent": "",
+            "createTime": _now(),
+            "updateTime": _now(),
+        }
+    return group
+
+
+def mark_sessions_read_local(
+    account_id: str, session_ids: list[str] | None = None
+) -> dict:
+    """仅本地清零未读（不调 iPad）。返回 {"updated": int}。"""
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    updated = repo.mark_sessions_read_local(account_id, session_ids)
+    return {"updated": int(updated)}
 
 
 # ---- P2-1 消息历史回填 ----

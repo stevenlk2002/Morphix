@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from .database import DatabaseBackend
 
@@ -48,7 +49,11 @@ CREATE TABLE IF NOT EXISTS channel_accounts (
   channel_type TEXT NOT NULL DEFAULT '',
   protocol TEXT NOT NULL DEFAULT '',
   sessions_count INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- 账号卡片增强（本期）
+  avatar TEXT NOT NULL DEFAULT '',
+  default_single_bot_id TEXT NOT NULL DEFAULT '',
+  default_group_bot_id TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS customer_tags (
   id TEXT PRIMARY KEY,
@@ -193,8 +198,25 @@ CREATE TABLE IF NOT EXISTS teams (
   name        TEXT NOT NULL,
   seats_left  INTEGER NOT NULL DEFAULT 0,
   energy_value INTEGER NOT NULL DEFAULT 0,
+  description  TEXT NOT NULL DEFAULT '',
   created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 团队成员（冗余 account/nickname/role，避免 JOIN 授权用户内存表；team_id+user_id 唯一去重）
+CREATE TABLE IF NOT EXISTS team_members (
+  id          TEXT PRIMARY KEY,
+  team_id     TEXT NOT NULL,
+  user_id     TEXT NOT NULL,
+  account     TEXT NOT NULL DEFAULT '',
+  nickname    TEXT NOT NULL DEFAULT '',
+  role        TEXT NOT NULL DEFAULT '',
+  joined_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(team_id, user_id),
+  FOREIGN KEY (team_id) REFERENCES teams(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 
 CREATE TABLE IF NOT EXISTS channel_contacts (
   id          TEXT PRIMARY KEY,
@@ -640,6 +662,17 @@ def migrate_schema(backend: DatabaseBackend) -> None:
         if not _has_column(backend, "channel_accounts", col):
             backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
 
+    # ---- 账号卡片增强迁移（本期 T01） ----
+    # channel_accounts 头像 + 默认单聊/群聊机器人（空串表示未设置，与既有 ipad_uuid 列一致）
+    _channel_account_card_cols = {
+        "avatar": "TEXT NOT NULL DEFAULT ''",
+        "default_single_bot_id": "TEXT NOT NULL DEFAULT ''",
+        "default_group_bot_id": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, ddl in _channel_account_card_cols.items():
+        if not _has_column(backend, "channel_accounts", col):
+            backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
+
     # messages 表扩展（P2 消息历史回填 / 已读 / 富媒体；统一复用 messages 表，决策 #6）
     _messages_cols = {
         "server_id": "TEXT NOT NULL DEFAULT ''",
@@ -696,6 +729,11 @@ def migrate_schema(backend: DatabaseBackend) -> None:
         # 将旧标签的 group_id 设为 tg-default
         backend.execute("UPDATE customer_tags SET group_id = 'tg-default' WHERE group_id = ''")
 
+    # ---- 渠道团队迁移：teams.description（本期新增，幂等 ALTER） ----
+    # 新库由上方 CREATE TABLE 直接带列；旧库（teams 已存在但缺 description）在此补列。
+    if not _has_column(backend, "teams", "description"):
+        backend.execute("ALTER TABLE teams ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+
 
 def _count(backend: DatabaseBackend, sql: str, params: tuple = ()) -> int:
     """安全取 COUNT(*) 结果，COUNT 查询恒返回一行。"""
@@ -704,7 +742,14 @@ def _count(backend: DatabaseBackend, sql: str, params: tuple = ()) -> int:
 
 
 def seed_defaults(backend: DatabaseBackend) -> None:
-    """仅在空表时写入种子数据。"""
+    """仅在空表时写入种子数据。
+
+    渠道会话管理域演示数据（引用 acc-zhulu / acc-hengkang / acc-fushou 的会话、
+    消息、托管席位等）默认不再注入，避免污染干净库、干扰真实流程测试。
+    需要演示时设置环境变量 MORPHIX_SEED_CHANNEL_DEMO=1。
+    """
+    # 渠道会话演示数据开关：默认关闭，仅当显式设置 MORPHIX_SEED_CHANNEL_DEMO=1 时注入。
+    _seed_channel_demo = os.environ.get("MORPHIX_SEED_CHANNEL_DEMO") == "1"
     if _count(backend, "SELECT COUNT(*) AS c FROM bots") == 0:
         for bot in dashboard_seed()["bots"]:
             backend.execute(
@@ -792,11 +837,12 @@ def seed_defaults(backend: DatabaseBackend) -> None:
     # ---- 渠道会话管理域种子（teams / contacts / sessions / hosting / wechat_subjects） ----
     if _count(backend, "SELECT COUNT(*) AS c FROM teams") == 0:
         backend.execute(
-            "INSERT INTO teams(id, name, seats_left, energy_value) VALUES (?, ?, ?, ?)",
-            ("team-initial", "初始团队", 1, 908),
+            "INSERT INTO teams(id, name, seats_left, energy_value, description) VALUES (?, ?, ?, ?, ?)",
+            ("team-initial", "初始团队", 1, 908, ""),
         )
 
-    if _count(backend, "SELECT COUNT(*) AS c FROM channel_sessions") == 0:
+    # 渠道会话演示数据：引用 acc-zhulu / acc-hengkang / acc-fushou，受开关控制（默认不注入）。
+    if _seed_channel_demo and _count(backend, "SELECT COUNT(*) AS c FROM channel_sessions") == 0:
         sessions = [
             ("ses-drjack", "acc-zhulu", "Dr.Jack 恒康倍力", "@微信", "wechat", "可以的，后续可以用", "10:36", 0, "read", "hosted", "yefengqiu", "竹", "online", "外部联系人", "外部", "2026-06-30 18:29:18", "-"),
             ("ses-tongtian", "acc-zhulu", "通天草-林瞰", "@微信", "wechat", "竹绿-健康：亲爱的您好呀...", "10:41", 2, "unread", "unhosted", None, "竹", "online", "外部联系人", "外部", "2026-06-30 18:29:19", "-"),
@@ -827,7 +873,8 @@ def seed_defaults(backend: DatabaseBackend) -> None:
                 row,
             )
 
-    if _count(backend, "SELECT COUNT(*) AS c FROM messages WHERE conversation_id LIKE 'ses-%'") == 0:
+    # 为上述演示渠道会话写的消息（conversation_id 以 ses- 前缀），同样受开关控制（默认不注入）。
+    if _seed_channel_demo and _count(backend, "SELECT COUNT(*) AS c FROM messages WHERE conversation_id LIKE 'ses-%'") == 0:
         # 为 4 个 channel_sessions 各写 2-6 条消息（conversation_id = session id）。
         # 注意：不能用 channel_sessions 是否为空做闸门，否则上文写入会话后此处永远被跳过。
         # messages 表另有 s-1/2/3 的演示消息（属于 legacy conversations），会话 id 前缀不同不会冲突。
@@ -903,7 +950,8 @@ def seed_defaults(backend: DatabaseBackend) -> None:
                 (msg_id, conv_id, sender_type, content, ts),
             )
 
-    if _count(backend, "SELECT COUNT(*) AS c FROM hosting_sessions") == 0:
+    # 托管席位演示数据：引用 acc-zhulu，与渠道会话共用同一开关，避免孤儿引用（默认不注入）。
+    if _seed_channel_demo and _count(backend, "SELECT COUNT(*) AS c FROM hosting_sessions") == 0:
         hosting = [
             ("hs-yangyang", "", "acc-zhulu", "洋洋", "", "2026-06-30 18:29:12", "unhosted", "-"),
             ("hs-min", "", "acc-zhulu", "Min", "", "2026-06-30 18:27:09", "unhosted", "-"),
@@ -1035,8 +1083,8 @@ def seed_defaults(backend: DatabaseBackend) -> None:
     if _count(backend, "SELECT COUNT(*) AS c FROM operation_tasks") == 0:
         _seed_operation_tasks(backend)
 
-    # ---- 运营SOP域种子 ----
-    if _count(backend, "SELECT COUNT(*) AS c FROM operation_sops") == 0:
+    # ---- 运营SOP域种子（SOP 配置含 hostingAccountId=acc-zhulu 演示引用，受同一开关控制，默认不注入）----
+    if _seed_channel_demo and _count(backend, "SELECT COUNT(*) AS c FROM operation_sops") == 0:
         _seed_operation_sops(backend)
 
     if _count(backend, "SELECT COUNT(*) AS c FROM operation_sop_records") == 0:

@@ -21,12 +21,14 @@ from fastapi.responses import JSONResponse
 
 from .. import ipad_client, ipad_sync
 from ..database import get_backend
-from ..repositories import ChannelMgmtRepository
+from ..repositories import ChannelMgmtRepository, _resolve_avatar_url
 from ..schemas import (
     WecomHostPollRequest,
     WecomHostStartRequest,
     WecomHostVerifyRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/channels/accounts/wecom", tags=["channel-hosting"])
 
@@ -121,13 +123,15 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
         if isinstance(user_info, dict):
             nickname = (
                 user_info.get("nickname")
-                or user_info.get("englishName")
                 or user_info.get("realname")
-                or user_info.get("acctid")
+                or user_info.get("name")
             )
         else:
             nickname = None
-        name = state.get("name") or nickname or f"企业微信-{payload.uuid[:6]}"
+        # 命名优先级：真实昵称 > start 默认名 > 兜底「企业微信-{uuid[:6]}」
+        name = nickname or state.get("name") or f"企业微信-{payload.uuid[:6]}"
+        # 头像解析（avatar > headImgUrl > headimgurl；空串表示无）
+        avatar = _resolve_avatar_url(user_info)
         repo = ChannelMgmtRepository(get_backend())
         account = repo.create_account_with_ipad(
             channel_type=channel_type,
@@ -137,6 +141,7 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
             ipad_uuid=payload.uuid,
             ipad_user_info=user_info,
             host_status="hosted",
+            avatar=avatar,
         )
         result["account"] = account
 

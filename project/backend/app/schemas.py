@@ -76,6 +76,22 @@ class SessionHostingRequest(BaseModel):
     botId: Optional[str] = None
 
 
+class AccountDefaultBotsRequest(BaseModel):
+    """设置默认单聊/群聊机器人（null = 清空，空串视为未设置）。
+
+    仅校验「已上线」(status='online')；不校验团队（bots 表无 team_id）。
+    由路由层统一调用 `assert_online_bot` 完成校验。
+    """
+
+    singleBotId: Optional[str] = None
+    groupBotId: Optional[str] = None
+
+
+class AccountStatusRequest(BaseModel):
+    """设置账号上下线状态。"""
+    status: str  # 'online' | 'offline'
+
+
 class WechatSubjectCreateRequest(BaseModel):
     fullName: str
     shortName: str
@@ -94,8 +110,44 @@ class WechatSubjectUpdateRequest(BaseModel):
 
 class TeamCreateRequest(BaseModel):
     name: str
-    seatsLeft: Optional[int] = 0
-    energyValue: Optional[int] = 0
+    seatsLeft: Optional[int] = None
+    energyValue: Optional[int] = None
+    description: Optional[str] = ""
+
+
+class TeamUpdateRequest(BaseModel):
+    """团队部分更新：name / description 至少传其一（未传字段沿用原值）。"""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class TeamResponse(BaseModel):
+    """团队响应 DTO（snake_case DB → camelCase）。"""
+
+    id: str
+    name: str
+    seatsLeft: int = 0
+    energyValue: int = 0
+    description: str = ""
+
+
+class TeamMemberResponse(BaseModel):
+    """团队成员 DTO（snake_case DB → camelCase）。"""
+
+    id: str
+    teamId: str
+    userId: str
+    account: str = ""
+    nickname: str = ""
+    role: str = ""
+    joinedAt: str = ""
+
+
+class AddTeamMembersRequest(BaseModel):
+    """批量添加团队成员请求体（userIds 为授权用户 id 列表）。"""
+
+    userIds: list[str] = []
 
 
 
@@ -289,6 +341,22 @@ class CustomerGroupDeleteRequest(BaseModel):
 
 
 # ---- iPad 协议同步域（T02）请求/响应模型 ----
+class CreateGroupRequest(BaseModel):
+    """建群请求体（memberIds = Morphix 联系人 id；后端解析为 iPad user_id）。"""
+
+    memberIds: list[str]
+    roomName: str = ""
+
+
+class MarkSessionsReadLocalRequest(BaseModel):
+    """一键已读（本地）请求体。
+
+    sessionIds=None 表示清空当前账号全部会话未读（不调 iPad 协议）。
+    """
+
+    sessionIds: Optional[list[str]] = None
+
+
 class SendTextRequest(BaseModel):
     """发送文本消息：前端只传目标类型 + 目标 id + 内容，后端反查 user_id/room_id。
 
@@ -350,6 +418,32 @@ class SyncResultDTO(BaseModel):
     skipped: bool = False
     accountId: str = ""
     message: str = ""
+
+
+class CreateGroupRequest(BaseModel):
+    """创建群聊请求（memberIds 为 Morphix 联系人 id，后端反查 user_id）。"""
+    memberIds: list[str]
+    roomName: str = ""
+
+
+class MarkSessionsReadLocalRequest(BaseModel):
+    """一键已读（本地）：sessionIds 为空则清空当前账号全部会话未读。"""
+    sessionIds: list[str] | None = None
+
+
+class AddGroupMembersRequest(BaseModel):
+    """添加群成员请求（contactIds = Morphix 联系人 id）。"""
+    contactIds: list[str]
+
+
+class SetGroupNoticeRequest(BaseModel):
+    """群公告更新。"""
+    notice: str = ""
+
+
+class TransferGroupOwnerRequest(BaseModel):
+    """转让群主。"""
+    newOwnerUserId: str = ""
 
 
 class SendTextResultDTO(BaseModel):
