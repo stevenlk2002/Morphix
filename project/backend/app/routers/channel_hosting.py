@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Optional
 
 from fastapi import APIRouter
@@ -140,12 +141,18 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
         channel_type = state.get("channel_type", "wecom")
         user_info = info.get("userInfo") or {}
         if not isinstance(user_info, dict) or not user_info:
-            # 抢在 userInfo 就绪前 poll 到的竞态：再取一次真实客户端信息
-            try:
-                retry = ipad_client.get_run_client_info(payload.uuid)
-                user_info = retry.get("userInfo") or {}
-            except Exception:
-                user_info = {}
+            # 抢在 userInfo 就绪前 poll 到的竞态：轮询 retry 最多 5 次，每次 600ms
+            # 真实服务常在 loginType==2 后短暂延迟才填充 userInfo
+            for _ in range(5):
+                try:
+                    retry = ipad_client.get_run_client_info(payload.uuid)
+                    candidate = retry.get("userInfo") or {}
+                    if isinstance(candidate, dict) and candidate:
+                        user_info = candidate
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.6)
         if isinstance(user_info, dict):
             nickname = (
                 user_info.get("nickname")
