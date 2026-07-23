@@ -235,7 +235,9 @@ CREATE TABLE IF NOT EXISTS channel_contacts (
   user_id     TEXT NOT NULL DEFAULT '',
   label_ids   TEXT NOT NULL DEFAULT '[]',
   raw_status  TEXT NOT NULL DEFAULT '',
-  extra_json  TEXT NOT NULL DEFAULT '{}'
+  extra_json  TEXT NOT NULL DEFAULT '{}',
+  -- iPad 协议同步扩展字段：真实头像 URL（GetInnerContacts/GetExternalContacts 返回 `avatar`）
+  avatar      TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS customer_profiles (
@@ -633,6 +635,7 @@ def migrate_schema(backend: DatabaseBackend) -> None:
         "label_ids": "TEXT NOT NULL DEFAULT '[]'",
         "raw_status": "TEXT NOT NULL DEFAULT ''",
         "extra_json": "TEXT NOT NULL DEFAULT '{}'",
+        "avatar": "TEXT NOT NULL DEFAULT ''",
     }
     for col, ddl in _channel_contacts_cols.items():
         if not _has_column(backend, "channel_contacts", col):

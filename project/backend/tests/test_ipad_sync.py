@@ -140,10 +140,11 @@ def _patch_post(monkeypatch, payload):
 
 
 def _mock_all_lists_empty(monkeypatch):
-    """把 4 个列表协议函数都 mock 成空返回，便于隔离单路测试。"""
+    """把 5 个列表协议函数都 mock 成空返回，便于隔离单路测试。"""
     monkeypatch.setattr(ipad_client, "get_inner_contacts", lambda *a, **k: {"list": [], "strSeq": ""})
     monkeypatch.setattr(ipad_client, "get_external_contacts", lambda *a, **k: {"list": [], "seq": 0})
     monkeypatch.setattr(ipad_client, "get_chatroom_members", lambda *a, **k: {"room_list": [], "star_index": 0})
+    monkeypatch.setattr(ipad_client, "get_session_room_list", lambda *a, **k: {"room_list": [], "star_index": 0})
     monkeypatch.setattr(ipad_client, "get_session_list", lambda *a, **k: {"room_list": [], "star_index": 0})
 
 

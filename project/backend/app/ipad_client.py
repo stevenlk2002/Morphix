@@ -225,6 +225,28 @@ def get_chatroom_members(uuid: str, star_index: int = 0, limit: int = 100) -> di
     }
 
 
+def get_session_room_list(uuid: str, star_index: int = 0, limit: int = 100) -> dict:
+    """POST `{base}/wxwork/GetSessionRoomList` → 会话列表中的群聊（游标 `star_index`）。
+
+    真实 iPad 服务对该账号的 `GetChatroomMembers` 可能返回 0 条，而本接口返回
+    真实群数据（如「教育培训部」「医林通早会群」）。因此同步服务以本接口为主群
+    数据源，`GetChatroomMembers` 作为兜底/补充。
+
+    返回 `{room_list, star_index}`，`room_list[]` 每项字段兼容：
+    `room_id`/`roomId`、`nickname`、`total`、`roomurl`/`roomUrl`、
+    `managers`、`image_url`/`imageUrl`/`room_url`、`is_external`。
+    """
+    data = _post(
+        "wxwork/GetSessionRoomList",
+        {"uuid": uuid, "limit": int(limit), "star_index": int(star_index)},
+    )
+    body = _norm(data)
+    return {
+        "room_list": body.get("room_list") or [],
+        "star_index": int(body.get("star_index", 0) or 0),
+    }
+
+
 def get_room_user_list(uuid: str, room_id: str) -> dict:
     """POST `{base}/wxwork/GetRoomUserList` → 群成员详情（T04）。
 

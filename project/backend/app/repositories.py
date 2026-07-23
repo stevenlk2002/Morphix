@@ -1162,6 +1162,7 @@ def row_to_contact(row: dict) -> dict:
         "description": row["description"],
         "addTime": row["add_time"],
         "source": row["source"],
+        "avatar": row.get("avatar", ""),
     }
 
 
@@ -1852,19 +1853,24 @@ class ChannelMgmtRepository:
         )
 
     def upsert_channel_contact(self, contact: dict) -> None:
-        """upsert 渠道联系人（自然键 id = {account_id}:{user_id}）。"""
+        """upsert 渠道联系人（自然键 id = {account_id}:{user_id}）。
+
+        含 `avatar` 列：同步时写入真实头像 URL（GetInnerContacts /
+        GetExternalContacts 返回 `avatar` 字段），缺失时落空串（与既有
+        列「空串表示未设置」约定一致，避免 NULL 判空分支）。
+        """
         self._db.execute(
             "INSERT OR REPLACE INTO channel_contacts("
             "id, account_id, channel, channel_type, name, nickname, type, status, "
-            "remark, description, add_time, source, user_id, label_ids, raw_status, extra_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "remark, description, add_time, source, user_id, label_ids, raw_status, extra_json, avatar) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 contact["id"], contact["account_id"], contact["channel"],
                 contact["channel_type"], contact["name"], contact["nickname"],
                 contact["type"], contact["status"], contact["remark"],
                 contact["description"], contact["add_time"], contact["source"],
                 contact["user_id"], contact["label_ids"], contact["raw_status"],
-                contact["extra_json"],
+                contact["extra_json"], contact.get("avatar", ""),
             ),
         )
 

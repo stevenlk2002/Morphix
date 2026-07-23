@@ -429,7 +429,8 @@ def run_full_sync(account_id: str) -> dict:
                 break
             for item in lst:
                 # 决策 #9：is_department=1 的部门节点不落库
-                if _as_int(item.get("is_department")) == 1:
+                # 真实协议字段大小写不一致（is_Department / is_department），两者都判定。
+                if _is_department_node(item):
                     continue
                 _upsert_inner_contact(repo, account_id, channel, channel_type, item)
                 counts["inner"] += 1
@@ -463,7 +464,38 @@ def run_full_sync(account_id: str) -> dict:
                 break
             seq = nxt
 
-        # 3) 客户群（游标 star_index，统一 group_type='customer_group'，决策 #10）
+        # 3) 客户群：以 GetSessionRoomList（会话列表中的群聊）为「主数据源」，
+        #    GetChatroomMembers（客户群）作为「兜底/补充」。
+        #    真实 iPad 服务对该账号 GetChatroomMembers 返回 0 条，而 GetSessionRoomList
+        #    返回真实群数据（如「教育培训部」「医林通早会群」）。
+        #    两来源以 room_id 为键去重（同一账号内），避免重复落库（决策 #10）。
+        seen_room_ids: set[str] = set()
+
+        # 3.1 主来源：会话列表中的群聊（GetSessionRoomList）
+        star = 0
+        while total < SYNC_TOTAL_CAP:
+            res = ipad_client.get_session_room_list(uuid, star, 100)
+            lst = res["room_list"]
+            if not lst:
+                break
+            for item in lst:
+                room_id = str(item.get("room_id") or item.get("roomId") or "")
+                if not room_id or room_id in seen_room_ids:
+                    continue
+                seen_room_ids.add(room_id)
+                _upsert_group(repo, account_id, item)
+                counts["groups"] += 1
+                total += 1
+                if total >= SYNC_TOTAL_CAP:
+                    break
+            if len(lst) < 100:
+                break
+            nxt = int(res.get("star_index", 0) or 0)
+            if not nxt:
+                break
+            star = nxt
+
+        # 3.2 兜底/补充来源：客户群（GetChatroomMembers，可能为空）
         star = 0
         while total < SYNC_TOTAL_CAP:
             res = ipad_client.get_chatroom_members(uuid, star, 100)
@@ -471,6 +503,10 @@ def run_full_sync(account_id: str) -> dict:
             if not lst:
                 break
             for item in lst:
+                room_id = str(item.get("room_id") or item.get("roomId") or "")
+                if not room_id or room_id in seen_room_ids:
+                    continue
+                seen_room_ids.add(room_id)
                 _upsert_group(repo, account_id, item)
                 counts["groups"] += 1
                 total += 1
@@ -605,6 +641,18 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _is_department_node(item: dict) -> bool:
+    """判断内部联系人条目是否为部门节点（不应落库为联系人）。
+
+    真实协议字段大小写不一致：可能为 `is_Department`（大写 D）或
+    `is_department`（小写）。两字段任一等于 1 即视为部门节点（决策 #9）。
+    """
+    for key in ("is_Department", "is_department"):
+        if _as_int(item.get(key)) == 1:
+            return True
+    return False
+
+
 def _upsert_inner_contact(
     repo: ChannelMgmtRepository,
     account_id: str,
@@ -641,6 +689,7 @@ def _upsert_inner_contact(
             "user_id": user_id,
             "label_ids": "[]",
             "raw_status": "",
+            "avatar": item.get("avatar") or "",
             "extra_json": json.dumps(extra, ensure_ascii=False),
         }
     )
@@ -679,6 +728,7 @@ def _upsert_external_contact(
             "user_id": user_id,
             "label_ids": json.dumps(label_ids, ensure_ascii=False),
             "raw_status": raw_status,
+            "avatar": item.get("avatar") or "",
             "extra_json": json.dumps(
                 {
                     "source_info": item.get("source_info"),
@@ -704,10 +754,25 @@ def _upsert_external_contact(
 
 
 def _upsert_group(repo: ChannelMgmtRepository, account_id: str, item: dict) -> None:
-    room_id = str(item.get("room_id") or "")
+    room_id = str(item.get("room_id") or item.get("roomId") or "")
     if not room_id:
         return
     gid = f"{account_id}:{room_id}"
+    # 兼容两种来源的头像/链接字段：
+    # - GetSessionRoomList：roomurl / roomUrl / image_url / imageUrl / room_url
+    # - GetChatroomMembers：roomUrl
+    room_url = (
+        item.get("roomUrl")
+        or item.get("room_url")
+        or item.get("roomurl")
+        or item.get("image_url")
+        or item.get("imageUrl")
+        or ""
+    )
+    extra = {
+        "managers": item.get("managers"),
+        "is_external": item.get("is_external"),
+    }
     repo.upsert_channel_group(
         {
             "id": gid,
@@ -716,11 +781,11 @@ def _upsert_group(repo: ChannelMgmtRepository, account_id: str, item: dict) -> N
             "group_type": "customer_group",  # 决策 #10：P0 统一客户群
             "nickname": item.get("nickname") or "",
             "total": _as_int(item.get("total")),
-            "room_url": item.get("roomUrl") or item.get("room_url") or "",
+            "room_url": room_url,
             "notice_content": "",
             "create_time": item.get("create_time") or "",
             "update_time": item.get("update_time") or "",
-            "extra_json": "{}",
+            "extra_json": json.dumps(extra, ensure_ascii=False),
         }
     )
 
