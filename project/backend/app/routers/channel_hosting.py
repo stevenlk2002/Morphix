@@ -60,16 +60,42 @@ def _extract_wecom_display_name(user_info: Any | None) -> str:
 
 @router.post("/start")
 def start_wecom(payload: WecomHostStartRequest) -> dict:
-    """发起企业微信托管扫码。"""
+    """发起企业微信托管扫码。
+
+    错误处理：
+    - `IPadProtocolError`：iPad 真实服务异常（real 模式下抛出），返回 502，
+      message 携带原始错误细节，便于前端透传原因。
+    - 其他 `Exception`：如 KeyError / ValueError / httpx 网络异常等未预期异常，
+      捕获后返回 500（不再裸抛 500 给前端），message 含具体异常信息，
+      并用 `logger.exception` 记录完整堆栈便于排查。
+    - `res` 缺乏 `uuid`：视为协议返回异常，返回 500 提示「缺少 uuid」。
+    """
     team_id = payload.teamId or ""
     name = payload.name
     channel_type = payload.channelType or "wecom"
     try:
         res = ipad_client.start_wecom(team_id, name, channel_type)
-    except ipad_client.IPadProtocolError:
-        return JSONResponse(status_code=502, content={"message": "iPad 协议服务不可用"})
+    except ipad_client.IPadProtocolError as exc:
+        logger.exception("企业微信托管扫码失败：iPad 协议服务异常")
+        return JSONResponse(
+            status_code=502,
+            content={"message": f"iPad 协议服务不可用：{exc}"},
+        )
+    except Exception as exc:
+        logger.exception("企业微信托管扫码失败：未预期异常")
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"启动扫码失败：{exc}"},
+        )
+    uuid = res.get("uuid")
+    if not uuid:
+        logger.error("企业微信托管扫码返回异常：缺少 uuid（res=%s）", res)
+        return JSONResponse(
+            status_code=500,
+            content={"message": "iPad 协议返回异常：缺少 uuid"},
+        )
     return {
-        "uuid": res["uuid"],
+        "uuid": uuid,
         "qrcode": res.get("qrcode"),
         "qrcodeData": res.get("qrcode_data"),
         "qrcodeKey": res.get("qrcode_key"),
