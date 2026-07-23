@@ -1,87 +1,58 @@
 sequenceDiagram
     autonumber
-    actor U as 用户
-    participant F as AccountAddPage / WecomHostingHook
+    actor U as 运营
+    participant P as ChannelSessionsPage
+    participant H as useSessionActions / useResizablePanels
     participant A as channelsApi
-    participant R as ChannelHostingRouter
-    participant C as IpadClient
-    participant S as 真实iPad服务(:9912)
-    participant M as MockState
+    participant R as iPadSyncRouter
+    participant S as ipad_sync
+    participant C as ipad_client
     participant Repo as ChannelMgmtRepository
-    participant DB as SQLite
 
-    Note over F: step1 选渠道类型(wecom) → step2 选协议(ipad)
+    Note over P: ① 进入页自动同步（Q2 全量复用 + Q7 30s 节流）
+    P->>P: mount / selectedAccountId 变化
+    P->>P: 30s 内同账号？是→跳过
+    P->>A: syncAccount(accountId)
+    A->>R: POST /{id}/sync
+    R->>S: trigger_sync(id) → run_full_sync (后台线程)
+    S->>Repo: set_account_sync_status(syncing)
+    P->>A: 轮询 getSyncStatus(id) (2s)
+    A->>R: GET /{id}/sync-status
+    R-->>P: {syncing:false}
+    P->>A: listSessions({accountId})
+    A->>R: GET /channels/sessions
+    R-->>P: 会话列表刷新
 
-    %% ===== START：init + getQrCode =====
-    U->>F: 选 ipad 协议，点「创建账号」
-    F->>A: startWecomScan({teamId, name})
-    A->>R: POST /api/channels/accounts/wecom/start
-    R->>C: start_wecom(team_id, name)
-    C->>S: init({deverType:"ipad"})
-    alt 真实可达(HTTP 200)
-        S-->>C: {uuid, is_login}
-        C->>S: getQrCode({uuid})
-        S-->>C: {qrcode, qrcode_data, Ttl, Key}
-        C-->>R: {uuid, qrcode, qrcode_data, ttl, qrcodeKey, mock:false}
-    else 不可达 / 非200 / 超时 → mock 兜底
-        C->>M: 生成 mock uuid + 占位二维码(base64)
-        C-->>R: {uuid, qrcode_data(占位), ttl, qrcodeKey, mock:true}
+    Note over U,P: ② 创建群聊（Q4 mock-first + Q6 复用 listContacts）
+    U->>P: 点击「创建群聊」
+    P->>A: listContacts({accountId})
+    A->>R: GET /channels/contacts
+    R-->>P: 好友列表（弹窗数据源）
+    U->>P: 多选好友 + 确认
+    P->>A: createGroup(accountId, {memberIds, roomName})
+    A->>R: POST /{id}/groups
+    R->>S: create_group(id, memberIds, roomName)
+    S->>Repo: get_contact_by_id → 解析 user_id 列表
+    S->>C: create_chatroom(uuid, wxids, roomName)
+    alt 真实失败 / mock 模式
+        C-->>S: 降级 mock room_id（auto 记 warning）
     end
-    R-->>A: 归一化 start 响应
-    A-->>F: WecomHostStartResp
-    F->>F: 进入 step3(qr)，启动轮询(2s)
+    S->>Repo: upsert_channel_group (customer_group)
+    S->>Repo: create_session_for_room (支撑直接聊天)
+    R-->>P: GroupDTO
+    P->>P: setActiveTab('groups') + 重载 groups
 
-    %% ===== POLL LOOP：等待扫码(loginType 0→1) =====
-    loop 每 2s，直到 loginType>=1 或超时
-        F->>A: pollWecomLogin({uuid})
-        A->>R: POST /api/channels/accounts/wecom/poll
-        R->>C: poll_wecom(uuid)
-        C->>S: GetRunClientInfo({uuid})
-        alt 真实
-            S-->>C: {loginType, userInfo, longLinkState}
-        else mock
-            C->>M: 读取状态(未verify → loginType=1)
-            M-->>C: {loginType:1, userInfo:null}
-        end
-        C-->>R: {loginType, userInfo, longLinkState, mock}
-        R-->>A: WecomHostPollResp
-        A-->>F: 更新步骤状态
-    end
-    F->>F: loginType==1 → step4(waiting) 自动跳 step5(verify)
+    Note over U,P: ③ 一键已读（Q3 仅本地持久化）
+    U->>P: 点击「一键已读」
+    P->>A: markSessionsReadLocal(accountId)
+    A->>R: POST /{id}/sessions/read-local
+    R->>S: mark_sessions_read_local(id, None)
+    S->>Repo: UPDATE channel_sessions SET unread_count=0, read_status='read' WHERE account_id=?
+    R-->>P: {updated: N}
+    P->>P: 本地 sessions 未读清零（或重载列表）
 
-    %% ===== VERIFY：CheckCode =====
-    U->>F: 输入 6 位验证码
-    F->>A: verifyWecomCode({uuid, qrcodeKey, code})
-    A->>R: POST /api/channels/accounts/wecom/verify
-    R->>C: verify_wecom(uuid, key, code)
-    C->>S: CheckCode({uuid, key, code})
-    alt 真实返回 "qrcode_not need verify"
-        C-->>R: {ok:true, skip:true}
-    else 正常 / mock
-        C->>M: 标记 verified=true
-        C-->>R: {ok:true}
-    end
-    R-->>A: {ok:true}
-    A-->>F: 继续轮询
-
-    %% ===== POLL → loginType==2 → 持久化 =====
-    loop 每 2s，直到 loginType==2
-        F->>A: pollWecomLogin({uuid})
-        A->>R: POST /api/channels/accounts/wecom/poll
-        R->>C: poll_wecom(uuid)
-        C->>S: GetRunClientInfo({uuid})
-        alt mock(已 verified)
-            C->>M: 返回 loginType=2 + 合成 userInfo
-            M-->>C: {loginType:2, userInfo:{nickname,corpName,...}}
-        else 真实
-            S-->>C: {loginType:2, userInfo:{...}}
-        end
-        C-->>R: {loginType:2, userInfo, longLinkState}
-        R->>Repo: create_account_with_ipad(wecom, ipad, team_id, name, uuid, userInfo, host_status="hosted")
-        Repo->>DB: INSERT channel_accounts(...)
-        DB-->>Repo: row
-        Repo-->>R: AccountDTO
-        R-->>A: {loginType:2, userInfo, account:AccountDTO}
-        A-->>F: WecomHostPollResp
-    end
-    F->>F: step6 done → toast + navigate('/channels/accounts')
+    Note over U,P: ④ 左中栏拖拽（Q5 180–360 + localStorage）
+    U->>H: 拖拽 resizer
+    H->>H: 计算宽度并 clamp(180,360)
+    H->>P: set --session-left-width (CSS 变量)
+    H->>H: mouseup → localStorage['morphix.sessionLeftWidth']=width

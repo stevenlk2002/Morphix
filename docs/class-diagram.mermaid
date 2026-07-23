@@ -1,116 +1,89 @@
 classDiagram
-    %% ===== 后端：iPad 协议客户端（含 mock 兜底） =====
-    class IpadConfig {
-        +base_url : str
-        +mode : str
-        +timeout_sec : float
+    %% ---------- 前端组件 / hooks ----------
+    class ChannelSessionsPage {
+        +selectedAccountId: string|null
+        +sessions: SessionDTO[]
+        +selectedSessionId: string|null
+        +syncStatus: SyncStatusDTO|null
+        +activeTab: 'sessions'|'friends'|'groups'
+        +lastAutoSyncAt: Record~string,number~
+        +handleAutoSync(accountId) void
+        +handleCreateGroup(memberIds, roomName) void
+        +handleMarkAllRead() void
+        +scrollToSession(id) void
     }
-    class MockState {
-        +uuid : str
-        +verified : bool
+    class AccountListPanel {
+        +accounts: AccountDTO[]
+        +selectedAccountId: string|null
+        +onSelect(id) void
     }
-    class IpadClient {
-        +init() IpadInitResult
-        +get_qrcode(uuid) IpadQrResult
-        +check_code(uuid, key, code) IpadCheckResult
-        +get_run_client_info(uuid) IpadClientInfo
-        +start_wecom(team_id, name) dict
-        +verify_wecom(uuid, key, code) dict
-        +poll_wecom(uuid) dict
-        -_call_real(path, payload) dict
+    class Resizer {
+        +onResizeStart(e) void
     }
-    class IpadInitResult {
-        +uuid : str
-        +is_login : bool
+    class CreateGroupModal {
+        +open: boolean
+        +accountId: string
+        +friends: ContactDTO[]
+        +onClose() void
+        +onCreated(group) void
     }
-    class IpadQrResult {
-        +qrcode : str
-        +qrcode_data : str
-        +ttl : int
-        +qrcode_key : str
+    class useResizablePanels {
+        -min: number = 180
+        -max: number = 360
+        +width: number
+        +startDrag(e) void
     }
-    class IpadCheckResult {
-        +ok : bool
-        +skip : bool
+    class useSessionActions {
+        +scrollToTop() void
+        +locateUnread() void
+        +locateSelected() void
+        +markAllRead() void
     }
-    class IpadClientInfo {
-        +loginType : int
-        +userInfo : dict
-        +longLinkState : str
+    class channelsApi {
+        +syncAccount(id) SyncResultDTO
+        +getSyncStatus(id) SyncStatusDTO
+        +listContacts(p) ContactDTO[]
+        +createGroup(id, req) GroupDTO
+        +markSessionsReadLocal(id, ids?) MarkReadLocalResultDTO
     }
 
-    IpadClient ..> IpadConfig : reads
-    IpadClient ..> MockState : tracks per uuid
-    IpadClient ..> IpadInitResult : returns
-    IpadClient ..> IpadQrResult : returns
-    IpadClient ..> IpadCheckResult : returns
-    IpadClient ..> IpadClientInfo : returns
-
-    %% ===== 后端：托管路由 + 仓储 + 请求模型 =====
-    class ChannelHostingRouter {
-        +POST /start(payload) dict
-        +POST /verify(payload) dict
-        +POST /poll(payload) dict
+    %% ---------- 后端 ----------
+    class iPadSyncRouter {
+        +POST /{id}/sync
+        +GET /{id}/sync-status
+        +POST /{id}/groups
+        +POST /{id}/sessions/read-local
+    }
+    class ipad_sync {
+        +trigger_sync(id) bool
+        +run_full_sync(id) dict
+        +create_group(id, memberIds, roomName) dict
+        +mark_sessions_read_local(id, sessionIds) dict
+    }
+    class ipad_client {
+        +create_chatroom(uuid, wxids, roomName) dict
+        +mark_as_read(uuid, uid, isRoom) dict
     }
     class ChannelMgmtRepository {
-        +create_account_with_ipad(channel_type, protocol, team_id, name, ipad_uuid, ipad_user_info, host_status) dict
-        +list_accounts_enriched() list
-    }
-    class WecomHostStartRequest {
-        +teamId : str
-        +name : str
-        +channelType : str
-    }
-    class WecomHostVerifyRequest {
-        +uuid : str
-        +qrcodeKey : str
-        +code : str
-    }
-    class WecomHostPollRequest {
-        +uuid : str
+        +mark_session_read_db(sessionId) dict
+        +upsert_channel_group(group) void
+        +create_session_for_room(accountId, roomId, name, ch, ct) dict
+        +get_contact_by_id(id) dict
+        +list_groups(accountId, type) list
     }
 
-    ChannelHostingRouter ..> IpadClient : uses
-    ChannelHostingRouter ..> ChannelMgmtRepository : persists on login
-    ChannelHostingRouter ..> WecomHostStartRequest : consumes
-    ChannelHostingRouter ..> WecomHostVerifyRequest : consumes
-    ChannelHostingRouter ..> WecomHostPollRequest : consumes
-    ChannelMgmtRepository ..> IpadClientInfo : stores userInfo
-
-    %% ===== 前端 =====
-    class WecomHostingHook {
-        +step : str
-        +start(teamId, name) void
-        +submitCode(code) void
-        +back() void
-        -pollLoop() void
-    }
-    class AccountAddPage {
-        +render() JSX
-    }
-    class ChannelAddSteps {
-        +StepType() JSX
-        +StepProtocol() JSX
-        +StepQr() JSX
-        +StepWaiting() JSX
-        +StepVerify() JSX
-    }
-    class ChannelsApi {
-        +startWecomScan(data) WecomHostStartResp
-        +verifyWecomCode(data) WecomHostVerifyResp
-        +pollWecomLogin(data) WecomHostPollResp
-    }
-    class AccountDTO {
-        +id : str
-        +name : str
-        +channelType : str
-        +ipadUuid : str
-        +ipadUserInfo : dict
-        +hostStatus : str
-    }
-
-    AccountAddPage *-- WecomHostingHook : uses
-    AccountAddPage *-- ChannelAddSteps : renders
-    WecomHostingHook ..> ChannelsApi : calls
-    ChannelsApi ..> ChannelHostingRouter : HTTP /api/channels/accounts/wecom/*
-    ChannelMgmtRepository ..> AccountDTO : maps via row_to_account
+    %% ---------- 关系 ----------
+    ChannelSessionsPage *-- AccountListPanel
+    ChannelSessionsPage *-- Resizer
+    ChannelSessionsPage *-- CreateGroupModal
+    ChannelSessionsPage ..> useResizablePanels : uses
+    ChannelSessionsPage ..> useSessionActions : uses
+    ChannelSessionsPage ..> channelsApi : calls
+    CreateGroupModal ..> channelsApi : listContacts / createGroup
+    useSessionActions ..> channelsApi : markSessionsReadLocal
+    channelsApi ..> iPadSyncRouter : HTTP
+    iPadSyncRouter ..> ipad_sync : invoke
+    ipad_sync ..> ipad_client : create_chatroom
+    ipad_sync ..> ChannelMgmtRepository : persist
+    iPadSyncRouter ..> ChannelMgmtRepository : read/write
+    ipad_client ..> ChannelMgmtRepository : (none; protocol only)
