@@ -1,11 +1,13 @@
 /**
  * useWecomHosting —— 添加渠道账号向导状态机 + 轮询编排 hook。
  *
- * 步骤状态机：type → protocol → qr → (waiting ⇄ verify) → done
+ * 步骤状态机：type → protocol → qr → verify → done
  * - beginScan: 调 startWecomScan，进入 qr，启动倒计时(ttl 秒)与轮询(每 2000ms)
- * - 轮询中 loginType===1 → waiting（继续轮询）；loginType===2 → 停止轮询、toast、done 并跳转
- * - submitCode: 调 verifyWecomCode；成功继续轮询等待 loginType=2，失败 toast 并保持 verify
- * - 倒计时归零 → 过期，回到 qr 并提供刷新（重新 beginScan）
+ * - 轮询仅在后台获取 userInfo；loginType===2 → 停止轮询、toast、done 并跳转；
+ *   轮询不再自动把 step 从 qr 切到 verify/waiting（由用户点「下一步」决定）
+ * - submitCode: 调 verifyWecomCode；失败 → 停止轮询、保留 verify 页错误；
+ *   成功继续轮询等待 loginType=2，成功后跳转
+ * - 倒计时归零（仅 qr 态）→ 过期，回到 qr 并提供刷新（重新 beginScan）
  * - 组件卸载清理所有定时器（clearInterval + disposed 标志防内存泄漏）
  */
 
@@ -16,7 +18,7 @@ import { toast, errText } from '../../utils/toast'
 import type { WecomUserInfo } from '../../types/channels'
 
 /** 向导步骤。 */
-export type HostStep = 'type' | 'protocol' | 'qr' | 'waiting' | 'verify' | 'done'
+export type HostStep = 'type' | 'protocol' | 'qr' | 'verify' | 'done'
 
 /** 可选渠道（本期仅 wecom 接入真实协议）。 */
 export type ChannelKey = 'wecom' | 'wechat' | 'whatsapp'
@@ -51,7 +53,6 @@ export interface UseWecomHostingResult {
   qrCountdown: number
   expired: boolean
   polling: boolean
-  waitSec: number
   beginScan: (teamId: string, channelType: 'wecom', protocol: ProtocolKey) => Promise<void>
   submitCode: (code: string) => Promise<void>
   goToVerify: () => void
@@ -71,7 +72,6 @@ export function useWecomHosting(): UseWecomHostingResult {
   const [qrCountdown, setQrCountdown] = useState(0)
   const [expired, setExpired] = useState(false)
   const [polling, setPolling] = useState(false)
-  const [waitSec, setWaitSec] = useState(0)
 
   const pollTimer = useRef<number | null>(null)
   const countdownTimer = useRef<number | null>(null)
@@ -125,9 +125,7 @@ export function useWecomHosting(): UseWecomHostingResult {
         }, 1200)
         return
       }
-      if (stepRef.current === 'qr' && resp.loginType === 1) {
-        setStep('waiting')
-      }
+      // 不再自动从二维码页跳转；轮询仅用于提前获取 userInfo/登录态。
     } catch (e) {
       // 轮询异常不阻断流程，等待下次重试（避免刷屏不 toast）
       console.warn('[useWecomHosting] poll failed:', e)
@@ -155,7 +153,8 @@ export function useWecomHosting(): UseWecomHostingResult {
         }
         uuidRef.current = resp.uuid
         setStartData(data)
-        setQrCountdown(resp.ttl)
+        // 用户要求二维码至少停留 60 秒，即使后端 ttl 更长也以 60 秒为展示下限
+        setQrCountdown(Math.min(resp.ttl, 60))
         setStep('qr')
         clearPoll()
         clearCountdown()
@@ -197,10 +196,13 @@ export function useWecomHosting(): UseWecomHostingResult {
           const msg = '验证码错误，请重新输入'
           setVerifyError(msg)
           toast(msg)
+          // 验证码错误后必须停止轮询，防止后续 poll 到 loginType=2 自动跳 done
+          stopAll()
           return
         }
         // 校验通过：skip 时无需再输入，直接进入完成态；否则继续轮询等待 loginType=2
         if (resp.skip) {
+          stopAll()
           setStep('done')
         }
       } catch (e) {
@@ -232,7 +234,6 @@ export function useWecomHosting(): UseWecomHostingResult {
     setSubmitting(false)
     setQrCountdown(0)
     setExpired(false)
-    setWaitSec(0)
     setStep('type')
   }, [stopAll])
 
@@ -242,21 +243,13 @@ export function useWecomHosting(): UseWecomHostingResult {
       qrCountdown === 0 &&
       startData &&
       !expired &&
-      (step === 'qr' || step === 'waiting' || step === 'verify')
+      (step === 'qr' || step === 'verify')
     ) {
       stopAll()
       setExpired(true)
       setStep('qr')
     }
   }, [qrCountdown, startData, expired, step, stopAll])
-
-  // 进入 waiting 后累计已等待秒数
-  useEffect(() => {
-    if (step !== 'waiting') return
-    setWaitSec(0)
-    const t = window.setInterval(() => setWaitSec((s) => s + 1), 1000)
-    return () => clearInterval(t)
-  }, [step])
 
   // 回退到 type/protocol 时取消进行中的扫码轮询与倒计时
   useEffect(() => {
@@ -290,7 +283,6 @@ export function useWecomHosting(): UseWecomHostingResult {
     qrCountdown,
     expired,
     polling,
-    waitSec,
     beginScan,
     submitCode,
     goToVerify,

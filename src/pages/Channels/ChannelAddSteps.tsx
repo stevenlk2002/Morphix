@@ -168,9 +168,10 @@ interface StepQrProps {
   expired: boolean
   onBack: () => void
   onRefresh: () => void
+  onNext: () => void
 }
 
-export function StepQr({ startData, countdown, expired, onBack, onRefresh }: StepQrProps) {
+export function StepQr({ startData, countdown, expired, onBack, onRefresh, onNext }: StepQrProps) {
   const qrSrc = startData.qrcodeData
     ? `data:image/png;base64,${startData.qrcodeData}`
     : startData.qrcode ?? ''
@@ -202,7 +203,7 @@ export function StepQr({ startData, countdown, expired, onBack, onRefresh }: Ste
               )}
             </div>
             <div className="channel-qr-caption">扫码添加渠道账号</div>
-            <div className="channel-qr-hint">二维码 10 分钟内有效（600 秒），过期后请刷新</div>
+            <div className="channel-qr-hint">二维码 60 秒内有效，过期后请刷新</div>
             <div className="channel-qr-countdown">剩余 {countdown} 秒</div>
           </>
         )}
@@ -210,82 +211,16 @@ export function StepQr({ startData, countdown, expired, onBack, onRefresh }: Ste
           <Button variant="secondary" onClick={onBack}>
             上一步
           </Button>
+          {!expired && (
+            <Button variant="primary" onClick={onNext}>
+              我已完成扫码，下一步
+            </Button>
+          )}
           {expired && (
             <Button variant="primary" onClick={onRefresh}>
               刷新
             </Button>
           )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ============================ waiting ============================ */
-interface StepWaitingProps {
-  waitSec: number
-  onConfirm: () => void
-  onBack: () => void
-}
-
-export function StepWaiting({ waitSec, onConfirm, onBack }: StepWaitingProps) {
-  return (
-    <div className="card" style={{ maxWidth: 480, margin: '0 auto', padding: 0 }}>
-      <div className="card-body" style={{ textAlign: 'center', padding: '32px 24px' }}>
-        <div className="channel-waiting-title">等待手机端确认</div>
-        <div className="channel-waiting-sub">请在企业微信上点击登录，完成设备授权</div>
-        <div className="channel-phone-mock">
-          <div className="channel-phone-notch" />
-          <div className="channel-phone-screen">
-            <div className="channel-phone-statusbar">
-              <span>10:19</span>
-              <span className="channel-phone-statusicons">
-                ●●●●● <i>5G</i> 97
-              </span>
-            </div>
-            <div className="channel-phone-chevron">⌄</div>
-            <div className="channel-phone-pad">
-              <svg width="80" height="100" viewBox="0 0 80 100">
-                <rect
-                  x="6"
-                  y="2"
-                  width="68"
-                  height="96"
-                  rx="8"
-                  fill="none"
-                  style={{ stroke: 'var(--primary)' }}
-                  strokeWidth={2}
-                />
-                <rect
-                  x="6"
-                  y="6"
-                  width="68"
-                  height="88"
-                  fill="none"
-                  style={{ stroke: 'var(--primary)', opacity: 0.4 }}
-                  strokeWidth={1}
-                  strokeDasharray="2 2"
-                />
-                <circle cx="40" cy="50" r="1.5" style={{ fill: 'var(--primary)' }} />
-              </svg>
-            </div>
-            <div className="channel-phone-title">其他端 企业微信登录确认</div>
-            <div className="channel-phone-spacer" />
-            <div className="channel-phone-btn">登录</div>
-            <div className="channel-phone-cancel">取消登录</div>
-          </div>
-        </div>
-        <div className="channel-waiting-progress">
-          <span className="channel-pulse" />
-          正在等待确认…（已等待 {waitSec} 秒）
-        </div>
-        <div style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <Button variant="secondary" onClick={onBack}>
-            上一步
-          </Button>
-          <Button variant="primary" onClick={onConfirm}>
-            我已确认，继续
-          </Button>
         </div>
       </div>
     </div>

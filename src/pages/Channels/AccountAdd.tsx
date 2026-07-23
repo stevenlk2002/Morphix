@@ -10,7 +10,6 @@ import {
   StepType,
   StepProtocol,
   StepQr,
-  StepWaiting,
   StepVerify,
   StepDone,
   type ChannelMeta,
@@ -64,7 +63,6 @@ export default function AccountAddPage() {
     submitting,
     qrCountdown,
     expired,
-    waitSec,
     beginScan,
     submitCode,
     goToVerify,
@@ -130,19 +128,16 @@ export default function AccountAddPage() {
             expired={expired}
             onBack={() => setStep('protocol')}
             onRefresh={refresh}
+            onNext={goToVerify}
           />
         ) : null
-      case 'waiting':
-        return (
-          <StepWaiting waitSec={waitSec} onConfirm={goToVerify} onBack={() => setStep('protocol')} />
-        )
       case 'verify':
         return (
           <StepVerify
             userInfo={userInfo}
             verifyError={verifyError}
             submitting={submitting}
-            onBack={() => setStep('waiting')}
+            onBack={() => setStep('qr')}
             onRescan={refresh}
             onSubmit={(code) => void submitCode(code)}
           />
