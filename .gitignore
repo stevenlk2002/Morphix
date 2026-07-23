@@ -38,3 +38,14 @@ prototype.zip
 # Binary / vendored runtimes
 utils/
 database/
+
+# QA / Playwright run artifacts (temp, never commit)
+.playwright-cli/
+--element
+--file
+$DB
+qa_*.yaml
+for-drag.yaml
+full-snap.yaml
+captcha-now.png
+main-page.png
