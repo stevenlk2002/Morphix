@@ -91,6 +91,15 @@ class Settings:
     ipad_callback_type: str = field(
         default_factory=lambda: _env("IPAD_CALLBACK_TYPE", "HTTP")
     )
+    # ---- iPad 健康巡检 ----
+    # 巡检间隔（秒）：周期性对每个托管 iPad 账号调 GetRunClientInfo 探活。
+    ipad_health_check_interval_sec: int = field(
+        default_factory=lambda: int(_env("IPAD_HEALTH_CHECK_INTERVAL_SEC", "60"))
+    )
+    # 连续失败达到该阈值才标记掉线并尝试自动重连（避免网络抖动误判）。
+    ipad_health_check_fail_threshold: int = field(
+        default_factory=lambda: int(_env("IPAD_HEALTH_CHECK_FAIL_THRESHOLD", "3"))
+    )
 
 
 settings = Settings()

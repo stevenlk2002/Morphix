@@ -89,12 +89,17 @@ def _norm(data: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 底层归一化函数（真实服务适配；失败抛 IPadProtocolError）
 # ---------------------------------------------------------------------------
-def init(dever_type: str = "ipad") -> dict:
-    """POST `{base}/wxwork/init` → `{uuid, is_login}`（归一化）。"""
+def init(dever_type: str = "ipad", vid: str = "") -> dict:
+    """POST `{base}/wxwork/init` → `{uuid, is_login}`（归一化）。
+
+    `vid` 为已登录账号的设备绑定 id（首次扫码传空串 `""`，登录成功后由
+    `userInfo.userId` 持久化得到）。自动登录续传场景传入持久化 vid 取得新 uuid，
+    再调 `automatic_login` 即可免扫码恢复登录（见 docs/IPad协议API文档）。
+    """
     data = _post(
         "wxwork/init",
         {
-            "vid": "",
+            "vid": vid,
             "ip": "",
             "port": "",
             "proxyType": "",
@@ -151,6 +156,20 @@ def get_run_client_info(uuid: str) -> dict:
         "userInfo": body.get("userInfo") or body.get("user_info"),
         "longLinkState": body.get("longLinkState") or body.get("long_link_state") or "CONNECTING",
     }
+
+
+def automatic_login(uuid: str) -> dict:
+    """POST `{base}/wxwork/automaticLogin` → 自动登录续传（init(vid) 后调用）。
+
+    返回 `{"ok": bool, "errmsg": str}`。`errcode==0`（errmsg 多为「登陆成功」）视为成功；
+    _post 已对非 0 errcode 抛 IPadProtocolError，能走到这里说明 errcode 为 0。
+    """
+    data = _post("wxwork/automaticLogin", {"uuid": uuid})
+    body = _norm(data)
+    errcode = body.get("errcode") if isinstance(body, dict) else data.get("errcode")
+    ok = errcode in (None, 0, "0")
+    errmsg = str(body.get("errmsg", "") or data.get("errmsg", "") or "")
+    return {"ok": ok, "errmsg": errmsg}
 
 
 # ---------------------------------------------------------------------------

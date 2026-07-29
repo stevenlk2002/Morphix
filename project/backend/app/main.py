@@ -46,6 +46,10 @@ async def lifespan(_: FastAPI):
     backend = get_backend()
     init_schema(backend)
 
+    # 1.5) iPad 协议账号健康巡检（守护线程，启动即幂等）
+    from . import ipad_health
+    ipad_health.start_health_check()
+
     # 2) 契约域（独立 SQLAlchemy 库，双库隔离）
     # 触发 app.contract 包导入，注册全部 ORM 表到 Base.metadata，再建表。
     from . import contract  # noqa: F401

@@ -1134,6 +1134,7 @@ def row_to_account(row: dict) -> dict:
         "onlineSessions": row.get("online_sessions"),
         "teamName": row.get("team_name"),
         "ipadUuid": row.get("ipad_uuid", ""),
+        "vid": row.get("vid", ""),
         "ipadUserInfo": (json.loads(row.get("ipad_user_info") or "{}") or None),
         "hostStatus": row.get("host_status", "pending"),
         "syncStatus": row.get("sync_status", ""),
@@ -1487,15 +1488,20 @@ class ChannelMgmtRepository:
             ipad_user_info_str = "{}"
         else:
             ipad_user_info_str = json.dumps(ipad_user_info, ensure_ascii=False)
+        vid = ""
+        if isinstance(ipad_user_info, dict):
+            _v = ipad_user_info.get("userId") or ipad_user_info.get("vid") or ipad_user_info.get("acctId")
+            if _v not in (None, ""):
+                vid = str(_v)
         self._db.execute(
             "INSERT INTO channel_accounts("
             "id, channel, account_name, status, bound_bot, daily_quota, team_id, "
-            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status, avatar) "
-            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?, ?)",
+            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status, avatar, vid) "
+            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
             (
                 account_id, channel_label, account_name, "yefengqiu", team_id,
                 channel_type, protocol, ipad_uuid, ipad_user_info_str, host_status,
-                avatar or "",
+                avatar or "", vid,
             ),
         )
         row = self._db.query_one(
@@ -1519,12 +1525,47 @@ class ChannelMgmtRepository:
                 "ipadUserInfo": (ipad_user_info if isinstance(ipad_user_info, dict) else None),
                 "hostStatus": host_status,
                 "avatar": avatar or "",
+                "vid": vid,
                 "defaultSingleBotId": "",
                 "defaultGroupBotId": "",
                 "defaultSingleBotName": None,
                 "defaultGroupBotName": None,
             }
         return row_to_account(row)
+
+    def update_account_ipad_uuid(self, account_id: str, ipad_uuid: str) -> None:
+        self._db.execute(
+            "UPDATE channel_accounts SET ipad_uuid=? WHERE id=?", (ipad_uuid, account_id)
+        )
+
+    def set_account_host_status(self, account_id: str, host_status: str) -> None:
+        self._db.execute(
+            "UPDATE channel_accounts SET host_status=? WHERE id=?", (host_status, account_id)
+        )
+
+    def update_account_health(self, account_id: str, status: str, host_status: str) -> None:
+        self._db.execute(
+            "UPDATE channel_accounts SET status=?, host_status=? WHERE id=?",
+            (status, host_status, account_id),
+        )
+
+    def list_ipad_hosted_accounts(self) -> list[dict]:
+        rows = self._db.query(
+            "SELECT id, account_name, ipad_uuid, vid, host_status, status "
+            "FROM channel_accounts WHERE protocol='ipad' AND ipad_uuid <> '' "
+            "ORDER BY created_at, id"
+        )
+        return [
+            {
+                "id": r["id"],
+                "name": r["account_name"],
+                "ipadUuid": r.get("ipad_uuid", ""),
+                "vid": r.get("vid", ""),
+                "hostStatus": r.get("host_status", ""),
+                "status": r.get("status", ""),
+            }
+            for r in rows
+        ]
 
     # ---- contacts ----
     def list_contacts(

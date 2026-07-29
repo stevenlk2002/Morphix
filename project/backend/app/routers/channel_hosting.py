@@ -194,3 +194,11 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
             logger.exception("注册实时回调失败 account=%s", account["id"])
 
     return result
+
+
+@router.get("/health")
+def wecom_health() -> dict:
+    """返回各 iPad 托管账号的实时健康快照（供前端实时读取）。"""
+    from .. import ipad_health
+
+    return {"accounts": ipad_health.get_health_snapshot()}

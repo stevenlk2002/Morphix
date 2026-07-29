@@ -58,6 +58,8 @@ export interface AccountDTO {
   defaultSingleBotName?: string | null
   /** 默认群聊机器人显示名（列表 JOIN 聚合）；空态为 null。 */
   defaultGroupBotName?: string | null
+  /** iPad 托管健康状态：hosted=在线托管 / error=掉线需重连 / pending=未托管。 */
+  hostStatus?: 'hosted' | 'error' | 'pending' | string
 }
 
 /** 已上线机器人枚举项（默认机器人选择器数据源）。 */

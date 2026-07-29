@@ -614,6 +614,7 @@ def migrate_schema(backend: DatabaseBackend) -> None:
         "ipad_uuid": "TEXT NOT NULL DEFAULT ''",
         "ipad_user_info": "TEXT NOT NULL DEFAULT '{}'",
         "host_status": "TEXT NOT NULL DEFAULT 'pending'",
+        "vid": "TEXT NOT NULL DEFAULT ''",   # 持久化企微账号 vid（1688...），用于自动登录续传
     }
     for col, ddl in _channel_account_cols.items():
         if not _has_column(backend, "channel_accounts", col):

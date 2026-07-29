@@ -74,7 +74,31 @@ export default function ChannelAccountsPage() {
     }
   }, [])
 
+  // 每 15 秒周期刷新账号列表，使掉线/重连状态实时反映到 UI（不影响首屏加载）。
+  useEffect(() => {
+    let alive = true
+    const timer = setInterval(() => {
+      channelsApi
+        .listAccounts()
+        .then((a) => {
+          if (alive) setAccounts(a)
+        })
+        .catch(() => {
+          /* 周期探活失败静默处理，不干扰用户操作 */
+        })
+    }, 15000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
+
   const modalAccount = modal ? accounts.find((a) => a.id === modal.accountId) : undefined
+
+  // 掉线 iPad 账号数（hostStatus=error 或 status=offline）
+  const offlineIpad = accounts.filter(
+    (a) => a.protocol === 'ipad' && (a.hostStatus === 'error' || a.status === 'offline')
+  ).length
 
   /** 「设置」弹层内保存默认机器人。 */
   const handleSaveSettings = async (payload: SetDefaultBotsRequest) => {
@@ -116,6 +140,27 @@ export default function ChannelAccountsPage() {
           onSelect={(teamId) => setCurrentTeamId(teamId)}
         />
       </div>
+
+      {offlineIpad > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            border: '1px solid #f5a623',
+            background: '#fff7e6',
+            color: '#a85b00',
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginBottom: 16,
+          }}
+        >
+          <span>有 {offlineIpad} 个企业微信账号掉线，请重新扫码托管</span>
+          <Button variant="outline" size="sm" onClick={() => navigate('/channels/accounts/add')}>
+            去托管
+          </Button>
+        </div>
+      )}
 
       {loading ? (
         <div className="placeholder">
@@ -168,6 +213,21 @@ export default function ChannelAccountsPage() {
                         )}
                         {badge.text}
                       </span>
+                      {a.protocol === 'ipad' && a.hostStatus === 'error' && (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            color: '#e0531f',
+                            fontSize: 12,
+                            border: '1px solid #e0531f',
+                            borderRadius: 4,
+                            padding: '0 6px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          掉线·需重连
+                        </span>
+                      )}
                     </div>
                     <div className="channel-account-protocol">
                       {a.channel} · {a.protocol ? `${a.protocol}协议` : '未配置协议'}
