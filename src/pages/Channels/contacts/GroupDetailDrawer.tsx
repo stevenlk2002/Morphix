@@ -5,9 +5,9 @@
 
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Users, X, MessageSquare } from 'lucide-react'
+import { X, MessageSquare } from 'lucide-react'
 import Button from '../../../components/common/Button'
-import { avatarChar } from '../shared/avatar'
+import Avatar from '../shared/Avatar'
 import { channelsApi } from '../../../api/client'
 import type { GroupDetailDTO, GroupDTO, GroupMemberDTO } from '../../../types/channels'
 import { toast, errText } from '../../../utils/toast'
@@ -16,18 +16,6 @@ interface Props {
   accountId: string
   roomId: string | null
   onClose: () => void
-}
-
-const AVATAR_COLORS = [
-  '#ef4444', '#e8a649', '#4A90D9', '#7fb069', '#8b5cf6',
-  '#ec4899', '#14b8a6', '#f59e0b', '#06b6d4', '#84cc16',
-  '#3b82f6', '#6366f1', '#a855f7', '#22c55e', '#f97316',
-]
-
-function avatarColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 
 function sexLabel(sex: number): string {
@@ -84,13 +72,7 @@ export default function GroupDetailDrawer({ accountId, roomId, onClose }: Props)
             display: 'flex', alignItems: 'flex-start', gap: 12,
             padding: '16px 20px', borderBottom: '1px solid var(--border)',
           }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: '50%', backgroundColor: avatarColor(name),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#fff', fontSize: 18, fontWeight: 600, flexShrink: 0,
-            }}>
-              <Users size={22} />
-            </div>
+            <Avatar url={group?.avatar || group?.roomUrl} name={name} id={group?.roomId || name} size={44} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{name || '群聊'}</div>
               <div className="group-detail-header-meta">
@@ -132,9 +114,7 @@ export default function GroupDetailDrawer({ accountId, roomId, onClose }: Props)
                       const displayName = m.roomNickname || m.nickname || m.realname || '成员'
                       return (
                         <div className="group-member-item" key={m.id}>
-                          <div className="group-member-avatar" style={{ background: avatarColor(m.id) }}>
-                            {avatarChar(displayName)}
-                          </div>
+                          <Avatar url={m.avatar} name={displayName} id={m.id} className="group-member-avatar" size={40} />
                           <div className="group-member-body">
                             <div className="group-member-name">{displayName}</div>
                             <div className="group-member-sub">

@@ -25,7 +25,7 @@ import type {
 import TeamSelector from './shared/TeamSelector'
 import AccountListPanel from './shared/AccountListPanel'
 import RightPanelArea from './sessions/RightPanelArea'
-import { avatarColor, avatarChar } from './shared/avatar'
+import Avatar from './shared/Avatar'
 import { toast, errText } from '../../utils/toast'
 import { useResizablePanels } from './shared/useResizablePanels'
 import Resizer from './shared/Resizer'
@@ -175,6 +175,15 @@ export default function ChannelSessionsPage() {
     if (session.sessionType !== '群聊') {
       setCurrentGroup(null)
       setGroupMembers([])
+      // 加载单聊联系人详情，供右侧面板显示（修复客户详情空白问题）
+      if (session.contactId) {
+        channelsApi
+          .getContactDetail(session.contactId)
+          .then(setContact)
+          .catch(() => setContact(null))
+      } else {
+        setContact(null)
+      }
       return
     }
     // 通过 roomId 查群
@@ -511,9 +520,7 @@ export default function ChannelSessionsPage() {
                 className={`session-row${s.id === selectedSessionId ? ' active' : ''}`}
                 onClick={() => setSelectedSessionId(s.id)}
               >
-                <div className="session-row-avatar" style={{ background: avatarColor(s.id) }}>
-                  {avatarChar(s.name)}
-                </div>
+                <Avatar url={s.avatar} name={s.name} id={s.id} className="session-row-avatar" size={40} />
                 <div className="session-row-body">
                   <div className="session-row-top">
                     <div className="session-row-name-wrap">

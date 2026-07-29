@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Pencil, X, Sparkles, ChevronRight } from 'lucide-react'
 import type { ContactDetailDTO } from '../../../types/channels'
 import { customersApi, llmConfigApi } from '../../../api/client'
-import { avatarColor, avatarChar } from '../shared/avatar'
+import Avatar from '../shared/Avatar'
 import { toast, errText } from '../../../utils/toast'
 
 interface SessionDetailPanelProps {
@@ -59,7 +59,6 @@ export default function SessionDetailPanel({
 
   const name = contact?.contact.name ?? '未选择联系人'
   const profile = contact?.profile
-  const avatar = avatarColor(name)
 
   // 加载沟通记录
   useEffect(() => {
@@ -225,9 +224,7 @@ export default function SessionDetailPanel({
           <div className="detail-pane active">
             {/* 好友卡片 */}
             <div className="detail-avatar detail-avatar-row">
-              <div className="avatar-sm" style={{ background: avatar }}>
-                {avatarChar(name)}
-              </div>
+              <Avatar url={contact?.contact.avatar} name={name} id={contact?.contact.id} className="avatar-sm" size={40} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="detail-name">{name}</div>
                 <div className="detail-channel">{contact.contact.channel}</div>
@@ -299,9 +296,7 @@ export default function SessionDetailPanel({
         ) : (
           <div className="detail-pane active">
             <div className="detail-avatar">
-              <div className="avatar-sm" style={{ background: avatar }}>
-                {avatarChar(name)}
-              </div>
+              <Avatar url={contact?.contact.avatar} name={name} id={contact?.contact.id} className="avatar-sm" size={40} />
               <div className="detail-name">{name}</div>
               <div className="detail-channel">{contact.contact.channel}</div>
             </div>
@@ -334,7 +329,7 @@ export default function SessionDetailPanel({
             </div>
             <div className="drawer-body">
               <div className="detail-avatar">
-                <div className="avatar-sm" style={{ background: avatar }}>{avatarChar(name)}</div>
+                <Avatar url={contact?.contact.avatar} name={name} id={contact?.contact.id} className="avatar-sm" size={40} />
                 <div className="detail-name">{name}</div>
                 <div className="detail-channel">{contact.contact.channel}</div>
               </div>

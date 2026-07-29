@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { MessageSquare, Pencil, Check } from 'lucide-react'
 import type { ContactDetailDTO, ContactLabelDTO, LabelDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
-import { avatarColor, avatarChar } from '../shared/avatar'
+import Avatar from '../shared/Avatar'
 import Modal from '../../../components/common/Modal'
 import { toast, errText } from '../../../utils/toast'
 
@@ -87,14 +87,11 @@ export default function ContactDetailPanel({ detail, accountName, accountId }: C
   }
 
   const { contact, profile, communications, attributes } = detail
-  const avatar = avatarColor(contact.id)
 
   return (
     <aside className="contacts-detail">
       <div className="contacts-detail-head">
-        <div className="avatar-sm" style={{ background: avatar }}>
-          {avatarChar(contact.name)}
-        </div>
+        <Avatar url={contact.avatar} name={contact.name} id={contact.id} className="avatar-sm" size={40} />
         <div>
           <div className="contacts-detail-name">{contact.name}</div>
           <div className="contacts-detail-sub">

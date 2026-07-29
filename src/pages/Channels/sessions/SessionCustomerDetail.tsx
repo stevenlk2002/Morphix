@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { ContactDetailDTO, SessionDTO } from '../../../types/channels'
-import { avatarColor, avatarChar } from '../shared/avatar'
+import { avatarColor, avatarChar } from '../shared/avatarUtils'
 
 interface SessionCustomerDetailProps {
   contact: ContactDetailDTO | null

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { channelsApi } from '../../../api/client'
 import { toast, errText } from '../../../utils/toast'
-import { avatarColor, avatarChar } from './avatar'
+import { avatarColor, avatarChar } from './avatarUtils'
 import type { ContactDTO, GroupDTO } from '../../../types/channels'
 
 interface CreateGroupModalProps {

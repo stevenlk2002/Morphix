@@ -1189,6 +1189,7 @@ def row_to_session(row: dict) -> dict:
         "externalTag": row["external_tag"],
         "addTime": row["add_time"],
         "hostingChain": row["hosting_chain"],
+        "avatar": row.get("avatar", ""),
     }
 
 
@@ -1635,7 +1636,8 @@ class ChannelMgmtRepository:
         # 被用户误认为是「内部好友」（决策 #11）。
         sql = (
             "SELECT cs.*, "
-            "COALESCE(cc.nickname, cc.name, cg.nickname, cs.name) AS name "
+            "COALESCE(cc.nickname, cc.name, cg.nickname, cs.name) AS name, "
+            "COALESCE(cc.avatar, cg.room_url, '') AS avatar "
             "FROM channel_sessions cs "
             "LEFT JOIN channel_contacts cc ON cc.account_id = cs.account_id "
             "AND (cc.id = cs.contact_id OR cc.user_id = cs.remote_session_id) "
@@ -2428,6 +2430,7 @@ def row_to_group(row: dict) -> dict:
         "createTime": row["create_time"],
         "updateTime": row["update_time"],
         "extra": _parse_json_field(row.get("extra_json"), {}),
+        "avatar": row.get("avatar", "") or row.get("room_url", ""),
     }
 
 

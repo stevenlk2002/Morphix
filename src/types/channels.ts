@@ -95,6 +95,8 @@ export interface ContactDTO {
   description: string
   addTime: string
   source: string
+  /** 联系人真实头像 URL；空串表示未设置。 */
+  avatar?: string
 }
 
 /** 客户档案。 */
@@ -163,6 +165,8 @@ export interface SessionDTO {
   externalTag: string
   addTime: string
   hostingChain: string
+  /** 会话头像 URL（联系人头像或群 room_url）。 */
+  avatar?: string
 }
 
 /** 聊天消息（复用 messages 表）。 */
@@ -266,6 +270,8 @@ export interface GroupDTO {
   noticeContent: string
   createTime: string
   updateTime: string
+  /** 群头像 URL。 */
+  avatar?: string
 }
 
 /** iPad 协议：群成员 DTO。 */

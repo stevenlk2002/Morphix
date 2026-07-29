@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Settings2, Eraser } from 'lucide-react'
 import type { AccountDTO, HostingBotDTO, SessionDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
-import { avatarColor } from '../shared/avatar'
+import { avatarColor } from '../shared/avatarUtils'
 import { toast, errText } from '../../../utils/toast'
 
 interface RightPanelHeaderProps {

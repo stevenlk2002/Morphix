@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import type { AvailableBotDTO } from '../../../types/channels'
-import { avatarColor, avatarChar } from './avatar'
+import { avatarColor, avatarChar } from './avatarUtils'
 
 interface BotSelectModalProps {
   /** 是否打开。 */

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Search, ChevronDown } from 'lucide-react'
 import type { AccountDTO } from '../../../types/channels'
+import Avatar from './Avatar'
 
 const CHANNEL_OPTIONS = [
   { value: 'all', label: '全部渠道' },
@@ -11,14 +12,6 @@ const CHANNEL_OPTIONS = [
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'business_whatsapp', label: '企业WhatsApp' },
 ]
-
-const AVATAR_COLORS = ['#4A90D9', '#7fb069', '#e8a649', '#8b5cf6', '#14b8a6', '#ef4444']
-
-function avatarColor(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[h % AVATAR_COLORS.length]
-}
 
 interface AccountListPanelProps {
   /** 账号列表。 */
@@ -108,9 +101,7 @@ export default function AccountListPanel({ accounts, selectedAccountId, onSelect
             data-tooltip={`${a.name} · ${a.channel} · ${a.status === 'online' ? '在线' : '离线'}`}
             onClick={() => onSelect(a.id)}
           >
-            <div className="session-account-avatar" style={{ background: avatarColor(a.id) }}>
-              {a.name.charAt(0)}
-            </div>
+            <Avatar url={a.avatar} name={a.name} id={a.id} className="session-account-avatar" size={36} />
             <div className="session-account-info">
               <div className="session-account-name">{a.name}</div>
               <div className="session-account-status">

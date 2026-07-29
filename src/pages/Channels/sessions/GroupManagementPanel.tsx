@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Search, QrCode, Plus, ChevronRight, Trash2 } from 'lucide-react'
 import type { GroupDTO, GroupMemberDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
-import { avatarColor, avatarChar } from '../shared/avatar'
+import Avatar from '../shared/Avatar'
 import { toast, errText } from '../../../utils/toast'
 
 interface GroupManagementPanelProps {
@@ -139,12 +139,7 @@ export default function GroupManagementPanel({
   return (
     <aside className="session-detail group-panel">
       <div className="group-panel-header">
-        <div
-          className="group-panel-avatar"
-          style={{ background: avatarColor(group.id) }}
-        >
-          {avatarChar(group.name)}
-        </div>
+        <Avatar url={group.avatar || group.roomUrl} name={group.name} id={group.id} className="group-panel-avatar" size={44} />
         <div className="group-panel-name-wrap">
           <div className="group-panel-name">{group.name}</div>
           <div className="group-panel-meta">
@@ -172,12 +167,7 @@ export default function GroupManagementPanel({
       <div className="group-panel-members">
         {filteredMembers.slice(0, 3).map((m) => (
           <div className="group-member" key={m.id}>
-            <div
-              className="group-member-avatar"
-              style={{ background: avatarColor(m.id) }}
-            >
-              {avatarChar(m.nickname || m.realname || m.userId)}
-            </div>
+            <Avatar url={m.avatar} name={m.nickname || m.realname || m.userId} id={m.id} className="group-member-avatar" size={40} />
             <div className="group-member-name">{m.nickname || m.realname || m.userId}</div>
           </div>
         ))}
@@ -248,9 +238,7 @@ export default function GroupManagementPanel({
                           })
                         }}
                       />
-                      <div className="session-row-avatar" style={{ background: avatarColor(c.id) }}>
-                        {avatarChar(c.nickname || c.name)}
-                      </div>
+                      <Avatar url={(c as any).avatar} name={c.nickname || c.name} id={c.id} className="session-row-avatar" size={32} />
                       <div className="session-row-name">{c.nickname || c.name}</div>
                     </label>
                   ))}
