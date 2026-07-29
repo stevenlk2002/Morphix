@@ -539,6 +539,12 @@ def run_full_sync(account_id: str) -> dict:
                 break
             star = nxt
 
+        # 5) 为尚未建立会话的联系人补一条会话。
+        #    真实 iPad 服务 GetSessionList 常不返回内部联系人单聊，导致内部好友
+        #    只出现在「联系人列表」却不在「会话列表」。按联系人反查补全，保证
+        #    内外部好友都能在会话列表中按真实昵称展示（决策 #11）。
+        _create_missing_contact_sessions(repo, account_id, channel, channel_type)
+
     except ipad_client.IPadProtocolError as exc:
         mode = (settings.ipad_protocol_mode or "auto").lower()
         # 决策 #7：auto 降级不崩；real 标记 error（由状态呈现）
@@ -849,6 +855,83 @@ def _upsert_session(
             "begin_msg_seq": beginmsgseq,
         }
     )
+
+
+def _create_missing_contact_sessions(
+    repo: ChannelMgmtRepository,
+    account_id: str,
+    channel: str,
+    channel_type: str,
+) -> int:
+    """为当前账号下还没有会话的联系人（主要是内部联系人）补一条单聊会话。
+
+    真实 iPad 服务 GetSessionList 对内部联系人常返回 msg_type=3 的应用条目，
+    而不是 1:1 好友会话，导致内部好友在会话列表里缺失或被应用编号淹没。
+    该函数按 user_id/contact_id 去重，仅对真实联系人补 `msg_type=0` 的会话。
+    返回本次新增会话数。
+    """
+    contacts = repo.list_contacts(account_id=account_id)
+    if not contacts:
+        return 0
+
+    # 已存在会话的 remote_session_id / contact_id，避免重复创建。
+    existing_rows = repo._db.query(
+        "SELECT contact_id, remote_session_id FROM channel_sessions WHERE account_id = ?",
+        (account_id,),
+    )
+    seen_contact_ids: set[str] = set()
+    seen_remote_ids: set[str] = set()
+    for row in existing_rows:
+        if row.get("contact_id"):
+            seen_contact_ids.add(row["contact_id"])
+        if row.get("remote_session_id"):
+            seen_remote_ids.add(row["remote_session_id"])
+
+    created = 0
+    now = _now()
+    for c in contacts:
+        cid = c.get("id")
+        # row_to_contact 输出 camelCase 字段 userId；若为空，尝试从 id 解析。
+        user_id = str(c.get("userId") or "")
+        if not user_id and cid and cid.startswith(f"{account_id}:"):
+            user_id = cid[len(account_id) + 1 :]
+        if not user_id:
+            continue
+        if cid in seen_contact_ids or user_id in seen_remote_ids:
+            continue
+
+        contact_type = c.get("type") or ""
+        external_tag = "外部" if contact_type == "customer" else "内部"
+        sid = f"{account_id}:{user_id}"
+        name = c.get("nickname") or c.get("name") or user_id
+        repo.upsert_channel_session(
+            {
+                "id": sid,
+                "account_id": account_id,
+                "contact_id": cid,
+                "name": name,
+                "channel": channel,
+                "channel_type": channel_type,
+                "last_message": "",
+                "last_time": "",
+                "unread_count": 0,
+                "read_status": "read",
+                "hosted_status": "unhosted",
+                "hosted_bot_id": None,
+                "owner": "",
+                "online_status": "online",
+                "session_type": "好友",
+                "external_tag": external_tag,
+                "add_time": now,
+                "hosting_chain": "-",
+                "remote_session_id": user_id,
+                "msg_type": 0,
+                "begin_msg_seq": "",
+            }
+        )
+        seen_remote_ids.add(user_id)
+        created += 1
+    return created
 
 
 # ---------------------------------------------------------------------------

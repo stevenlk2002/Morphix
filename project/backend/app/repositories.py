@@ -1156,6 +1156,7 @@ def row_to_contact(row: dict) -> dict:
         "channelType": row["channel_type"],
         "name": row["name"],
         "nickname": row["nickname"],
+        "userId": row.get("user_id", ""),
         "type": row["type"],
         "status": row["status"],
         "remark": row["remark"],
@@ -1589,6 +1590,8 @@ class ChannelMgmtRepository:
         # 右侧面板展示 raw sessionid 编号（见任务 Issue #2）。
         # 关联条件覆盖「按 contact_id」与「按 remote_session_id 反查 user_id」两种情形；
         # COALESCE 优先取联系人的真实昵称，兜底回退到会话自身 name。
+        # 过滤 msg_type=3 的应用类会话：它们没有可聊天对象，只显示 raw id，会
+        # 被用户误认为是「内部好友」（决策 #11）。
         sql = (
             "SELECT cs.*, "
             "COALESCE(cc.nickname, cc.name, cg.nickname, cs.name) AS name "
@@ -1597,7 +1600,7 @@ class ChannelMgmtRepository:
             "AND (cc.id = cs.contact_id OR cc.user_id = cs.remote_session_id) "
             "LEFT JOIN channel_groups cg ON cg.account_id = cs.account_id "
             "AND cg.room_id = cs.remote_session_id "
-            "WHERE 1=1"
+            "WHERE cs.msg_type != 3"
         )
         params: list = []
         if account_id:

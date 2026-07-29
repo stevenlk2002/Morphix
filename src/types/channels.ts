@@ -85,6 +85,8 @@ export interface ContactDTO {
   channelType: string
   name: string
   nickname: string
+  /** iPad 协议侧 user_id（企微号），用于发送/会话关联。 */
+  userId: string
   type: 'customer' | 'internal' | 'customer_group' | 'internal_group' | string
   status: 'online' | 'offline' | string
   remark: string
