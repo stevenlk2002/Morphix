@@ -1146,6 +1146,8 @@ def row_to_account(row: dict) -> dict:
         # 聚合的默认机器人显示名（双 LEFT JOIN bots，可能为 None）
         "defaultSingleBotName": row.get("default_single_bot_name"),
         "defaultGroupBotName": row.get("default_group_bot_name"),
+        # —— 实时回调状态（P2-4）：非空表示 1:1 实时消息接收已启用 ——
+        "callbackUrl": row.get("callback_url", ""),
     }
 
 

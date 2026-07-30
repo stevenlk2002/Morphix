@@ -85,6 +85,8 @@ export default function ChannelSessionsPage() {
   const syncTimer = useRef<number | null>(null)
   // 消息 / 未读实时轮询定时器（P2-4 回调入站 + P2-2 未读实时清零）
   const pollTimer = useRef<number | null>(null)
+  // 会话回填轮询定时器（持续补偿群消息刷新 / 1:1 配回调时持续离线回填，8s 低频）
+  const backfillTimer = useRef<number | null>(null)
 
   // 左中栏可拖拽分隔（Q5）：宽度由 CSS 变量驱动 + localStorage 持久化
   const { startResize } = useResizablePanels()
@@ -252,6 +254,7 @@ export default function ChannelSessionsPage() {
     return () => {
       if (syncTimer.current) window.clearInterval(syncTimer.current)
       if (pollTimer.current) window.clearInterval(pollTimer.current)
+      if (backfillTimer.current) window.clearInterval(backfillTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -267,9 +270,34 @@ export default function ChannelSessionsPage() {
     return () => stopPoll()
   }, [selectedSessionId, selectedAccountId])
 
+  // 选中会话期间持续轮询 backfill：群消息经 GetGroupMsgList 主动拉取持续刷新，
+  // 1:1 在已配公网回调时持续补偿离线回填（决策 P2-1）。与 pollTimer(4s 拉消息) 互不冲突，
+  // backfill 频率低（8s）即可。失败时静默忽略，避免 toast 刷屏。
+  useEffect(() => {
+    if (!selectedSessionId || !selectedAccountId) return
+    if (backfillTimer.current) window.clearInterval(backfillTimer.current)
+    backfillTimer.current = window.setInterval(() => {
+      channelsApi
+        .backfillSessionMessages(selectedAccountId, selectedSessionId)
+        .catch(() => undefined)
+    }, 8000)
+    return () => {
+      if (backfillTimer.current) {
+        window.clearInterval(backfillTimer.current)
+        backfillTimer.current = null
+      }
+    }
+  }, [selectedSessionId, selectedAccountId])
+
   const selectedSession = useMemo(
     () => sessions.find((s) => s.id === selectedSessionId) ?? null,
     [sessions, selectedSessionId]
+  )
+
+  // 当前选中账号（用于展示实时消息接收状态）
+  const selectedAccount = useMemo(
+    () => accounts.find((a) => a.id === selectedAccountId) ?? null,
+    [accounts, selectedAccountId]
   )
 
   // 右栏详情抽屉折叠状态持久化（刷新后记住用户偏好）
@@ -396,6 +424,28 @@ export default function ChannelSessionsPage() {
         <div className="session-mgmt-content">
           {/* 中栏：会话列表 */}
           <section className="session-main">
+          {/* 实时消息接收状态提示（透明展示 1:1 公网回调是否启用） */}
+          {selectedAccount && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 12px',
+                marginBottom: 8,
+                borderRadius: 8,
+                fontSize: 13,
+                lineHeight: 1.4,
+                ...(selectedAccount.callbackUrl
+                  ? { background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }
+                  : { background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a' }),
+              }}
+            >
+              {selectedAccount.callbackUrl
+                ? '✅ 实时消息接收已启用'
+                : '⚠️ 实时消息（1:1）需配置公网回调：设置环境变量 `IPAD_CALLBACK_PUBLIC_URL=https://<你的公网地址>/wxwork/callback` 后重启后端'}
+            </div>
+          )}
           {/* 搜索框独占一行（R4-P0） */}
           <div className="session-search-top">
             <div className="session-search">
