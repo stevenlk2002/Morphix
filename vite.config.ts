@@ -16,5 +16,6 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    allowedHosts: ['localhost', '127.0.0.1', '192.168.2.111'],
   },
 })
