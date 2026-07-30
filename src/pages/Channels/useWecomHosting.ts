@@ -49,6 +49,7 @@ export interface UseWecomHostingResult {
   startData: WecomStartData | null
   userInfo: WecomUserInfo | null
   verifyError: string | null
+  verifySuccess: boolean
   submitting: boolean
   qrCountdown: number
   expired: boolean
@@ -68,6 +69,7 @@ export function useWecomHosting(): UseWecomHostingResult {
   const [startData, setStartData] = useState<WecomStartData | null>(null)
   const [userInfo, setUserInfo] = useState<WecomUserInfo | null>(null)
   const [verifyError, setVerifyError] = useState<string | null>(null)
+  const [verifySuccess, setVerifySuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [qrCountdown, setQrCountdown] = useState(0)
   const [expired, setExpired] = useState(false)
@@ -138,6 +140,7 @@ export function useWecomHosting(): UseWecomHostingResult {
       lastParamsRef.current = { teamId, channelType, protocol }
       setSubmitting(true)
       setVerifyError(null)
+      setVerifySuccess(false)
       setExpired(false)
       setUserInfo(null)
       try {
@@ -175,9 +178,15 @@ export function useWecomHosting(): UseWecomHostingResult {
   )
 
   const goToVerify = useCallback(() => {
+    // 进入验证码步骤时，必须停止二维码倒计时并清除过期标记：
+    // 否则倒计时归零的 effect 会在验证码输入期间把 step 强切回 qr 并置 expired，
+    // 导致用户"提交后页面没反应/被踢回二维码页"。
     setVerifyError(null)
+    setVerifySuccess(false)
+    clearCountdown()
+    setExpired(false)
     setStep('verify')
-  }, [])
+  }, [clearCountdown])
 
   const submitCode = useCallback(
     async (code: string) => {
@@ -185,6 +194,7 @@ export function useWecomHosting(): UseWecomHostingResult {
       if (!data) return
       setSubmitting(true)
       setVerifyError(null)
+      setVerifySuccess(false)
       try {
         const resp = await channelsApi.verifyWecomCode({
           uuid: data.uuid,
@@ -195,6 +205,7 @@ export function useWecomHosting(): UseWecomHostingResult {
         if (!resp.ok) {
           const msg = '验证码错误，请重新输入'
           setVerifyError(msg)
+          setVerifySuccess(false)
           toast(msg)
           // 验证码错误后必须停止轮询，防止后续 poll 到 loginType=2 自动跳 done
           stopAll()
@@ -204,10 +215,16 @@ export function useWecomHosting(): UseWecomHostingResult {
         if (resp.skip) {
           stopAll()
           setStep('done')
+        } else {
+          // 校验通过但需等待手机端在企业微信上确认登录：给出成功反馈，
+          // 继续轮询，pollTick 检测到 loginType===2 时再跳转 done。
+          setVerifySuccess(true)
+          toast('验证码已提交，请在企业微信上确认登录')
         }
       } catch (e) {
         const msg = errText(e)
         setVerifyError(msg)
+        setVerifySuccess(false)
         toast(`验证失败：${msg}`)
       } finally {
         if (!disposed.current) setSubmitting(false)
@@ -231,6 +248,7 @@ export function useWecomHosting(): UseWecomHostingResult {
     setSelectedChannel(null)
     setSelectedProtocol('ipod')
     setVerifyError(null)
+    setVerifySuccess(false)
     setSubmitting(false)
     setQrCountdown(0)
     setExpired(false)
@@ -279,6 +297,7 @@ export function useWecomHosting(): UseWecomHostingResult {
     startData,
     userInfo,
     verifyError,
+    verifySuccess,
     submitting,
     qrCountdown,
     expired,

@@ -154,13 +154,42 @@ def check_code(uuid: str, key: str, code: str) -> dict:
 
 
 def get_run_client_info(uuid: str) -> dict:
-    """POST `{base}/wxwork/GetRunClientInfo` → `{loginType, userInfo, longLinkState}`。"""
+    """POST `{base}/wxwork/GetRunClientInfo` → `{loginType, userInfo, longLinkState}`。
+
+    兼容协议文档定义的两种返回格式：
+    1) `data` 直接含字段：
+       `{"data": {"loginType": 2, "userInfo": {...}, "longLinkState": "CONNECTED"}}`
+    2) `data.runClientList` 数组（多账号托管场景）：
+       `{"data": {"runClientList": [{"loginType": 2, "userInfo": {...},
+        "longLinkState": "CONNECTED"}]}}`
+
+    第 2 种格式下，取 `runClientList` 第一个非空元素作为 `clientInfo` 解析源；
+    否则直接以 `body` 为解析源。最终始终输出 `loginType`/`userInfo`/`longLinkState`
+    （保持 snake_case 字段 `login_type`/`user_info`/`long_link_state` 兼容）。
+    """
     data = _post("wxwork/GetRunClientInfo", {"uuid": uuid})
     body = _norm(data)
+
+    # 兼容 data.runClientList 数组格式：取第一个非空（非空 dict）元素作为 clientInfo。
+    run_client_list = body.get("runClientList") if isinstance(body, dict) else None
+    if isinstance(run_client_list, list) and run_client_list:
+        client_info = next(
+            (item for item in run_client_list if isinstance(item, dict) and item),
+            run_client_list[0],
+        )
+    else:
+        client_info = body
+
     return {
-        "loginType": int(body.get("loginType", body.get("login_type", 1))),
-        "userInfo": body.get("userInfo") or body.get("user_info"),
-        "longLinkState": body.get("longLinkState") or body.get("long_link_state") or "CONNECTING",
+        "loginType": int(
+            client_info.get("loginType", client_info.get("login_type", 1))
+        ),
+        "userInfo": client_info.get("userInfo") or client_info.get("user_info"),
+        "longLinkState": (
+            client_info.get("longLinkState")
+            or client_info.get("long_link_state")
+            or "CONNECTING"
+        ),
     }
 
 

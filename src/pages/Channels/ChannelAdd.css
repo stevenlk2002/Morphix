@@ -464,6 +464,16 @@
   color: var(--error);
   font-weight: 700;
 }
+.channel-verify-success {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--green-soft, #e6f9ed);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green, #17a34a);
+  text-align: center;
+}
 .channel-verify-hint {
   margin-top: 12px;
   font-size: 12px;
@@ -500,6 +510,46 @@
   margin-top: 8px;
   font-size: 13px;
   color: var(--muted);
+}
+
+/* ---------------- 二维码离线/演示提示 ---------------- */
+.channel-qr-offline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto;
+  padding: 16px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 12px;
+  background: #f7f8fa;
+  text-align: center;
+  box-sizing: border-box;
+}
+.channel-qr-offline-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+.channel-qr-offline-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d2939;
+}
+.channel-qr-offline-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #667085;
+}
+.channel-qr-offline-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: #eceef1;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #1d2939;
 }
 
 /* ---------------- 响应式 ---------------- */

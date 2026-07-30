@@ -60,6 +60,7 @@ export default function AccountAddPage() {
     startData,
     userInfo,
     verifyError,
+    verifySuccess,
     submitting,
     qrCountdown,
     expired,
@@ -136,6 +137,7 @@ export default function AccountAddPage() {
           <StepVerify
             userInfo={userInfo}
             verifyError={verifyError}
+            verifySuccess={verifySuccess}
             submitting={submitting}
             onBack={() => setStep('qr')}
             onRescan={refresh}

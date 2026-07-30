@@ -196,7 +196,16 @@ export function StepQr({ startData, countdown, expired, onBack, onRefresh, onNex
               </span>
             </div>
             <div className="channel-qr-img">
-              {qrSrc ? (
+              {startData.mock ? (
+                <div className="channel-qr-offline">
+                  <div className="channel-qr-offline-icon">⚠️</div>
+                  <div className="channel-qr-offline-title">无法生成真实二维码</div>
+                  <div className="channel-qr-offline-text">
+                    iPad 协议服务当前不可用（已降级为演示模式）。请确认协议服务
+                    <code>47.94.7.218:9912</code> 在线并重新扫码。
+                  </div>
+                </div>
+              ) : qrSrc ? (
                 <img src={qrSrc} alt="企业微信扫码" />
               ) : (
                 <div className="channel-qr-placeholder">二维码加载中…</div>
@@ -231,6 +240,7 @@ export function StepQr({ startData, countdown, expired, onBack, onRefresh, onNex
 interface StepVerifyProps {
   userInfo: WecomUserInfo | null
   verifyError: string | null
+  verifySuccess: boolean
   submitting: boolean
   onBack: () => void
   onRescan: () => void
@@ -346,6 +356,7 @@ function CodeInputs({
 export function StepVerify({
   userInfo,
   verifyError,
+  verifySuccess,
   submitting,
   onBack,
   onRescan,
@@ -375,6 +386,9 @@ export function StepVerify({
           <div className="channel-verify-right">
             <div className="channel-verify-title">请输入验证码</div>
             <div className="channel-verify-subtitle">请输入扫描后，手机接收到的验证码</div>
+            {verifySuccess && (
+              <div className="channel-verify-success">验证码已提交，请在企业微信上确认登录</div>
+            )}
             <CodeInputs onSubmit={onSubmit} disabled={submitting} />
             {verifyError && <div className="channel-verify-error">{verifyError}</div>}
             <div className="channel-verify-hint">6 位数字，60 秒内有效</div>
