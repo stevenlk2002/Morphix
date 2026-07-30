@@ -140,15 +140,20 @@ export default function SessionChatPanel({
     setSending(true)
     try {
       // 后端按 targetType=session 反查 user_id / room_id + isRoom（决策 #6）。
-      await channelsApi.sendTextMessage(accountId, 'session', session.id, text)
+      const res = await channelsApi.sendTextMessage(accountId, 'session', session.id, text)
       // 乐观追加本地消息（消息历史回填为 P2，先本地呈现）。
+      // 若后端返回真实 serverId，则用 `msg-{accountId}-{serverId}` 作为稳定 id，
+      // 与后端落库记录对齐，使 4s 轮询回填时 key 不变、避免闪烁/重复。
+      const stableId = res.serverId
+        ? `msg-${accountId}-${res.serverId}`
+        : `local-${Date.now()}`
       onMessageSent?.({
-        id: `local-${Date.now()}`,
+        id: stableId,
         conversationId: session.id,
         senderType: 'user',
         content: text,
         createdAt: new Date().toISOString(),
-        serverId: '',
+        serverId: res.serverId ?? '',
         msgType: 0,
         senderId: '',
         direction: 'outbound',

@@ -551,6 +551,87 @@ class TestResolveTarget:
         with pytest.raises(ipad_sync.IPadSyncError):
             ipad_sync.send_text_message("nonexistent", "contact", "x", "hi")
 
+    def test_send_text_message_persists_to_messages(self, backend, account, monkeypatch):
+        """发送成功后必须把消息写入 messages 表（否则 4s 轮询会清空乐观消息 → 暂无聊天记录）。"""
+        repo = ChannelMgmtRepository(backend)
+        contact_id = f"{account['id']}:u1"
+        repo.upsert_channel_contact(_contact_row(account["id"], "u1"))
+        monkeypatch.setattr(
+            ipad_client, "send_text_msg",
+            lambda *a, **k: {"msg_id": "M9", "server_id": "S9",
+                             "content": "", "sendtime": "", "sender": "", "receiver": ""},
+        )
+        res = ipad_sync.send_text_message(account["id"], "contact", contact_id, "hello-world")
+        assert res["serverId"] == "S9"
+
+        # 模拟前端 4s 轮询：拉取该会话消息，应能查回刚发送的消息。
+        rows = repo.list_session_messages_ext(contact_id)
+        assert len(rows) == 1
+        msg = rows[0]
+        assert msg["content"] == "hello-world"
+        assert msg["senderType"] == "user"
+        assert msg["direction"] == "outbound"
+        assert msg["contentType"] == "text"
+        assert msg["serverId"] == "S9"
+        # 与前端乐观追加的稳定 id 对齐：msg-{account_id}-{server_id}
+        assert msg["id"] == f"msg-{account['id']}-S9"
+        assert msg["channelAccountId"] == account["id"]
+
+    def test_send_text_message_session_persists_with_session_id(self, backend, account, monkeypatch):
+        """target_type='session' 时 conversation_id 必须为 session_id（前端轮询据此查询）。"""
+        repo = ChannelMgmtRepository(backend)
+        session_id = f"{account['id']}:s1"
+        # msg_type=1 + remote_session_id 走群聊解析分支，无需关联联系人。
+        repo.upsert_channel_session(_session_row(account["id"], "s1", 1, remote_session_id="s1"))
+        monkeypatch.setattr(
+            ipad_client, "send_text_msg",
+            lambda *a, **k: {"msg_id": 123, "server_id": 456},
+        )
+        res = ipad_sync.send_text_message(account["id"], "session", session_id, "hi-session")
+        assert res["serverId"] == "456"
+        rows = repo.list_session_messages_ext(session_id)
+        assert len(rows) == 1
+        assert rows[0]["conversationId"] == session_id
+        assert rows[0]["content"] == "hi-session"
+        assert rows[0]["id"] == f"msg-{account['id']}-456"
+
+    def test_insert_session_message_cover_all_columns(self, backend):
+        """insert_session_message 覆盖 messages 全部列；INSERT OR REPLACE 幂等覆盖。"""
+        repo = ChannelMgmtRepository(backend)
+        conv = "conv-x"
+        msg = {
+            "id": "m1",
+            "conversation_id": conv,
+            "sender_type": "user",
+            "content": "c1",
+            "created_at": "2024-01-01T00:00:00",
+            "server_id": "sv1",
+            "msg_type": 0,
+            "sender_id": "u1",
+            "direction": "outbound",
+            "content_type": "text",
+            "media_url": "",
+            "media_meta": {"w": 1},
+            "is_read": 1,
+            "channel_account_id": "acc-x",
+        }
+        repo.insert_session_message(msg)
+        rows = repo.list_session_messages_ext(conv)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["content"] == "c1"
+        assert r["serverId"] == "sv1"
+        assert r["senderId"] == "u1"
+        assert r["direction"] == "outbound"
+        assert r["channelAccountId"] == "acc-x"
+        assert r["mediaMeta"] == {"w": 1}
+
+        # 相同 id 覆盖而非新增（不出现两条记录）。
+        repo.insert_session_message(dict(msg, content="c2", media_meta="{}"))
+        rows2 = repo.list_session_messages_ext(conv)
+        assert len(rows2) == 1
+        assert rows2[0]["content"] == "c2"
+
 
 # --------------------------------------------------------------------------- #
 # 4. 路由集成测（FastAPI TestClient，mock iPad）

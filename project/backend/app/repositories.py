@@ -2325,6 +2325,57 @@ class ChannelMgmtRepository:
         rows.reverse()
         return [self.row_to_message_ext(r) for r in rows]
 
+    def insert_session_message(self, msg: dict) -> None:
+        """把一条 outbound/inbound 消息写入 messages 表（支撑发送后本地呈现）。
+
+        覆盖 messages 表全部列；id 冲突时按 INSERT OR REPLACE 覆盖（保持幂等）。
+        用于 `ipad_sync.send_text_message` 发送成功后落库，使前端 4s 轮询
+        `getSessionMessages` 能拉回该消息，避免乐观追加的消息被空结果清空
+        （见「发送后消息消失 / 暂无聊天记录」Bug）。
+
+        msg 字段约定：
+        - id: str (required)            消息主键
+        - conversation_id: str (required)  会话/群 id（= messages.conversation_id）
+        - sender_type: str (required)   'user' | 'bot' | 'contact' 等
+        - content: str (required)
+        - created_at: str (optional, ISO8601)  缺省取当前时间
+        - server_id: str (optional, default '')
+        - msg_type: int (optional, default 0)
+        - sender_id: str (optional, default '')
+        - direction: str (optional, default 'outbound')
+        - content_type: str (optional, default 'text')
+        - media_url: str (optional, default '')
+        - media_meta: dict|str (optional, default '{}')
+        - is_read: int|bool (optional, default 1)
+        - channel_account_id: str (optional, default '')
+        """
+        media_meta = msg.get("media_meta", "{}")
+        if not isinstance(media_meta, str):
+            media_meta = json.dumps(media_meta, ensure_ascii=False)
+        self._db.execute(
+            "INSERT OR REPLACE INTO messages("
+            "id, conversation_id, sender_type, content, created_at, "
+            "server_id, msg_type, sender_id, direction, content_type, "
+            "media_url, media_meta, is_read, channel_account_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(msg.get("id") or ""),
+                str(msg.get("conversation_id") or ""),
+                str(msg.get("sender_type") or "user"),
+                str(msg.get("content") or ""),
+                str(msg.get("created_at") or datetime.now().isoformat(timespec="seconds")),
+                str(msg.get("server_id") or ""),
+                int(msg.get("msg_type", 0) or 0),
+                str(msg.get("sender_id") or ""),
+                str(msg.get("direction") or "outbound"),
+                str(msg.get("content_type") or "text"),
+                str(msg.get("media_url") or ""),
+                media_meta,
+                int(msg.get("is_read", 1) or 1),
+                str(msg.get("channel_account_id") or ""),
+            ),
+        )
+
     def mark_session_read_db(self, session_id: str) -> dict | None:
         """将会话未读清零并标记已读（P2-2）。"""
         self._db.execute(

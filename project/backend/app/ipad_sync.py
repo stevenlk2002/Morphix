@@ -573,6 +573,10 @@ def send_text_message(
 
     成功返回 `{"msgId", "serverId", "ok": True}`；
     目标解析失败抛 `IPadSyncError`（400）；协议失败抛 `IPadProtocolError`（502）。
+
+    修复「发送后消息消失 / 暂无聊天记录」Bug：发送成功后把该 outbound 消息写入
+    messages 表，使前端 4s 轮询 `getSessionMessages` 能拉回该消息，不再用空结果
+    覆盖乐观追加的本地消息。
     """
     repo = ChannelMgmtRepository(get_backend())
     account = repo.get_account_by_id(account_id)
@@ -581,12 +585,44 @@ def send_text_message(
     uuid: str = account["ipadUuid"]
     send_userid, is_room = _resolve_target(repo, account_id, target_type, target_id)
     result = ipad_client.send_text_msg(uuid, send_userid, is_room, content, kf_id=0)
+
     # 真实服务 msg_id/server_id 可能为 int 或 null；SendTextResultDTO 的字段为
     # str 类型（Pydantic v2 不自动把 int/None 转 str），需在此统一转 str，
     # 否则响应 schema 校验失败 → ResponseValidationError → 500（见任务 Issue #4）。
+    msg_id_raw = result.get("msg_id")
+    server_id = str(result.get("server_id") or msg_id_raw or "")
+    msg_id = str(msg_id_raw or "")
+
+    # 落库：发送成功的 outbound 文本消息写入 messages 表，支撑前端发送后本地呈现。
+    # conversation_id 与轮询拉取使用的会话/群 id 对齐（target_type=='session' 时为
+    # session_id；contact/room 时为对应的 target_id），保证 poll 能查回该条消息。
+    if server_id:
+        message_id = f"msg-{account_id}-{server_id}"
+    else:
+        # 无 server_id 时以时间戳兜底，保证 id 唯一、可定位。
+        message_id = f"msg-{account_id}-{int(datetime.now().timestamp())}"
+    repo.insert_session_message(
+        {
+            "id": message_id,
+            "conversation_id": target_id,
+            "sender_type": "user",
+            "content": content,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "server_id": server_id,
+            "msg_type": 0,
+            "sender_id": str(account.get("vid") or account_id),
+            "direction": "outbound",
+            "content_type": "text",
+            "media_url": "",
+            "media_meta": "{}",
+            "is_read": 1,
+            "channel_account_id": account_id,
+        }
+    )
+
     return {
-        "msgId": str(result.get("msg_id") or ""),
-        "serverId": str(result.get("server_id") or ""),
+        "msgId": msg_id,
+        "serverId": server_id,
         "ok": True,
     }
 
