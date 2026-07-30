@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // Morphix 控制台（根级 morphix-console）开发服务器配置。
-// 前端运行于 5183，所有 /api 请求代理到 canonical 后端（project/backend，端口 2183）。
+// 前端运行于 5183，所有 /api 请求代理到 canonical 后端（project/backend，端口 2181）。
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -12,7 +12,7 @@ export default defineConfig({
     open: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:2183',
+        target: 'http://127.0.0.1:2181',
         changeOrigin: true,
       },
     },
