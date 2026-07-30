@@ -51,16 +51,21 @@ def _mode() -> str:
     return (settings.ipad_protocol_mode or "auto").lower()
 
 
-def _post(path: str, payload: dict) -> dict:
+def _post(path: str, payload: dict, timeout: float = 8.0) -> dict:
     """调用 iPad 协议服务；任何失败都抛出 `IPadProtocolError`。
 
     真实服务路径形如 `{base}/wxwork/<Action>`（base 为服务 host:port 根，
     默认 http://47.94.7.218:9912，客户端自动拼接 /wxwork/<Action>，
     详见 IPAD_PROTOCOL_BASE_URL 配置）。
+
+    `timeout` 默认 8s：iPad 协议服务实测 `init` 拉起实例耗时常 >2.5s，在受限
+    网络（代理/跨区）下容易超过 3s；过短的超时会被 `auto` 模式误判为服务不可用
+    而降级成 mock（二维码变成 1x1 透明占位图）。`init`/`getQrCode` 用更长超时，
+    普通调用用默认 8s 即可。
     """
     url = f"{_base_url()}/{path.lstrip('/')}"
     try:
-        resp = httpx.post(url, json=payload, timeout=3.0)
+        resp = httpx.post(url, json=payload, timeout=timeout)
     except (httpx.HTTPError, OSError) as exc:
         raise IPadProtocolError(f"iPad 协议服务调用失败: {url} ({exc})")
     if resp.status_code != 200:
@@ -107,6 +112,7 @@ def init(dever_type: str = "ipad", vid: str = "") -> dict:
             "passward": "",
             "deverType": dever_type,
         },
+        timeout=15.0,
     )
     body = _norm(data)
     is_login = str(body.get("is_login", "false")).lower() in ("true", "1")
@@ -118,7 +124,7 @@ def init(dever_type: str = "ipad", vid: str = "") -> dict:
 
 def get_qrcode(uuid: str) -> dict:
     """POST `{base}/wxwork/getQrCode` → `{qrcode, qrcode_data, ttl, qrcode_key}`。"""
-    data = _post("wxwork/getQrCode", {"uuid": uuid})
+    data = _post("wxwork/getQrCode", {"uuid": uuid}, timeout=12.0)
     body = _norm(data)
     return {
         "qrcode": body.get("qrcode"),
