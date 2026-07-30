@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+import threading
 
 from .. import ipad_client, ipad_sync
 from ..database import get_backend
@@ -32,6 +33,14 @@ from ..schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/channels/accounts/wecom", tags=["channel-hosting"])
+
+# 落库串行锁：保护「loginType==2 时按 uuid 查重 + 创建账号」临界区。
+# 前端每 2s 轮询一次，loginType==2 会持续多轮返回，且单次 poll 内存在
+# userInfo 重试（最多 ~3s），多个轮询请求可能并发在途。若不加锁，并发的
+# 查重与创建之间可能产生竞态，导致重复 INSERT（本次 Bug：清空渠道后扫码
+# 出现 4 个完全相同账号）。该锁保证整进程内同一 uuid 仅创建一次账号；
+# 数据库层另有 ipad_uuid 唯一索引兜底（多 worker / 并发请求场景）。
+_CREATE_LOCK = threading.Lock()
 
 
 def _extract_wecom_display_name(user_info: Any | None) -> str:
@@ -166,32 +175,49 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
         # 头像解析（avatar > headImgUrl > headimgurl；空串表示无）
         avatar = _resolve_avatar_url(user_info)
         repo = ChannelMgmtRepository(get_backend())
-        account = repo.create_account_with_ipad(
-            channel_type=channel_type,
-            protocol="ipad",
-            team_id=team_id,
-            name=name,
-            ipad_uuid=payload.uuid,
-            ipad_user_info=user_info,
-            host_status="hosted",
-            avatar=avatar,
-        )
+
+        # —— 幂等保护：同一 ipad_uuid 只落库一个账号 ——
+        # 前端每 2s 轮询一次；loginType==2 会在多轮轮询中持续返回，且多个轮询
+        # 请求可能并发在途。若不加保护，每个命中 loginType==2 的 poll 都会
+        # INSERT 一条账号，导致重复创建（本次 Bug：清空渠道后扫码出现 4 个相同账号）。
+        # 用进程内锁 + 按 uuid 查重，保证整进程内仅创建一次；数据库层另有
+        # ipad_uuid 唯一索引兜底（多 worker / 并发请求场景）。
+        with _CREATE_LOCK:
+            existing = repo.get_account_by_ipad_uuid(payload.uuid)
+            if existing is None:
+                account = repo.create_account_with_ipad(
+                    channel_type=channel_type,
+                    protocol="ipad",
+                    team_id=team_id,
+                    name=name,
+                    ipad_uuid=payload.uuid,
+                    ipad_user_info=user_info,
+                    host_status="hosted",
+                    avatar=avatar,
+                )
+                created = True
+            else:
+                account = existing
+                created = False
         result["account"] = account
 
-        # 决策 #11：托管成功后后台线程自动全量同步（不阻塞请求；异常吞掉记日志）
-        try:
-            if not ipad_sync.trigger_sync(account["id"]):
-                logger.info("账号 %s 已在同步中，跳过自动触发", account["id"])
-        except Exception:  # noqa: BLE001
-            logger.exception("自动触发 iPad 全量同步失败 account=%s", account["id"])
+        # 仅在「本次新创建」时触发同步与实时回调；已存在账号此前已触发过，
+        # 避免每次轮询都重复触发（trigger_sync 自身也有「已在同步中」去重）。
+        if created:
+            # 决策 #11：托管成功后后台线程自动全量同步（不阻塞请求；异常吞掉记日志）
+            try:
+                if not ipad_sync.trigger_sync(account["id"]):
+                    logger.info("账号 %s 已在同步中，跳过自动触发", account["id"])
+            except Exception:  # noqa: BLE001
+                logger.exception("自动触发 iPad 全量同步失败 account=%s", account["id"])
 
-        # P2-4：若配置了公网回调地址，托管成功后 best-effort 注册实时回调
-        try:
-            reg = ipad_sync.register_callback(account["id"])
-            if reg.get("registered"):
-                logger.info("账号 %s 已注册实时回调 %s", account["id"], reg.get("url"))
-        except Exception:  # noqa: BLE001
-            logger.exception("注册实时回调失败 account=%s", account["id"])
+            # P2-4：若配置了公网回调地址，托管成功后 best-effort 注册实时回调
+            try:
+                reg = ipad_sync.register_callback(account["id"])
+                if reg.get("registered"):
+                    logger.info("账号 %s 已注册实时回调 %s", account["id"], reg.get("url"))
+            except Exception:  # noqa: BLE001
+                logger.exception("注册实时回调失败 account=%s", account["id"])
 
     return result
 

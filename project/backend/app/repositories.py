@@ -1536,6 +1536,30 @@ class ChannelMgmtRepository:
             }
         return row_to_account(row)
 
+    def get_account_by_ipad_uuid(self, ipad_uuid: str) -> dict | None:
+        """按 ipad_uuid 精确查账号；空串返回 None。
+
+        用于托管落库幂等：同一 iPad 协议 uuid 只应对应一个渠道账号，
+        避免前端高频轮询在 loginType==2 期间重复 INSERT（见
+        routers/channel_hosting.poll_wecom）。返回扩展 DTO 或 None。
+        """
+        if not ipad_uuid:
+            return None
+        row = self._db.query_one(
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name, "
+            "       b1.name AS default_single_bot_name, "
+            "       b2.name AS default_group_bot_name "
+            "FROM channel_accounts a "
+            "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
+            "LEFT JOIN teams t ON t.id = a.team_id "
+            "LEFT JOIN bots b1 ON b1.id = a.default_single_bot_id "
+            "LEFT JOIN bots b2 ON b2.id = a.default_group_bot_id "
+            "WHERE a.ipad_uuid = ? "
+            "ORDER BY a.created_at, a.id LIMIT 1",
+            (ipad_uuid,),
+        )
+        return row_to_account(row) if row else None
+
     def update_account_ipad_uuid(self, account_id: str, ipad_uuid: str) -> None:
         self._db.execute(
             "UPDATE channel_accounts SET ipad_uuid=? WHERE id=?", (ipad_uuid, account_id)
@@ -1873,6 +1897,19 @@ class ChannelMgmtRepository:
         self._db.execute(
             "UPDATE channel_accounts SET sync_status = ?, last_sync_at = ? WHERE id = ?",
             (sync_status, last_sync_at, account_id),
+        )
+
+    def refresh_sessions_count(self, account_id: str) -> None:
+        """用 channel_sessions 真实 COUNT 回写到 channel_accounts.sessions_count。
+
+        每次全量同步完成后调用，使账号卡片能展示实际会话数而非恒为 0。
+        """
+        self._db.execute(
+            "UPDATE channel_accounts "
+            "SET sessions_count = ("
+            "  SELECT COUNT(*) FROM channel_sessions WHERE account_id = ?"
+            ") WHERE id = ?",
+            (account_id, account_id),
         )
 
     def get_contact_by_id(self, contact_id: str) -> dict | None:

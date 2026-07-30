@@ -8,9 +8,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from .database import DatabaseBackend
+
+logger = logging.getLogger(__name__)
 
 # bot_id -> 显示名映射（前端「所属机器人」下拉与列表 robot 列共用）
 BOT_NAMES: dict[str, str] = {
@@ -665,6 +668,22 @@ def migrate_schema(backend: DatabaseBackend) -> None:
     for col, ddl in _channel_account_callback_cols.items():
         if not _has_column(backend, "channel_accounts", col):
             backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
+
+    # ---- 防重复落库：同一 iPad 协议 uuid 只应对应一个渠道账号 ----
+    # 部分唯一索引：仅对非空 ipad_uuid 约束唯一（空串表示非 iPad 账号，不约束）。
+    # 兜底 channel_hosting.poll_wecom 的并发轮询：即便多个请求并发命中
+    # loginType==2，唯一索引也保证整库仅保留一条账号记录（与进程内锁互补）。
+    try:
+        backend.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_accounts_ipad_uuid "
+            "ON channel_accounts(ipad_uuid) WHERE ipad_uuid <> ''"
+        )
+    except Exception:  # noqa: BLE001
+        # 已存在重复的非空 ipad_uuid（如历史脏数据）时索引创建会失败，
+        # 此处仅记录日志并跳过，不影响功能（进程内锁仍提供基础防护）。
+        logger.warning(
+            "创建 channel_accounts.ipad_uuid 唯一索引失败（可能存在重复数据），已跳过"
+        )
 
     # ---- 账号卡片增强迁移（本期 T01） ----
     # channel_accounts 头像 + 默认单聊/群聊机器人（空串表示未设置，与既有 ipad_uuid 列一致）

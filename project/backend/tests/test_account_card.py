@@ -26,6 +26,7 @@ from app.database import get_backend
 from app.main import app
 from app.repositories import (
     BotRepository,
+    ChannelMgmtRepository,
     _resolve_avatar_url,
     assert_online_bot,
 )
@@ -313,3 +314,45 @@ def test_assert_online_bot():
         assert bot["id"] == bid
     finally:
         _delete_bot(bid)
+
+
+# --------------------------------------------------------------------------- #
+# 8. refresh_sessions_count —— Bug A 修复验证
+# --------------------------------------------------------------------------- #
+def test_refresh_sessions_count():
+    """write N 条 sessions → refresh → channel_accounts.sessions_count == N"""
+    backend = get_backend()
+    repo = ChannelMgmtRepository(backend)
+    acc_id = _create_account()
+    try:
+        # 初始 sessions_count 为 0
+        acc = repo.get_account_by_id(acc_id)
+        assert acc is not None
+        assert acc["sessionsCount"] == 0
+
+        # 写入 5 条会话
+        for i in range(5):
+            backend.execute(
+                "INSERT INTO channel_sessions(id, account_id, name) VALUES(?, ?, ?)",
+                (f"qa-sess-refresh-{i}", acc_id, f"QA会话{i}"),
+            )
+
+        # 刷新
+        repo.refresh_sessions_count(acc_id)
+        acc2 = repo.get_account_by_id(acc_id)
+        assert acc2 is not None
+        assert acc2["sessionsCount"] == 5
+
+        # 删除后刷新 = 0
+        backend.execute(
+            "DELETE FROM channel_sessions WHERE account_id = ?", (acc_id,)
+        )
+        repo.refresh_sessions_count(acc_id)
+        acc3 = repo.get_account_by_id(acc_id)
+        assert acc3 is not None
+        assert acc3["sessionsCount"] == 0
+    finally:
+        backend.execute("DELETE FROM channel_accounts WHERE id = ?", (acc_id,))
+        backend.execute(
+            "DELETE FROM channel_sessions WHERE id LIKE 'qa-sess-refresh-%'"
+        )

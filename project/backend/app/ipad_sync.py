@@ -559,6 +559,8 @@ def run_full_sync(account_id: str) -> dict:
             "total": total,
         }
 
+    # 同步成功后刷新 sessions_count 缓存列，使账号卡片展示真实会话数
+    repo.refresh_sessions_count(account_id)
     repo.set_account_sync_status(account_id, "success", _now())
     return {"counts": counts, "degraded": False, "error": None, "total": total}
 

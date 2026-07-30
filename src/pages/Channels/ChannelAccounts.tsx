@@ -240,6 +240,13 @@ export default function ChannelAccountsPage() {
                   账号会话 <b>{a.sessionsCount}</b>
                 </div>
 
+                {/* 默认机器人 */}
+                <div className="channel-account-sessions">
+                  <span>默认单聊：{a.defaultSingleBotId ? (a.defaultSingleBotName || '未设置') : '未设置'}</span>
+                  &nbsp;·&nbsp;
+                  <span>默认群聊：{a.defaultGroupBotId ? (a.defaultGroupBotName || '未设置') : '未设置'}</span>
+                </div>
+
                 {/* 底部横排操作 */}
                 <div className="channel-account-actions">
                   <Button
