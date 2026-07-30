@@ -1937,6 +1937,25 @@ class ChannelMgmtRepository:
             "SELECT * FROM channel_sessions WHERE id = ?", (session_id,)
         )
 
+    def get_session_by_remote(self, account_id: str, remote_id: str) -> dict | None:
+        """按 (account_id, 远程会话标识) 取会话原始行（实时回调归属解析用，P2-4）。
+
+        远程标识即 `remote_session_id`（1:1 = 对方 user_id；群 = room_id）。
+        未命中时兜底按约定 id 格式 `{account_id}:{remote_id}` 直查，
+        保证与 `_upsert_session` / `backfill_session_messages` 的键约定一致。
+        """
+        if not remote_id:
+            return None
+        row = self._db.query_one(
+            "SELECT * FROM channel_sessions WHERE account_id = ? AND remote_session_id = ?",
+            (account_id, remote_id),
+        )
+        if row:
+            return row
+        return self._db.query_one(
+            "SELECT * FROM channel_sessions WHERE id = ?", (f"{account_id}:{remote_id}",)
+        )
+
     def upsert_channel_contact(self, contact: dict) -> None:
         """upsert 渠道联系人（自然键 id = {account_id}:{user_id}）。
 
@@ -2312,23 +2331,100 @@ class ChannelMgmtRepository:
             ),
         )
 
+    def _resolve_sender_avatar(
+        self,
+        account_id: str,
+        direction: str,
+        sender_id: str,
+        conversation_id: str,
+    ) -> str:
+        """解析一条消息发送者的头像 URL（聊天框气泡头像）。
+
+        数据来源均为已同步入库的真实头像列，不发起任何远程调用：
+
+        - `direction == "outbound"`（本账号发出）→ `channel_accounts.avatar`；
+        - inbound 群消息 → `channel_group_members.avatar`
+          （由 `conversation_id` 冒号后的 `room_id` 定位 `channel_groups`，
+          再按成员 `user_id`/`uin` 命中发送者）；
+        - inbound 1:1 消息 → `channel_contacts.avatar`（`account_id` + `user_id`）；
+        - 任一环节未命中 → 返回空串，由前端回退为昵称首字占位。
+
+        Args:
+            account_id: 消息所属渠道账号 id（`messages.channel_account_id`）；
+                为空时从 `conversation_id` 前缀兜底解析。
+            direction: `"inbound"` | `"outbound"`。
+            sender_id: 发送方远程 id（好友 wecom id / 群成员 uin）。
+            conversation_id: 会话主键，形如 `{account_id}:{remote_session_id}`。
+
+        Returns:
+            头像 URL 字符串；未命中时为 `""`。
+        """
+        conversation_id = conversation_id or ""
+        remote_session_id = ""
+        if ":" in conversation_id:
+            prefix, remote_session_id = conversation_id.split(":", 1)
+            account_id = account_id or prefix
+        if not account_id:
+            return ""
+
+        if direction == "outbound":
+            row = self._db.query_one(
+                "SELECT avatar FROM channel_accounts WHERE id = ?", (account_id,)
+            )
+            return str(row.get("avatar") or "") if row else ""
+
+        if not sender_id:
+            return ""
+
+        # 群消息：先按 room_id 定位群，再按成员 user_id/uin 取头像。
+        if remote_session_id:
+            row = self._db.query_one(
+                "SELECT m.avatar AS avatar FROM channel_group_members m "
+                "JOIN channel_groups g ON g.id = m.group_id "
+                "WHERE g.account_id = ? AND g.room_id = ? "
+                "AND (m.user_id = ? OR m.uin = ?) LIMIT 1",
+                (account_id, remote_session_id, sender_id, sender_id),
+            )
+            if row and row.get("avatar"):
+                return str(row["avatar"])
+
+        # 1:1 消息（或群成员未同步）：回落到联系人头像。
+        row = self._db.query_one(
+            "SELECT avatar FROM channel_contacts WHERE account_id = ? AND user_id = ? LIMIT 1",
+            (account_id, sender_id),
+        )
+        if row and row.get("avatar"):
+            return str(row["avatar"])
+        return ""
+
     def row_to_message_ext(self, row: dict) -> dict:
-        """messages 行 -> MessageExtDTO（含 serverId/msgType/direction/contentType/media）。"""
+        """messages 行 -> MessageExtDTO（含 serverId/msgType/direction/contentType/media）。
+
+        额外补充 `senderAvatar`：聊天框气泡需要展示发送者头像，
+        由 `_resolve_sender_avatar` 从已同步的账号/联系人/群成员头像列解析。
+        """
+        conversation_id = row["conversation_id"]
+        direction = row.get("direction", "inbound")
+        sender_id = row.get("sender_id", "")
+        account_id = row.get("channel_account_id", "")
         return {
             "id": row["id"],
-            "conversationId": row["conversation_id"],
+            "conversationId": conversation_id,
             "senderType": row["sender_type"],
             "content": row["content"],
             "createdAt": row["created_at"],
             "serverId": row.get("server_id", ""),
             "msgType": int(row.get("msg_type", 0) or 0),
-            "senderId": row.get("sender_id", ""),
-            "direction": row.get("direction", "inbound"),
+            "senderId": sender_id,
+            "senderAvatar": self._resolve_sender_avatar(
+                account_id, direction, sender_id, conversation_id
+            ),
+            "direction": direction,
             "contentType": row.get("content_type", "text"),
             "mediaUrl": row.get("media_url", ""),
             "mediaMeta": _parse_json_field(row.get("media_meta"), {}),
             "isRead": bool(row.get("is_read", 0)),
-            "channelAccountId": row.get("channel_account_id", ""),
+            "channelAccountId": account_id,
         }
 
     def list_session_messages_ext(

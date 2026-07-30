@@ -521,6 +521,10 @@ class MessageExtDTO(BaseModel):
     serverId: str = ""
     msgType: int = 0
     senderId: str = ""
+    # 发送者头像 URL（账号/联系人/群成员头像解析，缺失为空串）。
+    # 注意：response_model 序列化会丢弃 schema 未声明的字段，此处必须与
+    # repositories.row_to_message_ext 的输出保持同名同在。
+    senderAvatar: str = ""
     direction: str = "inbound"
     contentType: str = "text"  # text | image | file
     mediaUrl: str = ""

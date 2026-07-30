@@ -39,6 +39,8 @@ export default function SessionChatPanel({
   const [sending, setSending] = useState(false)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // 头像 URL 加载失败集合（企业微信头像链接会过期）→ 回退首字占位，避免裂图。
+  const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({})
 
   const hosted = session?.hostedStatus === 'hosted'
   // 应用类会话（msg_type==3）后端禁发，前端禁用输入并提示（决策 #6）。
@@ -75,6 +77,13 @@ export default function SessionChatPanel({
       setBusy(false)
     }
   }
+
+  /** 无头像时的占位首字：本账号发出用「我」，对方用会话名首字。 */
+  const avatarInitial = (isOutbound: boolean): string =>
+    isOutbound ? '我' : (session.name || '?').trim().charAt(0) || '?'
+
+  /** 头像 alt 文案（可访问性）。 */
+  const avatarAlt = (isOutbound: boolean): string => (isOutbound ? '我' : session.name || '对方')
 
   // ---- P2-3 富媒体发送（后端代理 CDN 上传） ----
   const pickFile = (mediaType: 'image' | 'file') => {
@@ -115,6 +124,8 @@ export default function SessionChatPanel({
         serverId: res.serverId,
         msgType: mediaType === 'image' ? 1 : 2,
         senderId: '',
+        // 乐观追加时本地无账号头像，留空回退占位；4s 轮询回填后端真实头像。
+        senderAvatar: '',
         direction: 'outbound',
         contentType: mediaType,
         mediaUrl: res.mediaUrl,
@@ -156,6 +167,8 @@ export default function SessionChatPanel({
         serverId: res.serverId ?? '',
         msgType: 0,
         senderId: '',
+        // 乐观追加时本地无账号头像，留空回退占位；4s 轮询回填后端真实头像。
+        senderAvatar: '',
         direction: 'outbound',
         contentType: 'text',
         mediaUrl: '',
@@ -233,26 +246,43 @@ export default function SessionChatPanel({
           </div>
         )}
         {messages.map((m) => {
-          const isBot = m.senderType === 'bot'
+          // 气泡方向以 direction 为准（outbound = 本账号发出，靠右）。
+          const isOutbound = m.direction === 'outbound' || m.senderType === 'bot'
+          const avatarUrl = m.senderAvatar ?? ''
+          const showAvatar = Boolean(avatarUrl) && !brokenAvatars[m.id]
           return (
-            <div key={m.id} className={`message ${isBot ? 'bot' : 'user'}`}>
-              <div className="message-meta">
-                {m.contentType === 'image' ? (
-                  <img
-                    src={m.mediaUrl}
-                    alt={m.content || '图片'}
-                    style={{ maxWidth: 220, borderRadius: 8, display: 'block' }}
-                  />
-                ) : m.contentType === 'file' ? (
-                  <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="message-file">
-                    📎 {m.content || '文件'}
-                  </a>
-                ) : (
-                  m.content
-                )}
-                <span style={{ color: 'var(--text-tertiary)', marginLeft: 8, fontSize: 11 }}>
-                  {m.createdAt.slice(11, 16)}
-                </span>
+            <div key={m.id} className={`message-row ${isOutbound ? 'outbound' : 'inbound'}`}>
+              {showAvatar ? (
+                <img
+                  className="msg-avatar"
+                  src={avatarUrl}
+                  alt={avatarAlt(isOutbound)}
+                  onError={() => setBrokenAvatars((prev) => ({ ...prev, [m.id]: true }))}
+                />
+              ) : (
+                <div className="msg-avatar-fallback" aria-hidden="true">
+                  {avatarInitial(isOutbound)}
+                </div>
+              )}
+              <div className={`message ${isOutbound ? 'bot' : 'user'}`}>
+                <div className="message-meta">
+                  {m.contentType === 'image' ? (
+                    <img
+                      src={m.mediaUrl}
+                      alt={m.content || '图片'}
+                      style={{ maxWidth: 220, borderRadius: 8, display: 'block' }}
+                    />
+                  ) : m.contentType === 'file' ? (
+                    <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="message-file">
+                      📎 {m.content || '文件'}
+                    </a>
+                  ) : (
+                    m.content
+                  )}
+                  <span style={{ color: 'var(--text-tertiary)', marginLeft: 8, fontSize: 11 }}>
+                    {m.createdAt.slice(11, 16)}
+                  </span>
+                </div>
               </div>
             </div>
           )

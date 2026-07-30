@@ -908,6 +908,20 @@
 .message.bot { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
 .message.user { align-self: flex-start; background: var(--surface-soft); border-bottom-left-radius: 4px; }
 .message-meta { white-space: pre-wrap; }
+/* 消息行：头像 + 气泡。inbound 头像在左，outbound 头像在右（与气泡方向一致）。 */
+.message-row { display: flex; align-items: flex-start; gap: 8px; max-width: 82%; }
+.message-row.inbound { align-self: flex-start; flex-direction: row; }
+.message-row.outbound { align-self: flex-end; flex-direction: row-reverse; }
+.message-row .message { max-width: 100%; align-self: auto; }
+.msg-avatar {
+  width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
+  flex: 0 0 32px; background: var(--surface-soft); display: block;
+}
+.msg-avatar-fallback {
+  width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px;
+  display: grid; place-items: center; background: var(--surface-soft);
+  color: var(--muted); font-size: 13px; font-weight: 700; user-select: none;
+}
 .chat-input-wrap { border-top: 1px solid var(--line); padding: 10px 12px; }
 .chat-input-wrap.hosting { position: relative; }
 .chat-toolbar { display: flex; gap: 4px; margin-bottom: 8px; }

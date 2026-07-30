@@ -1465,12 +1465,166 @@ def send_media_message(
 
 
 # ---- P2-4 实时回调 ----
+def _first_of(item: dict, *keys: str) -> Any:
+    """按优先级取首个非空字段值（兼容 camelCase / snake_case 双形态）。"""
+    for key in keys:
+        value = item.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _render_message_content(c: dict, msg_type: int) -> str:
+    """按 iPad 协议 msgType 从专属字段提取可读摘要，避免非文本消息显示空气泡。
+
+    协议来源：IPad协议API文档「下发-消息接收」章节。
+    """
+    # 纯文本：唯一使用 content 字段的消息类型。
+    if msg_type == 2:
+        return str(_first_of(c, "content", "text") or "")
+
+    # 系统/红包/通知类：优先取 msg 字段。
+    if msg_type in (1011, 1611, 10002):
+        msg = str(_first_of(c, "msg", "content_msg", "content_msg", "content") or "")
+        if msg:
+            return msg
+        if msg_type == 10002:
+            return "[撤回了一条消息]"
+        if msg_type == 1011:
+            return "[红包]"
+        return "[系统消息]"
+
+    # 位置
+    if msg_type == 6:
+        addr = _first_of(c, "detailed_address", "address", "detailedAddress")
+        if addr:
+            return f"[位置] {addr}"
+        return "[位置]"
+
+    # 名片
+    if msg_type == 41:
+        nickname = _first_of(c, "nickname", "nickName")
+        enterprise = _first_of(c, "enterpriseName", "enterprise_name", "company")
+        if nickname or enterprise:
+            return f"[名片] {nickname or ''}{' / ' + enterprise if enterprise else ''}".strip()
+        return "[名片]"
+
+    # 链接/图文
+    if msg_type == 13:
+        title = _first_of(c, "title", "url")
+        if title:
+            return f"[链接] {title}"
+        return "[链接]"
+
+    # 小程序
+    if msg_type == 78:
+        title = _first_of(c, "title", "appName", "app_name")
+        if title:
+            return f"[小程序] {title}"
+        return "[小程序]"
+
+    # 视频号
+    if msg_type == 141:
+        desc = _first_of(c, "desc", "description", "title")
+        if desc:
+            return f"[视频号] {desc}"
+        return "[视频号]"
+
+    # 文件
+    if msg_type in (102, 15):
+        fname = _first_of(c, "file_name", "fileName")
+        if fname:
+            return f"[文件] {fname}"
+        return "[文件]"
+
+    # 语音
+    if msg_type == 106:
+        return "[语音]"
+
+    # 视频
+    if msg_type in (103, 23):
+        return "[视频]"
+
+    # GIF/动态表情/图片（2001 为线上真实回调中遇到的动画表情）
+    if msg_type in (2001, 104, 101, 14):
+        if msg_type == 104:
+            return "[动画表情]"
+        if msg_type in (101, 14):
+            return "[图片]"
+        return "[表情]"
+
+    # 语音/视频通话
+    if msg_type == 50:
+        ctype = _first_of(c, "type", "callType")
+        if ctype:
+            return f"[通话] {ctype}"
+        return "[通话]"
+
+    # 接龙
+    if msg_type == 213:
+        title = _first_of(c, "title") or _first_of(c, "extraContent", "extra_content")
+        if isinstance(title, dict):
+            title = title.get("title") or title.get("content")
+        if title:
+            return f"[接龙] {title}"
+        return "[接龙]"
+
+    # 兜底：尝试常见文本字段，避免完全空白。
+    fallback = str(_first_of(c, "msg", "content_msg", "content", "text") or "")
+    return fallback
+
+
+def _account_own_remote_ids(account: dict) -> set[str]:
+    """收集托管账号自身的远程 id（vid / user_info），用于判定消息方向。
+
+    真实协议回调中 `sender` 为本账号 vid（1688...）时说明是手机端自己发出的
+    同步消息（direction=outbound），counterpart 应取 `receiver`。
+    """
+    own: set[str] = set()
+    vid = str(account.get("vid") or "").strip()
+    if vid:
+        own.add(vid)
+    try:
+        info = json.loads(account.get("ipad_user_info") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        info = {}
+    if isinstance(info, dict):
+        for key in ("vid", "user_id", "userId", "id"):
+            val = str(info.get(key) or "").strip()
+            if val:
+                own.add(val)
+    own.discard("0")
+    return own
+
+
+def _callback_created_at(send_time: int) -> str:
+    """回调消息落库时间：优先协议 send_time（epoch 秒），缺失回退当前时间。"""
+    if send_time > 0:
+        try:
+            return datetime.fromtimestamp(send_time).isoformat(timespec="seconds")
+        except (OSError, OverflowError, ValueError):
+            return _now()
+    return _now()
+
+
 def handle_callback(uuid: str, payload: object, type_: str) -> dict:
     """处理 iPad 实时回调推送（POST /wxwork/callback）。
 
-    解析 {uuid, json, type}，按 (conversation_id, server_id) 幂等落库新消息，
-    并更新对应会话未读。返回 upserted 计数。
+    真实协议形态（IPad协议API文档「下发-消息接收」）：外层 `{uuid, json, type}`，
+    `json` 为字符串需二次解码；消息体字段为 `sender/receiver/is_room/
+    room_conversation_id/server_id/msg_id/referid/send_time/content/msgType`。
+
+    关键约定（修复入站消息不显示 Bug）：落库 `conversation_id` 必须等于
+    `channel_sessions.id`（`{account_id}:{remote_session_id}`），与
+    `list_session_messages(session_id)` / `backfill_session_messages` 完全一致。
+    `referid != 0` 为对原消息的操作回调（如已读），不作为新消息插入。
     """
+    # 可观测性：完整记录原始回调负载，便于线上核对真实协议字段形态。
+    raw_repr = payload if isinstance(payload, str) else json.dumps(
+        payload, ensure_ascii=False, default=str
+    )
+    logger.info("iPad 回调入站 uuid=%s type=%s raw_json=%s", uuid, type_, raw_repr)
+
     repo = ChannelMgmtRepository(get_backend())
     account = repo._db.query_one(
         "SELECT * FROM channel_accounts WHERE ipad_uuid = ?", (uuid,)
@@ -1479,6 +1633,7 @@ def handle_callback(uuid: str, payload: object, type_: str) -> dict:
         logger.warning("回调账号未找到 uuid=%s", uuid)
         return {"ok": False, "upserted": 0, "message": "未知账号"}
     account_id = account["id"]
+    own_ids = _account_own_remote_ids(account)
 
     data = payload
     if isinstance(payload, str):
@@ -1488,43 +1643,86 @@ def handle_callback(uuid: str, payload: object, type_: str) -> dict:
             data = {}
     if not isinstance(data, dict):
         data = {}
+    # 兼容未剥外层包裹的形态：{uuid, json, type}，json 可能为字符串。
+    inner = data.get("json")
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except (json.JSONDecodeError, TypeError):
+            inner = None
+    if isinstance(inner, dict):
+        data = inner
 
     msgs = _extract_callback_messages(data, type_)
     upserted = 0
+    skipped = 0
     for m in msgs:
-        conv = (
-            m.get("conversation_id")
-            or m.get("room_id")
-            or m.get("session_id")
-            or m.get("conversationId")
-            or uuid
-        )
-        server_id = str(m.get("server_id") or m.get("id") or m.get("msgId") or m.get("seq") or "")
+        # referid != 0：对原消息的操作回调（已读等），跳过避免重复/错乱消息。
+        if m["referid"] != 0:
+            logger.info(
+                "iPad 回调跳过操作类消息 referid=%s server_id=%s", m["referid"], m["server_id"]
+            )
+            skipped += 1
+            continue
+
+        # 方向判定：sender 为本账号自身 id → 手机端发出的同步消息（outbound）。
+        sender = m["sender"]
+        is_outbound = bool(sender) and sender in own_ids
+
+        # 原始会话标识：群 = room id；1:1 = 对方 remote id（入站取 sender，出站取 receiver）。
+        if m["is_room"]:
+            remote_id = m["room_id"]
+        elif m["legacy_session_id"]:
+            remote_id = m["legacy_session_id"]
+        else:
+            remote_id = (m["receiver"] if is_outbound else sender) or m["receiver"] or sender
+        if not remote_id:
+            logger.warning("iPad 回调无法解析会话标识，跳过消息 raw=%s", m)
+            skipped += 1
+            continue
+
+        # 关键修复：conversation_id 使用会话 id（{account_id}:{remote_id}），
+        # 与前端拉取端点 list_session_messages(session_id) 的查询键一致。
+        session = repo.get_session_by_remote(account_id, remote_id)
+        conv = session["id"] if session else f"{account_id}:{remote_id}"
+
+        server_id = m["server_id"]
         if repo.message_exists(conv, server_id):
             continue
+        logger.info(
+            "iPad 回调落库 conv=%s server_id=%s direction=%s is_room=%s sender=%s",
+            conv, server_id, "outbound" if is_outbound else "inbound", m["is_room"], sender,
+        )
         msg = {
             "id": _generate_msg_id(conv, server_id),
             "conversation_id": conv,
             "sender_type": "user",
-            "content": m.get("content", ""),
+            "content": m["content"],
+            "created_at": _callback_created_at(m["send_time"]),
             "server_id": server_id,
-            "msg_type": _as_int(m.get("msg_type")),
-            "sender_id": str(m.get("sender") or m.get("user_id") or ""),
-            "direction": "inbound",
-            "content_type": m.get("content_type") or "text",
-            "media_url": m.get("media_url") or "",
-            "media_meta": m.get("media_meta") or {},
-            "is_read": 0,
+            "msg_type": m["msg_type"],
+            "sender_id": sender,
+            "direction": "outbound" if is_outbound else "inbound",
+            "content_type": m["content_type"],
+            "media_url": m["media_url"],
+            "media_meta": m["media_meta"],
+            "is_read": 1 if is_outbound else 0,
             "channel_account_id": account_id,
         }
         repo.upsert_channel_message(msg)
-        repo.increment_session_unread(conv, account_id)
+        if not is_outbound:
+            repo.increment_session_unread(conv, account_id)
         upserted += 1
-    return {"ok": True, "upserted": upserted}
+    return {"ok": True, "upserted": upserted, "skipped": skipped}
 
 
 def _extract_callback_messages(data: dict, type_: str) -> list[dict]:
-    """从回调负载中尽力提取消息列表（协议字段形状待联调，做兼容多种形态）。"""
+    """从回调负载中提取并归一化消息列表（兼容 camelCase / snake_case 双形态）。
+
+    真实协议消息体为单条平铺对象（`sender/receiver/is_room/...`）；同时保留
+    对 `msg/list/...` 包裹形态的兼容（联调期遗留形状）。输出字段均已归一化，
+    由 `handle_callback` 负责会话归属与方向判定。
+    """
     cands: list = []
     for key in ("msg", "message", "data", "list", "msgs", "messages"):
         v = data.get(key)
@@ -1534,23 +1732,67 @@ def _extract_callback_messages(data: dict, type_: str) -> list[dict]:
             cands.extend(v)
         elif isinstance(v, dict):
             cands.append(v)
-    if not cands and ("content" in data or "id" in data or "msgId" in data or "seq" in data):
+    # 真实协议：消息体即平铺对象本身（含 content/server_id/sender 等任一特征字段）。
+    if not cands and any(
+        k in data
+        for k in ("content", "id", "msgId", "msg_id", "seq", "server_id", "serverId", "sender")
+    ):
         cands.append(data)
+
     out: list[dict] = []
     for c in cands:
         if not isinstance(c, dict):
             continue
+        room_id = str(
+            _first_of(c, "room_conversation_id", "roomId", "room_id", "roomid") or ""
+        ).strip()
+        if room_id == "0":  # 协议中 "0" 表示非群消息
+            room_id = ""
+        is_room = bool(_as_int(_first_of(c, "is_room", "isRoom", "isroom"))) or bool(room_id)
+        receiver = str(_first_of(c, "receiver", "toUser", "to_user") or "").strip()
+        if receiver == "0":  # 群消息 receiver=0，无 1:1 对端语义
+            receiver = ""
+        media_url = str(
+            _first_of(
+                c, "media_url", "mediaUrl", "url", "file_id", "fileId",
+                "voice_url", "voiceUrl", "emotionUrl", "emotion_url",
+            )
+            or ""
+        )
+        content_type = str(_first_of(c, "content_type", "contentType") or "").strip()
+        msg_type = _as_int(_first_of(c, "msgType", "msg_type", "msgtype"))
+        if not content_type:
+            if media_url and not c.get("content"):
+                # 无文本但携带媒体：有文件名视为文件，否则视为图片（GIF/表情等）。
+                content_type = "file" if _first_of(c, "file_name", "fileName") else "image"
+            else:
+                content_type = "text"
         out.append(
             {
-                "conversation_id": c.get("session_id") or c.get("room_id") or c.get("conversationId"),
-                "server_id": c.get("server_id") or c.get("msgId") or c.get("seq"),
-                "id": c.get("id") or c.get("server_id") or c.get("msgId") or c.get("seq"),
-                "content": c.get("content") or c.get("text") or "",
-                "msg_type": c.get("msg_type") or c.get("msgType") or 0,
-                "sender": c.get("sender") or c.get("user_id") or c.get("fromUser"),
-                "content_type": c.get("content_type") or c.get("contentType") or "text",
-                "media_url": c.get("media_url") or c.get("url") or "",
-                "media_meta": c.get("media_meta") or {},
+                "legacy_session_id": str(
+                    _first_of(c, "session_id", "sessionId", "conversationId", "conversation_id")
+                    or ""
+                ).strip(),
+                "room_id": room_id,
+                "is_room": is_room,
+                "sender": str(
+                    _first_of(c, "sender", "fromUser", "fromUserId", "from_user", "user_id")
+                    or ""
+                ).strip(),
+                "receiver": receiver,
+                "server_id": str(
+                    _first_of(c, "server_id", "serverId", "newMsgId", "msgId", "msg_id", "seq", "id")
+                    or ""
+                ).strip(),
+                "content": _render_message_content(c, msg_type),
+                "msg_type": msg_type,
+                "referid": _as_int(_first_of(c, "referid", "referId", "refer_id")),
+                "send_time": _as_int(
+                    _first_of(c, "send_time", "sendTime", "createTime", "create_time")
+                ),
+                "content_type": content_type,
+                "media_url": media_url,
+                "media_meta": c.get("media_meta") or c.get("mediaMeta") or {},
             }
         )
     return out

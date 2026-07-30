@@ -397,6 +397,8 @@ export interface MessageExtDTO {
   serverId: string
   msgType: number
   senderId: string
+  /** 发送者头像 URL（后端由账号/联系人/群成员头像解析；旧数据或未同步时为空串）。 */
+  senderAvatar?: string
   direction: 'inbound' | 'outbound' | string
   contentType: 'text' | 'image' | 'file' | string
   mediaUrl: string
