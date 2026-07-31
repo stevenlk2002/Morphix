@@ -4,9 +4,22 @@
  * - 演示环境用于反馈「功能未接入 / 已上线」等占位提示。
  */
 
+/** 提示级别：默认 info（深色），warning/error/success 使用语义色以强调。 */
+export type ToastLevel = 'info' | 'success' | 'warning' | 'error'
+
 interface ToastOptions {
   /** 展示时长（ms），默认 1800。 */
   duration?: number
+  /** 提示级别，默认 'info'。 */
+  level?: ToastLevel
+}
+
+/** 各级别的背景色（内联样式，避免依赖全局 CSS）。 */
+const LEVEL_BACKGROUND: Record<ToastLevel, string> = {
+  info: '#102033',
+  success: '#16a34a',
+  warning: '#f59e0b',
+  error: '#ef4444',
 }
 
 /** 取得（或创建）toast 容器节点。 */
@@ -30,11 +43,12 @@ function getToastContainer(): HTMLElement {
  */
 export function toast(message: string, options: ToastOptions = {}): void {
   const duration = options.duration ?? 1800
+  const background = LEVEL_BACKGROUND[options.level ?? 'info']
   const container = getToastContainer()
   const el = document.createElement('div')
   el.textContent = message
   el.style.cssText =
-    'max-width:320px;padding:10px 14px;border-radius:12px;background:#102033;color:#fff;' +
+    `max-width:320px;padding:10px 14px;border-radius:12px;background:${background};color:#fff;` +
     'box-shadow:0 8px 24px rgba(15,40,90,0.18);font-size:13px;line-height:1.5;opacity:0;' +
     'transform:translateY(-6px);transition:opacity 180ms ease,transform 180ms ease;pointer-events:auto;'
   container.appendChild(el)

@@ -213,6 +213,8 @@ export interface WechatSubjectDTO {
 export interface HostingBotDTO {
   id: string
   name: string
+  /** 机器人头像：http(s) 开头按图片渲染，其余（如 emoji / 空）走内置机器人图标。 */
+  avatar?: string
 }
 
 /** 创建/更新企微主体请求体。 */

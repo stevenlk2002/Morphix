@@ -8,6 +8,7 @@ import {
   LocateFixed,
   UsersRound,
   CheckCheck,
+  Bot,
 } from 'lucide-react'
 import { channelsApi, ApiClientError } from '../../api/client'
 import type {
@@ -36,6 +37,30 @@ import './Channels.css'
 import { useSearchParams } from 'react-router-dom'
 
 const DEFAULT_DETAIL_WIDTH = 360
+
+interface HostedBotBadgeProps {
+  session: SessionDTO
+  bots: HostingBotDTO[]
+}
+
+/**
+ * 会话卡片上的托管机器人头像徽标。
+ *
+ * 仅在会话处于「已托管」且已指定机器人时渲染；取消托管后自动消失。
+ * 机器人 avatar 为 http(s) 图片时优先渲染图片，否则回退为内置机器人图标。
+ */
+function HostedBotBadge({ session, bots }: HostedBotBadgeProps) {
+  if (session.hostedStatus !== 'hosted' || !session.hostedBotId) return null
+  const bot = bots.find((b) => b.id === session.hostedBotId)
+  const botName = bot?.name ?? session.hostedBotId
+  const avatar = bot?.avatar ?? ''
+  const isImageAvatar = /^https?:\/\//i.test(avatar)
+  return (
+    <span className="session-row-bot-badge" title={`已托管：${botName}`} aria-label={`已托管：${botName}`}>
+      {isImageAvatar ? <img src={avatar} alt={botName} /> : <Bot size={14} />}
+    </span>
+  )
+}
 
 export default function ChannelSessionsPage() {
   const [teams, setTeams] = useState<TeamDTO[]>([])
@@ -577,6 +602,7 @@ export default function ChannelSessionsPage() {
                       <span className="session-row-name">{s.name}</span>
                       {s.sessionType === '群聊' && <span className="session-row-type">群</span>}
                       {s.externalTag && <span className="session-row-tag">{s.externalTag}</span>}
+                      <HostedBotBadge session={s} bots={bots} />
                     </div>
                     <span className="session-row-time">{s.lastTime}</span>
                   </div>

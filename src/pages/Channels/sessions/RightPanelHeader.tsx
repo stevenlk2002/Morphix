@@ -54,11 +54,17 @@ export default function RightPanelHeader({
 
   const toggleHosting = async (checked: boolean) => {
     if (!session) return
+    // 前置校验：开启托管必须先在下拉框选择机器人（后端同样拦截，双重防御）。
+    if (checked && !session.hostedBotId) {
+      toast('请先选择机器人', { level: 'warning', duration: 2400 })
+      return
+    }
     setBusy(true)
     try {
       const next = await channelsApi.setSessionHosting(session.id, {
+        // 关闭托管时保留已选机器人，避免再次开启时被判定为「未选择机器人」。
         hosted: checked,
-        botId: checked ? session.hostedBotId || undefined : null,
+        botId: session.hostedBotId || null,
       })
       onHostingChange(next)
     } catch (e) {

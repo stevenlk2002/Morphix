@@ -10,11 +10,18 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from ..database import get_backend
-from ..repositories import ChannelMgmtRepository, CustomerRepository, BotRepository, assert_online_bot
+from ..repositories import (
+    ChannelMgmtRepository,
+    CustomerRepository,
+    BotRepository,
+    assert_online_bot,
+    normalize_hosting_bot_id,
+    HOSTING_BOT_REQUIRED_MSG,
+)
 from ..schemas import (
     AccountDefaultBotsRequest,
     AccountStatusRequest,
@@ -178,10 +185,20 @@ def list_session_messages(session_id: str):
 
 @router.post("/sessions/{session_id}/hosting")
 def set_session_hosting(session_id: str, payload: SessionHostingRequest):
-    """开启/关闭会话机器人托管 + 选择机器人。"""
-    return ChannelMgmtRepository(get_backend()).set_session_hosting(
-        session_id, payload.hosted, payload.botId
-    )
+    """开启/关闭会话机器人托管 + 选择机器人。
+
+    前置校验（与前端 toast 双重防御）：开启托管（hosted=True）必须携带有效
+    botId，空串 / 纯空白 / 未知机器人一律 400；关闭托管无需 botId。
+    """
+    bot_id = normalize_hosting_bot_id(payload.botId)
+    if payload.hosted and bot_id is None:
+        raise HTTPException(status_code=400, detail=HOSTING_BOT_REQUIRED_MSG)
+    try:
+        return ChannelMgmtRepository(get_backend()).set_session_hosting(
+            session_id, payload.hosted, bot_id
+        )
+    except ValueError as exc:  # 仓储层校验（机器人不存在等）统一转 400
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/hosting-sessions")

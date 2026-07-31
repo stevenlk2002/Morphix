@@ -1110,11 +1110,59 @@ class MessageLogRepository:
 
 
 # ---- 渠道会话管理域：托管可选机器人（静态配置，非表） ----
+# `avatar` 为机器人头像标识：非 http(s) 开头时前端按内置机器人图标
+# （lucide `Bot` + 橘色圆底）渲染；http(s) 开头时按图片 URL 渲染。
 HOSTING_BOTS: list[dict] = [
-    {"id": "yefengqiu", "name": "野风秋大健康机器人"},
-    {"id": "yangqicheng", "name": "杨奇成健康机器人"},
-    {"id": "zhulu", "name": "竹绿健康助手"},
+    {"id": "yefengqiu", "name": "野风秋大健康机器人", "avatar": "🤖"},
+    {"id": "yangqicheng", "name": "杨奇成健康机器人", "avatar": "🤖"},
+    {"id": "zhulu", "name": "竹绿健康助手", "avatar": "🤖"},
 ]
+
+# 托管开关前置校验文案（后端唯一来源，与前端 toast 文案保持一致）。
+HOSTING_BOT_REQUIRED_MSG = "请先选择机器人"
+HOSTING_BOT_UNKNOWN_MSG = "机器人不存在"
+
+
+def normalize_hosting_bot_id(bot_id: str | None) -> str | None:
+    """归一化托管机器人 id：去首尾空白；空串统一转 None。
+
+    Args:
+        bot_id: 原始机器人 id（可能为 None / 空串 / 纯空白）。
+
+    Returns:
+        去空白后的机器人 id；空值返回 None。
+    """
+    if not isinstance(bot_id, str):
+        return None
+    trimmed = bot_id.strip()
+    return trimmed or None
+
+
+def assert_hosting_bot(hosted: bool, bot_id: str | None) -> str | None:
+    """校验「开启托管必须先选择机器人」（Router / Repository 共用的唯一来源）。
+
+    - `hosted=False`：关闭托管无需机器人，仅做归一化后原样返回。
+    - `hosted=True` 且机器人为空/纯空白 → 抛 ValueError("请先选择机器人")。
+    - `hosted=True` 且机器人不在 `HOSTING_BOTS` 中 → 抛 ValueError("机器人不存在")。
+
+    Args:
+        hosted: 是否开启托管。
+        bot_id: 托管机器人 id（可能为 None / 空串 / 纯空白）。
+
+    Returns:
+        归一化后的机器人 id（None 表示未指定）。
+
+    Raises:
+        ValueError: 校验不通过；路由层捕获后转 400。
+    """
+    normalized = normalize_hosting_bot_id(bot_id)
+    if not hosted:
+        return normalized
+    if normalized is None:
+        raise ValueError(HOSTING_BOT_REQUIRED_MSG)
+    if not any(bot["id"] == normalized for bot in HOSTING_BOTS):
+        raise ValueError(HOSTING_BOT_UNKNOWN_MSG)
+    return normalized
 
 
 # ---- 行 -> DTO 映射（snake_case -> camelCase） ----
@@ -1712,10 +1760,24 @@ class ChannelMgmtRepository:
         ]
 
     def set_session_hosting(self, session_id: str, hosted: bool, bot_id: str | None) -> dict | None:
+        """开启/关闭会话机器人托管，并同步托管机器人。
+
+        Args:
+            session_id: 会话 id。
+            hosted: True 开启托管，False 关闭托管。
+            bot_id: 托管机器人 id；None / 空串表示未指定。
+
+        Returns:
+            更新后的会话 DTO；会话不存在时返回 None。
+
+        Raises:
+            ValueError: 开启托管但未选择（或选择了未知的）机器人；路由层转 400。
+        """
+        normalized_bot_id = assert_hosting_bot(hosted, bot_id)
         hosted_status = "hosted" if hosted else "unhosted"
         self._db.execute(
             "UPDATE channel_sessions SET hosted_status = ?, hosted_bot_id = ? WHERE id = ?",
-            (hosted_status, bot_id, session_id),
+            (hosted_status, normalized_bot_id, session_id),
         )
         row = self._db.query_one("SELECT * FROM channel_sessions WHERE id = ?", (session_id,))
         return row_to_session(row) if row else None

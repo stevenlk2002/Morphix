@@ -145,6 +145,13 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
         typeof (errJson as { message?: unknown }).message === 'string'
       ) {
         message = (errJson as { message: string }).message
+      } else if (
+        errJson &&
+        typeof errJson === 'object' &&
+        typeof (errJson as { detail?: unknown }).detail === 'string'
+      ) {
+        // FastAPI HTTPException 形态：{ "detail": "错误文案" }
+        message = (errJson as { detail: string }).detail
       }
     } catch {
       /* 忽略解析错误，保留默认信息 */
