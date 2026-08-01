@@ -315,6 +315,11 @@ export interface GroupDetailDTO {
   total: number
 }
 
+/** iPad 协议：群二维码响应。 */
+export interface GroupQrcodeDTO {
+  qrCodeUrl: string
+}
+
 /** iPad 协议：同步触发响应。 */
 export interface SyncResultDTO {
   started?: boolean

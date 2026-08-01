@@ -448,6 +448,22 @@ def dismiss_group(account_id: str, room_id: str) -> dict:
     return {"dismissed": True, "groupId": g["id"]}
 
 
+def get_group_qrcode(account_id: str, room_id: str) -> dict:
+    """获取群二维码图片 URL（调用 iPad 协议 WxRoomInvite）。
+
+    返回 `{"qrCodeUrl": str}`；协议未返回时 `qrCodeUrl` 为空串。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    account = repo.get_account_by_id(account_id)
+    if not account:
+        raise IPadSyncError("账号不存在")
+    uuid = account.get("ipadUuid", "")
+    if not uuid:
+        raise IPadSyncError("该账号未绑定 iPad 协议实例")
+    res = ipad_client.wx_room_invite(uuid, room_id)
+    return {"qrCodeUrl": res.get("qr_code_path") or ""}
+
+
 def mark_sessions_read_local(
     account_id: str, session_ids: list[str] | None = None
 ) -> dict:

@@ -30,6 +30,9 @@ export default function GroupManagementPanel({
   const [pickerKw, setPickerKw] = useState('')
   const [noticeOpen, setNoticeOpen] = useState(false)
   const [noticeText, setNoticeText] = useState(group?.noticeContent ?? '')
+  const [qrOpen, setQrOpen] = useState(false)
+  const [qrUrl, setQrUrl] = useState('')
+  const [qrBusy, setQrBusy] = useState(false)
 
   if (!group) {
     return (
@@ -134,6 +137,23 @@ export default function GroupManagementPanel({
     }
   }
 
+  const openGroupQr = async () => {
+    if (qrOpen) {
+      setQrOpen(false)
+      return
+    }
+    setQrBusy(true)
+    try {
+      const res = await channelsApi.getGroupQrcode(accountId, group.roomId)
+      setQrUrl(res.qrCodeUrl || '')
+      setQrOpen(true)
+    } catch (e) {
+      toast(`获取群二维码失败：${errText(e)}`)
+    } finally {
+      setQrBusy(false)
+    }
+  }
+
   const ownerName = members[0]?.nickname || members[0]?.realname || group.name.split(/[、,，\s]/)[0]
 
   return (
@@ -144,7 +164,14 @@ export default function GroupManagementPanel({
           <div className="group-panel-name">{group.name}</div>
           <div className="group-panel-meta">
             <span className="group-panel-tag">{group.groupType === 'internal_group' ? '内部群' : '外部群'}</span>
-            <QrCode size={14} className="group-panel-qr" />
+            <button
+              className="btn-icon group-panel-qr"
+              title="群二维码"
+              onClick={openGroupQr}
+              disabled={qrBusy}
+            >
+              <QrCode size={14} />
+            </button>
           </div>
         </div>
       </div>
@@ -276,6 +303,25 @@ export default function GroupManagementPanel({
             <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost btn-sm" onClick={() => setNoticeOpen(false)} disabled={busy}>取消</button>
               <button className="btn btn-primary btn-sm" onClick={saveNotice} disabled={busy}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 群二维码弹窗 */}
+      {qrOpen && (
+        <div className="modal-overlay" onMouseDown={() => setQrOpen(false)}>
+          <div className="modal-panel" onMouseDown={(e) => e.stopPropagation()} style={{ width: 'min(320px, calc(100vw - 32px))' }}>
+            <div className="modal-header">
+              <h3>群二维码</h3>
+              <button className="modal-close" onClick={() => setQrOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ textAlign: 'center', padding: '24px 0' }}>
+              {qrUrl ? (
+                <img src={qrUrl} alt="群二维码" style={{ maxWidth: '100%', width: 220, borderRadius: 8 }} />
+              ) : (
+                <div style={{ color: 'var(--muted)' }}>暂无二维码</div>
+              )}
             </div>
           </div>
         </div>

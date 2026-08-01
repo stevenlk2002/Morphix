@@ -1620,7 +1620,8 @@
   color: var(--blue);
   font-weight: 700;
 }
-.group-panel-qr { color: var(--muted); cursor: pointer; }
+.group-panel-qr { color: var(--muted); cursor: pointer; padding: 0; }
+.group-panel-qr:disabled { opacity: 0.5; cursor: default; }
 .group-panel-line {
   font-size: 12px;
   color: var(--muted);

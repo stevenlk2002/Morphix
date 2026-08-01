@@ -412,6 +412,11 @@ class GroupDetailDTO(BaseModel):
     total: int = 0
 
 
+class GroupQrcodeDTO(BaseModel):
+    """群二维码响应。"""
+    qrCodeUrl: str = ""
+
+
 class SyncResultDTO(BaseModel):
     """手动同步触发响应。"""
     started: bool = False

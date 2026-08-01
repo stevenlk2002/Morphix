@@ -33,6 +33,7 @@ from ..schemas import (
     GroupDTO,
     GroupDetailDTO,
     GroupMemberDTO,
+    GroupQrcodeDTO,
     LabelDTO,
     LabelSyncResultDTO,
     MessageExtDTO,
@@ -393,6 +394,18 @@ def dismiss_group_endpoint(account_id: str, room_id: str):
         return JSONResponse(status_code=404, content={"message": "账号不存在"})
     try:
         return ipad_sync.dismiss_group(account_id, room_id)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+@router.get("/{account_id}/group/{room_id}/qrcode", response_model=GroupQrcodeDTO)
+def get_group_qrcode_endpoint(account_id: str, room_id: str):
+    """获取群二维码图片 URL。"""
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    try:
+        return ipad_sync.get_group_qrcode(account_id, room_id)
     except ipad_sync.IPadSyncError as exc:
         return JSONResponse(status_code=400, content={"message": str(exc)})
 

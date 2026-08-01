@@ -32,6 +32,7 @@ import type {
   WecomHostPollResp,
   GroupDTO,
   GroupDetailDTO,
+  GroupQrcodeDTO,
   SyncResultDTO,
   SyncStatusDTO,
   SendTextResultDTO,
@@ -361,6 +362,8 @@ export const channelsApi = {
     api.delete<{ dismissed: boolean; groupId: string }>(
       `/channels/${accountId}/group/${roomId}`
     ),
+  getGroupQrcode: (accountId: string, roomId: string) =>
+    api.get<GroupQrcodeDTO>(`/channels/${accountId}/group/${roomId}/qrcode`),
 
   // ---- P1-1 标签同步 / 查询 ----
   /** 手动触发 iPad 标签同步（企业标签 + 个人标签，决策 #8）。 */
