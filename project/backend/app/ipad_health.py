@@ -8,10 +8,19 @@
   （默认 3）后标记 offline/error，并尝试自动重连：init(vid) 取得新 uuid →
   automaticLogin，成功则持久化新 uuid 并恢复 online/hosted，并重触发全量同步 +
   回调注册；失败（无 vid 或实例已死）则保持 offline，等待用户在前端手动重新扫码。
+- 账号健康时，额外「确保实时回调已注册」（_ensure_callback）：首次巡检、回调地址
+  变更或超过重注册周期时重发 SetCallbackUrl。
 
 说明：uuid 由第三方 iPad 协议服务颁发与回收，本服务无法令其永久有效；自动重连
 仅在「第三方实例仍在线、仅本服务重启/网络抖动」场景生效，实例彻底掉线时需用户
 重新扫码（前端 hostStatus=='error' 会提示重扫）。
+
+入向消息断裂修复（回调重注册）：
+`SetCallbackUrl` 此前仅在「托管首次创建」与「掉线自动重连成功」两条路径触发。
+后端重启（launchd KeepAlive 会频繁重启）或内网穿透隧道掉线再恢复后，协议侧回调
+地址可能已失效/被丢弃，而账号本身一直 CONNECTED，永远走不到重连分支 →
+入向消息永久性收不到，必须人工重扫码。本模块因此在健康分支补上周期性
+「确保注册」，使隧道恢复后入向链路可自愈。
 """
 from __future__ import annotations
 
@@ -28,8 +37,16 @@ logger = logging.getLogger(__name__)
 
 # 每账号连续失败计数（进程内）
 _failures: dict[str, int] = {}
+# 每账号回调注册状态（进程内）：account_id -> {"key", "at", "ok", "message"}
+# key = f"{uuid}|{public_url}|{callback_type}"，任一变化都必须重新注册。
+_callback_state: dict[str, dict] = {}
 _lock = threading.Lock()
 _running = False
+
+
+def _callback_key(uuid: str, url: str, callback_type: str) -> str:
+    """回调注册身份键：uuid / 公网地址 / 回调类型任一变化都需重新注册。"""
+    return f"{uuid}|{url}|{callback_type}"
 
 
 def _healthy(long_link_state: str, login_type: int) -> bool:
@@ -39,6 +56,81 @@ def _healthy(long_link_state: str, login_type: int) -> bool:
 
 def _mark(rec: dict, status: str, host_status: str) -> None:
     ChannelMgmtRepository(get_backend()).update_account_health(rec["id"], status, host_status)
+
+
+def _needs_callback_register(account_id: str, key: str, now: float) -> bool:
+    """判断是否需要（重新）向协议服务注册回调地址。
+
+    触发条件（任一满足）：
+    1. 本进程尚未成功注册过该账号（后端重启后必然命中，覆盖 launchd 频繁重启场景）；
+    2. 注册身份键变化（uuid 轮换 / IPAD_CALLBACK_PUBLIC_URL 改成新隧道域名）；
+    3. 上次注册失败（隧道断开时协议侧校验失败）→ 每个巡检周期重试，隧道恢复即自愈；
+    4. 距上次成功注册已超过重注册周期（默认 600s）→ 周期性刷新，防协议侧静默失效。
+
+    Args:
+        account_id: 渠道账号 id。
+        key: `_callback_key()` 生成的注册身份键。
+        now: 当前单调时间戳（秒）。
+
+    Returns:
+        需要注册返回 True。
+    """
+    with _lock:
+        state = _callback_state.get(account_id)
+    if state is None or state.get("key") != key or not state.get("ok"):
+        return True
+    interval = settings.ipad_callback_reregister_interval_sec
+    if interval <= 0:
+        return False
+    return (now - float(state.get("at", 0.0))) >= interval
+
+
+def _ensure_callback(rec: dict) -> None:
+    """账号健康时确保实时回调已注册（幂等、失败不影响账号健康状态）。
+
+    未配置 IPAD_CALLBACK_PUBLIC_URL 时直接跳过（降级为「仅手动同步」，PRD §5 #5）。
+    注册失败仅记录状态与日志：回调注册失败不等于账号掉线，不得触发 offline 标记。
+
+    Args:
+        rec: `list_ipad_hosted_accounts()` 返回的账号快照（含 id / ipadUuid）。
+    """
+    public_url = (settings.ipad_callback_public_url or "").strip()
+    if not public_url:
+        return
+    account_id = rec["id"]
+    uuid = rec.get("ipadUuid", "")
+    callback_type = (settings.ipad_callback_type or "HTTP").upper()
+    key = _callback_key(uuid, public_url, callback_type)
+    now = time.monotonic()
+    if not _needs_callback_register(account_id, key, now):
+        return
+    try:
+        res = ipad_sync.register_callback(account_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("确保回调注册异常 account=%s", account_id)
+        res = {"registered": False, "message": str(exc)}
+    ok = bool(res.get("registered"))
+    with _lock:
+        _callback_state[account_id] = {
+            "key": key,
+            "at": now,
+            "ok": ok,
+            "message": str(res.get("message") or ""),
+            "url": public_url,
+        }
+    if ok:
+        logger.info("回调地址已注册/刷新 account=%s url=%s", account_id, public_url)
+    else:
+        logger.warning(
+            "回调地址注册失败 account=%s url=%s reason=%s（隧道恢复后下轮巡检自动重试）",
+            account_id, public_url, res.get("message"),
+        )
+
+
+def _forget_callback(account_id: str) -> None:
+    """清除进程内回调注册记忆，使下轮巡检强制重新注册。"""
+    with _lock:
+        _callback_state.pop(account_id, None)
 
 
 def _recover(rec: dict) -> bool:
@@ -60,6 +152,8 @@ def _recover(rec: dict) -> bool:
             logger.warning("账号 %s 自动登录失败: %s", rec["id"], login.get("errmsg"))
             return False
         repo.update_account_health(rec["id"], "online", "hosted")
+        # uuid 已轮换，进程内注册记忆失效，强制下轮重新注册。
+        _forget_callback(rec["id"])
         try:
             ipad_sync.trigger_sync(rec["id"])
         except Exception:  # noqa: BLE001
@@ -97,6 +191,9 @@ def _tick(fail_threshold: int) -> None:
                     _failures[rec["id"]] = 0
                 if rec.get("status") != "online" or rec.get("hostStatus") != "hosted":
                     _mark(rec, "online", "hosted")
+                # 长连接健康 ≠ 回调可用：后端重启 / 隧道掉线恢复后需补注册回调，
+                # 否则入向消息永久断裂（本次 Bug 根因之一）。
+                _ensure_callback(rec)
                 continue
             raise ipad_client.IPadProtocolError(f"长连接未就绪: {lls}/loginType={lt}")
         except ipad_client.IPadProtocolError:
@@ -143,6 +240,7 @@ def get_health_snapshot() -> list[dict]:
     for rec in accounts:
         with _lock:
             fails = _failures.get(rec["id"], 0)
+            cb = dict(_callback_state.get(rec["id"]) or {})
         snap.append({
             "id": rec["id"],
             "name": rec["name"],
@@ -150,5 +248,35 @@ def get_health_snapshot() -> list[dict]:
             "status": rec.get("status", ""),
             "hostStatus": rec.get("hostStatus", ""),
             "consecutiveFailures": fails,
+            # 入向链路可观测性：回调是否已成功注册到协议服务。
+            # callbackRegistered=False 时入向消息不会到达（多为隧道断开）。
+            "callbackConfiguredUrl": (settings.ipad_callback_public_url or "").strip(),
+            "callbackRegistered": bool(cb.get("ok")),
+            "callbackMessage": cb.get("message", ""),
         })
     return snap
+
+
+def ensure_callback_now(account_id: str) -> dict:
+    """立即为指定账号强制重注册回调（运维/自测入口，绕过周期与缓存）。
+
+    Args:
+        account_id: 渠道账号 id。
+
+    Returns:
+        `ipad_sync.register_callback` 的原始结果字典。
+    """
+    _forget_callback(account_id)
+    repo = ChannelMgmtRepository(get_backend())
+    rec = repo.get_account_by_id(account_id)
+    if not rec:
+        return {"ok": False, "registered": False, "message": "账号不存在"}
+    _ensure_callback(rec)
+    with _lock:
+        state = dict(_callback_state.get(account_id) or {})
+    return {
+        "ok": bool(state.get("ok")),
+        "registered": bool(state.get("ok")),
+        "url": state.get("url", ""),
+        "message": state.get("message", ""),
+    }

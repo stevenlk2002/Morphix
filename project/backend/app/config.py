@@ -91,6 +91,15 @@ class Settings:
     ipad_callback_type: str = field(
         default_factory=lambda: _env("IPAD_CALLBACK_TYPE", "HTTP")
     )
+    # 回调地址重注册周期（秒）：健康巡检对在线账号周期性重发 SetCallbackUrl。
+    # 目的（入向消息断裂修复）：
+    # - 后端重启后进程内无「已注册」记忆，需重新确保协议侧回调仍指向本服务；
+    # - 内网穿透隧道掉线期间协议侧可能丢弃回调地址，隧道恢复后需自动补注册，
+    #   避免必须人工重扫码才能恢复入向消息。
+    # 设为 0 表示只在「首次/地址变更」时注册，不做周期性刷新。
+    ipad_callback_reregister_interval_sec: int = field(
+        default_factory=lambda: int(_env("IPAD_CALLBACK_REREGISTER_INTERVAL_SEC", "600"))
+    )
     # ---- iPad 健康巡检 ----
     # 巡检间隔（秒）：周期性对每个托管 iPad 账号调 GetRunClientInfo 探活。
     ipad_health_check_interval_sec: int = field(

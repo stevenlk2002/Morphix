@@ -228,3 +228,21 @@ def wecom_health() -> dict:
     from .. import ipad_health
 
     return {"accounts": ipad_health.get_health_snapshot()}
+
+
+@router.post("/{account_id}/callback/register")
+def wecom_register_callback(account_id: str) -> dict:
+    """立即为账号重注册实时回调地址（入向消息恢复入口）。
+
+    使用场景：内网穿透隧道恢复后无需等待巡检周期，手动一键补注册。
+    健康巡检也会在账号在线时周期性自动执行同样的动作。
+
+    Args:
+        account_id: 渠道账号 id。
+
+    Returns:
+        `{ok, registered, url, message}`。
+    """
+    from .. import ipad_health
+
+    return ipad_health.ensure_callback_now(account_id)
