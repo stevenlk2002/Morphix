@@ -14,6 +14,7 @@ from app.database import SQLiteBackend, set_backend
 import app.database as _db_mod
 from app.main import app
 from app.repositories import ChannelMgmtRepository
+from app import ipad_sync as ipad_sync_mod
 
 client = TestClient(app)
 
@@ -53,13 +54,38 @@ def _mock_wx_room_invite(monkeypatch, qr_code_path: str):
 # 成功：返回二维码 URL
 # --------------------------------------------------------------------------- #
 def test_get_group_qrcode_success(monkeypatch, account):
-    _mock_wx_room_invite(monkeypatch, "http://example.com/qr.jpg")
+    _mock_wx_room_invite(monkeypatch, "http://47.94.7.218:8083/RoomQrCode/abc.jpg")
     resp = client.get(
         f"/api/channels/{account['id']}/group/room_g01/qrcode"
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["qrCodeUrl"] == "http://example.com/qr.jpg"
+    assert data["qrCodeUrl"] == "http://47.94.7.218:9912/RoomQrCode/abc.jpg"
+
+
+# --------------------------------------------------------------------------- #
+# _rewrite_qrcode_host 单元覆盖
+# --------------------------------------------------------------------------- #
+def test_rewrite_qrcode_host_rewrites_netloc():
+    assert (
+        ipad_sync_mod._rewrite_qrcode_host("http://47.94.7.218:8083/RoomQrCode/x.jpg")
+        == "http://47.94.7.218:9912/RoomQrCode/x.jpg"
+    )
+
+
+def test_rewrite_qrcode_host_keeps_query():
+    assert (
+        ipad_sync_mod._rewrite_qrcode_host("http://47.94.7.218:8083/RoomQrCode/x.jpg?a=1")
+        == "http://47.94.7.218:9912/RoomQrCode/x.jpg?a=1"
+    )
+
+
+def test_rewrite_qrcode_host_empty():
+    assert ipad_sync_mod._rewrite_qrcode_host("") == ""
+
+
+def test_rewrite_qrcode_host_non_url():
+    assert ipad_sync_mod._rewrite_qrcode_host("not-a-url") == "not-a-url"
 
 
 # --------------------------------------------------------------------------- #

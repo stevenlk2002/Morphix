@@ -22,6 +22,7 @@ import logging
 import re
 import threading
 from datetime import datetime
+from urllib.parse import urlparse, urlunparse
 from typing import Any
 
 from . import ipad_client
@@ -448,6 +449,28 @@ def dismiss_group(account_id: str, room_id: str) -> dict:
     return {"dismissed": True, "groupId": g["id"]}
 
 
+def _rewrite_qrcode_host(url: str) -> str:
+    """将协议返回的二维码图片 URL 的 host:port 改写为 iPad 协议 API 同址。
+
+    协议 WxRoomInvite 返回的 QrCodePath 常指向内网 :8083；当部署环境与 :8083 不通、
+    但 :9912（API 端口，即 settings.ipad_protocol_base_url）可达时，统一改写为 API 同址，
+    确保前端 <img> 能加载。
+    """
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+        if not parsed.netloc:
+            return url
+        base = urlparse(settings.ipad_protocol_base_url or "")
+        new_netloc = base.netloc or parsed.netloc
+        return urlunparse(
+            (parsed.scheme or "http", new_netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+        )
+    except Exception:
+        return url
+
+
 def get_group_qrcode(account_id: str, room_id: str) -> dict:
     """获取群二维码图片 URL（调用 iPad 协议 WxRoomInvite）。
 
@@ -461,7 +484,7 @@ def get_group_qrcode(account_id: str, room_id: str) -> dict:
     if not uuid:
         raise IPadSyncError("该账号未绑定 iPad 协议实例")
     res = ipad_client.wx_room_invite(uuid, room_id)
-    return {"qrCodeUrl": res.get("qr_code_path") or ""}
+    return {"qrCodeUrl": _rewrite_qrcode_host(res.get("qr_code_path") or "")}
 
 
 def mark_sessions_read_local(
