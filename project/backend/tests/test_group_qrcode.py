@@ -6,9 +6,12 @@
 - httpx 显式禁用代理（trust_env=False），防止 launchd 环境变量注入导致请求被拦截
 - Content-Type 基于文件头魔数嗅探（协议服务器声称 JPEG 实际返回 PNG）
 
-QA 回归后补充（缺陷 #1 越权修复）：
+QA 回归后补充（缺陷 #1 群归属校验）：
 - 二维码链路新增群归属校验（`_resolve_group`），因此所有用例的 room_id
   必须真实存在于 `channel_groups`，否则一律 404「群不存在」。
+- 定性（QA 复验修正）：`roomid=0` 时协议回吐的是**同账号名下另一个群**的二维码，
+  属正确性缺陷（静默拿错群），非跨账号越权；跨账号隔离由 repo 层 SQL 保证，
+  已由 `test_cross_account_isolation` 锁定。
 """
 from __future__ import annotations
 
@@ -253,7 +256,7 @@ def test_no_rewrite_behavior(monkeypatch, account):
 
 
 # --------------------------------------------------------------------------- #
-# 缺陷 #1：群归属校验（越权取图）
+# 缺陷 #1：群归属校验（防止静默拿错群 + 跨账号隔离）
 # --------------------------------------------------------------------------- #
 def test_get_group_qrcode_404_group_not_owned(monkeypatch, account):
     """请求不属于本账号（或压根不存在）的 room_id → 404，且不得调用协议。"""
@@ -297,6 +300,42 @@ def test_resolve_qrcode_urls_enforces_ownership(backend, monkeypatch, account):
     with pytest.raises(ipad_sync_mod.IPadSyncError) as ei:
         ipad_sync_mod._resolve_qrcode_urls(account["id"], "abc-not-a-number")
     assert "群不存在" in str(ei.value)
+
+
+def test_cross_account_isolation(backend, monkeypatch, account):
+    """跨账号隔离：B 账号拿 A 账号的 room_id 取码必须被拒，且协议零调用。
+
+    QA 复验实证跨账号本来就安全（repo 层 `WHERE account_id = ? AND room_id = ?`），
+    但此前无用例锁定。补上回归护栏，防止将来有人把归属校验放宽成
+    `get_group_by_id(room_id)`（不带 account_id）而悄悄打开跨账号缺口。
+    """
+    repo = ChannelMgmtRepository(backend)
+    other = repo.create_account_with_ipad(
+        channel_type="wecom",
+        protocol="ipad",
+        team_id="team-initial",
+        name="另一个账号",
+        ipad_uuid="qa-qr-uuid-other",
+        ipad_user_info={},
+        host_status="hosted",
+    )
+    calls: list[str] = []
+
+    def _spy(uuid: str, room_id):
+        calls.append(str(room_id))
+        return {"room_id": str(room_id), "qr_code_path": "http://leak/a.jpg", "image_url": ""}
+
+    monkeypatch.setattr(ipad_client_mod, "wx_room_invite", _spy)
+
+    # room_g01 属于 account，不属于 other
+    resp = client.get(f"/api/channels/{other['id']}/group/room_g01/qrcode/image")
+    assert resp.status_code == 404
+    assert calls == [], f"跨账号请求不应触达协议，实际={calls}"
+    assert b"\x89PNG" not in resp.content
+
+    # 反向确认：本账号访问自己的群仍然通
+    resp_ok = client.get(f"/api/channels/{account['id']}/group/room_g01/qrcode")
+    assert resp_ok.status_code == 200
 
 
 # --------------------------------------------------------------------------- #

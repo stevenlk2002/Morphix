@@ -407,8 +407,8 @@ def get_group_qrcode_endpoint(account_id: str, room_id: str):
     repo = ChannelMgmtRepository(get_backend())
     if not repo.get_account_by_id(account_id):
         return JSONResponse(status_code=404, content={"message": "账号不存在"})
-    # 群归属校验前置：非法 / 他账号的 room_id 必须在调用协议前拦截，
-    # 否则协议侧会因 roomid 被降级为 0 而返回其他群的有效入群二维码（越权）。
+    # 群归属校验前置：非法 / 不存在的 room_id 必须在调用协议前拦截，否则协议侧会因
+    # roomid 被降级为 0 而静默回吐同账号下另一个群的有效入群二维码（拿错群，无报错）。
     if not repo.get_group_by_room_id(account_id, room_id):
         return JSONResponse(status_code=404, content={"message": "群不存在"})
     try:
@@ -426,7 +426,7 @@ def get_group_qrcode_image_endpoint(account_id: str, room_id: str):
     repo = ChannelMgmtRepository(get_backend())
     if not repo.get_account_by_id(account_id):
         return JSONResponse(status_code=404, content={"message": "账号不存在"})
-    # 同上：先确认群确属该账号，避免把其他群的二维码字节回传给调用方
+    # 同上：先确认群存在且属该账号，避免把另一个群的二维码字节回传给调用方
     if not repo.get_group_by_room_id(account_id, room_id):
         return JSONResponse(status_code=404, content={"message": "群不存在"})
     try:

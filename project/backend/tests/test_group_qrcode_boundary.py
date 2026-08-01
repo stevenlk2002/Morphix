@@ -4,7 +4,9 @@
 1. `_sniff_content_type` 的空/极短/未知/容器格式字节边界；
 2. 上游静态服务不可达、超时、非 2xx 时的降级行为；
 3. 协议返回 `errcode != 0`（HTTP 200 + 业务失败）时的异常类型与路由映射；
-4. 群归属校验缺失导致的越权取图（`room_id` 被 `_to_int_id` 静默降级为 0）。
+4. 群归属校验缺失导致的静默取错群（`room_id` 被 `_to_int_id` 静默降级为 0，
+   协议按已登录实例回吐**同账号下另一个群**的二维码；跨账号隔离由 repo 层 SQL
+   保证，非越权漏洞——定性以 QA 2026-08-01 复验为准）。
 
 对应 BugFix：删除 `_rewrite_qrcode_host()`，透传协议原始 URL。
 """
@@ -243,7 +245,7 @@ class TestRoomOwnershipValidation:
         import inspect
 
         src = inspect.getsource(ipad_sync._resolve_qrcode_urls)
-        assert "_resolve_group" in src, "群归属校验被移除，越权取图漏洞将复现"
+        assert "_resolve_group" in src, "群归属校验被移除，静默取错群缺陷将复现"
 
     def test_ownership_check_runs_before_protocol_call(self, monkeypatch):
         """归属校验必须发生在协议调用之前——不得先请求协议再校验。"""

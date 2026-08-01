@@ -460,9 +460,17 @@ def _resolve_qrcode_urls(account_id: str, room_id: str) -> str:
     `update_group_notice` / `transfer_group_owner` / `dismiss_group`）保持一致：
     账号存在性 → 群归属 → iPad 实例绑定。
 
-    **群归属校验不可省略（安全要求）**：`ipad_client._to_int_id()` 在解析失败时静默
-    返回 0，非法 room_id 会以 `roomid=0` 送达协议侧，协议会返回**任意其他群**的有效
-    入群二维码，造成越权。必须先经 `_resolve_group` 确认该群确属本账号。
+    **群归属校验不可省略（正确性要求）**：`ipad_client._to_int_id()` 在解析失败时静默
+    返回 0，非法 room_id 会以 `roomid=0` 送达协议侧；协议此时不报错，而是按已登录实例
+    回吐**同账号名下另一个群**的有效入群二维码。用户想邀 A 群，拿到的却是 B 群的码，
+    且无任何错误提示——静默返回错误结果比报错更危险。必须先经 `_resolve_group` 确认
+    请求的群确实存在且属于本账号。
+
+    定性说明（2026-08-01 QA 复验修正）：实测协议在 `roomid=0` 时只回吐**当前登录账号
+    自己的**群，不会跨账号泄漏，故这是**正确性缺陷而非越权漏洞**。跨账号隔离由
+    `ChannelMgmtRepository.get_group_by_room_id()` 的 `WHERE account_id = ? AND room_id = ?`
+    保证（已实证：用其他账号请求本群 room_id 一律拒绝）。此处校验解决的是「拿错群」，
+    不是「越权拿别人的群」——不要因为「反正跨账号是安全的」而删掉它。
 
     返回值为 QrCodePath（静态文件服务器上的二维码图片，后端可直接 HTTP GET 下载）。
     不返回协议同时下发的 `image_url`：该字段是腾讯 CDN 上的群头像缩略图，**不是二维码**，
@@ -479,7 +487,7 @@ def _resolve_qrcode_urls(account_id: str, room_id: str) -> str:
     account = repo.get_account_by_id(account_id)
     if not account:
         raise IPadSyncError("账号不存在")
-    # 群归属校验：拦截非法 / 他账号的 room_id，防止越权取到其他群的入群二维码
+    # 群归属校验：拦截非法 / 不存在的 room_id，防止协议静默回吐同账号下另一个群的二维码
     _resolve_group(account_id, room_id)
     uuid = account.get("ipadUuid", "")
     if not uuid:
@@ -564,8 +572,8 @@ def fetch_group_qrcode_image(account_id: str, room_id: str) -> tuple[bytes, str]
     返回 `(image_bytes, content_type)`。
 
     设计要点：
-    - **群归属校验前置**。`_resolve_qrcode_urls` 会先校验群属于该账号，非法 room_id
-      在发起协议调用前就被拦截，绝不会返回其他群的二维码字节。
+    - **群归属校验前置**。`_resolve_qrcode_urls` 会先校验群存在且属于该账号，非法 room_id
+      在发起协议调用前就被拦截，绝不会返回另一个群的二维码字节。
     - **不再做 host/port 改写**。协议返回的 QrCodePath 指向独立静态文件服务（如 :8060），
       该地址从后端进程可达；改写为 API 同址端口会导致 404（根因修复）。
     - **不使用 CDN image_url 作为二维码源**。image_url 字段内容为腾讯 CDN 群头像缩略图，
