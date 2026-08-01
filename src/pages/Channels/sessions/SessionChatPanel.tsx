@@ -1,13 +1,24 @@
 /** 会话聊天面板（SES 右一栏）：托管开关 + 机器人选择 + 消息气泡 + 输入区。 */
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Smile, Image as ImageIcon, FileText, Folder, Send, Bot } from 'lucide-react'
 import type { HostingBotDTO, MessageExtDTO, SessionDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
 import { isAppSession as isAppEntity } from '../shared/sessionKind'
-import { renderWecomContent, emotionPlaceholder } from '../shared/wecomEmoji'
+import {
+  WECOM_EMOJI_MAP,
+  renderWecomContent,
+  emotionPlaceholder,
+} from '../shared/wecomEmoji'
 import { toast, errText } from '../../../utils/toast'
+
+/** 常用 Unicode emoji（直接插入输入框，无需转义）。 */
+const COMMON_EMOJIS: readonly string[] = [
+  '😊', '😂', '🤔', '👍', '👎', '❤️', '🎉', '🔥', '👏', '🙏',
+  '😭', '😅', '😍', '🤣', '😎', '🤗', '🤝', '✌️', '🙌', '💪',
+  '🤷', '🎂', '🎁', '🌹', '🍺', '☕', '🍉', '🌙', '☀️', '🌟',
+]
 
 interface SessionChatPanelProps {
   session: SessionDTO | null
@@ -44,6 +55,12 @@ export default function SessionChatPanel({
   // 头像 URL 加载失败集合（企业微信头像链接会过期）→ 回退首字占位，避免裂图。
   const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({})
 
+  const emojiBtnRef = useRef<HTMLButtonElement | null>(null)
+  const emojiPanelRef = useRef<HTMLDivElement | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false)
+  const [emojiTab, setEmojiTab] = useState<'emoji' | 'wecom'>('emoji')
+
   const hosted = session?.hostedStatus === 'hosted'
   // 应用/小程序通知类会话（后端 msg_type ∈ {3, 103, 107}）后端禁发，前端禁用输入并提示（决策 #6）。
   // 判定统一走 shared/sessionKind，避免与会话列表 / 右侧头部的判定漂移。
@@ -53,6 +70,56 @@ export default function SessionChatPanel({
     () => bots.find((b) => b.id === (session?.hostedBotId ?? botId))?.name ?? '请选择机器人',
     [bots, session, botId]
   )
+
+  /** 在 textarea 当前光标处插入文本，并重新聚焦恢复光标位置。 */
+  const insertAtCursor = (text: string): void => {
+    const ta = textareaRef.current
+    if (!ta) {
+      setDraft((prev) => prev + text)
+      return
+    }
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const next = draft.slice(0, start) + text + draft.slice(end)
+    const caret = start + text.length
+    setDraft(next)
+    // 受控组件更新后，下一帧把焦点与光标交还 textarea。
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(caret, caret)
+    })
+  }
+
+  /** 面板关闭后把焦点交还 textarea，并恢复（或保留）光标位置。 */
+  const restoreCaret = (pos?: number): void => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.focus()
+    const caret = pos ?? ta.selectionStart
+    ta.setSelectionRange(caret, caret)
+  }
+
+  /** 点击表情按钮：切换面板；关闭时把焦点交还输入框。 */
+  const toggleEmojiPicker = (): void => {
+    if (inputDisabled) return
+    const next = !showEmojiPicker
+    setShowEmojiPicker(next)
+    if (!next) restoreCaret()
+  }
+
+  // 点击面板外部 / 再次点击表情按钮时关闭面板（按钮本身由 contains 判定放行，避免与 toggle 冲突）。
+  useEffect(() => {
+    if (!showEmojiPicker) return
+    const handlePointerDown = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (emojiBtnRef.current && emojiBtnRef.current.contains(target)) return
+      if (emojiPanelRef.current && emojiPanelRef.current.contains(target)) return
+      setShowEmojiPicker(false)
+      restoreCaret()
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [showEmojiPicker])
 
   if (!session) {
     return (
@@ -332,10 +399,11 @@ export default function SessionChatPanel({
       >
         <div className="chat-toolbar">
           <button
+            ref={emojiBtnRef}
             className="btn-icon"
             title="表情"
             disabled={inputDisabled}
-            onClick={() => toast('表情功能开发中')}
+            onClick={toggleEmojiPicker}
           >
             <Smile size={16} />
           </button>
@@ -349,6 +417,52 @@ export default function SessionChatPanel({
             <Folder size={16} />
           </button>
         </div>
+        {showEmojiPicker && !inputDisabled && (
+          <div className="emoji-picker" ref={emojiPanelRef}>
+            <div className="emoji-picker-tabs">
+              <button
+                type="button"
+                className={`emoji-picker-tab${emojiTab === 'emoji' ? ' active' : ''}`}
+                onClick={() => setEmojiTab('emoji')}
+              >
+                Emoji
+              </button>
+              <button
+                type="button"
+                className={`emoji-picker-tab${emojiTab === 'wecom' ? ' active' : ''}`}
+                onClick={() => setEmojiTab('wecom')}
+              >
+                微信表情
+              </button>
+            </div>
+            <div className="emoji-grid">
+              {emojiTab === 'emoji'
+                ? COMMON_EMOJIS.map((emoji, idx) => (
+                    <button
+                      type="button"
+                      key={idx}
+                      className="emoji-cell"
+                      title={emoji}
+                      onClick={() => insertAtCursor(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))
+                : Object.entries(WECOM_EMOJI_MAP).map(([name, emoji]) => (
+                    <button
+                      type="button"
+                      key={name}
+                      className="emoji-cell emoji-cell-wecom"
+                      title={name}
+                      onClick={() => insertAtCursor(`[${name}]`)}
+                    >
+                      <span className="emoji-cell-char">{emoji}</span>
+                      <span className="emoji-cell-name">{name}</span>
+                    </button>
+                  ))}
+            </div>
+          </div>
+        )}
         <input
           ref={imageInputRef}
           type="file"
@@ -364,6 +478,7 @@ export default function SessionChatPanel({
         />
         <div className="chat-input-box">
           <textarea
+            ref={textareaRef}
             className="chat-input"
             placeholder={
               hosted
