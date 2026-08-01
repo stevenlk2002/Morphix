@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .. import ipad_client, ipad_sync
 from ..database import get_backend
@@ -408,6 +408,22 @@ def get_group_qrcode_endpoint(account_id: str, room_id: str):
         return ipad_sync.get_group_qrcode(account_id, room_id)
     except ipad_sync.IPadSyncError as exc:
         return JSONResponse(status_code=400, content={"message": str(exc)})
+
+
+@router.get("/{account_id}/group/{room_id}/qrcode/image")
+def get_group_qrcode_image_endpoint(account_id: str, room_id: str):
+    """代理下载群二维码图片并返回二进制流（前端 <img> 直接引用，避免跨域）。
+
+    错误码：404 账号不存在；502 协议侧地址缺失或图片下载失败。
+    """
+    repo = ChannelMgmtRepository(get_backend())
+    if not repo.get_account_by_id(account_id):
+        return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    try:
+        image_bytes, content_type = ipad_sync.fetch_group_qrcode_image(account_id, room_id)
+        return Response(content=image_bytes, media_type=content_type)
+    except ipad_sync.IPadSyncError as exc:
+        return JSONResponse(status_code=502, content={"message": str(exc)})
 
 
 # ---------------------------------------------------------------------------

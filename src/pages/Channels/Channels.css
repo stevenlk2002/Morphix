@@ -1856,3 +1856,52 @@
   opacity: 0.55;
   background: var(--surface-soft);
 }
+
+/* ---------------------------------------------------------------------------
+   群二维码 Popover：贴着「群二维码」按钮下方展示（替代原居中全屏 modal）
+   --------------------------------------------------------------------------- */
+.qr-popover {
+  position: fixed;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 12px;
+  min-width: 200px;
+}
+
+.qr-popover-arrow {
+  position: absolute;
+  top: -5px;
+  left: 14px;
+  width: 8px;
+  height: 8px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+
+.qr-popover-body {
+  position: relative;
+}
+
+.qr-popover img {
+  display: block;
+  width: 200px;
+  height: 200px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.qr-popover-error {
+  width: 200px;
+  text-align: center;
+  color: var(--muted);
+  padding: 24px 0;
+}
+
+.qr-popover-error button {
+  margin-top: 12px;
+}

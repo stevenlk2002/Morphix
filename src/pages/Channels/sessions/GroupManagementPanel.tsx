@@ -1,6 +1,6 @@
 /** 群管理面板（区域右栏，群聊场景）：群信息/标签/成员/公告/转让/解散。 */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Search, QrCode, Plus, ChevronRight, Trash2 } from 'lucide-react'
 import type { GroupDTO, GroupMemberDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
@@ -30,9 +30,26 @@ export default function GroupManagementPanel({
   const [pickerKw, setPickerKw] = useState('')
   const [noticeOpen, setNoticeOpen] = useState(false)
   const [noticeText, setNoticeText] = useState(group?.noticeContent ?? '')
-  const [qrOpen, setQrOpen] = useState(false)
-  const [qrUrl, setQrUrl] = useState('')
-  const [qrBusy, setQrBusy] = useState(false)
+  // 群二维码：改为「贴着按钮」的 Popover（不再是居中全屏 modal）
+  const [qrPopoverOpen, setQrPopoverOpen] = useState(false)
+  const [qrPos, setQrPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+  const [qrImageUrl, setQrImageUrl] = useState('')
+  const [qrLoadError, setQrLoadError] = useState(false)
+  const qrBtnRef = useRef<HTMLButtonElement>(null)
+
+  // 点击 Popover 与触发按钮之外的区域时关闭（hooks 必须在早退之前声明）
+  useEffect(() => {
+    if (!qrPopoverOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (qrBtnRef.current?.contains(target)) return
+      if (!document.querySelector('.qr-popover')?.contains(target)) {
+        setQrPopoverOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [qrPopoverOpen])
 
   if (!group) {
     return (
@@ -137,21 +154,33 @@ export default function GroupManagementPanel({
     }
   }
 
-  const openGroupQr = async () => {
-    if (qrOpen) {
-      setQrOpen(false)
+  /** 群二维码图片代理地址（同源 `/api`，由后端抓取协议侧图片后回传二进制流）。 */
+  const buildQrImageUrl = (): string =>
+    `/api/channels/${accountId}/group/${group.roomId}/qrcode/image?_t=${Date.now()}`
+
+  /** 切换二维码 Popover：定位到按钮正下方，图片直接走后端代理接口。 */
+  const openGroupQr = () => {
+    if (qrPopoverOpen) {
+      setQrPopoverOpen(false)
       return
     }
-    setQrBusy(true)
-    try {
-      const res = await channelsApi.getGroupQrcode(accountId, group.roomId)
-      setQrUrl(res.qrCodeUrl || '')
-      setQrOpen(true)
-    } catch (e) {
-      toast(`获取群二维码失败：${errText(e)}`)
-    } finally {
-      setQrBusy(false)
-    }
+    const rect = qrBtnRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setQrPos({ top: rect.bottom + 6, left: rect.left })
+    setQrLoadError(false)
+    setQrImageUrl(buildQrImageUrl())
+    setQrPopoverOpen(true)
+  }
+
+  /**
+   * 重新加载二维码图片。
+   *
+   * 不复用 `openGroupQr`：Popover 已处于打开态时调用它只会把弹层关掉，
+   * 重试按钮将失效。这里只重置错误态并刷新带时间戳的图片地址（绕过缓存）。
+   */
+  const retryGroupQr = () => {
+    setQrLoadError(false)
+    setQrImageUrl(buildQrImageUrl())
   }
 
   const ownerName = members[0]?.nickname || members[0]?.realname || group.name.split(/[、,，\s]/)[0]
@@ -165,10 +194,10 @@ export default function GroupManagementPanel({
           <div className="group-panel-meta">
             <span className="group-panel-tag">{group.groupType === 'internal_group' ? '内部群' : '外部群'}</span>
             <button
+              ref={qrBtnRef}
               className="btn-icon group-panel-qr"
               title="群二维码"
               onClick={openGroupQr}
-              disabled={qrBusy}
             >
               <QrCode size={14} />
             </button>
@@ -308,21 +337,23 @@ export default function GroupManagementPanel({
         </div>
       )}
 
-      {/* 群二维码弹窗 */}
-      {qrOpen && (
-        <div className="modal-overlay" onMouseDown={() => setQrOpen(false)}>
-          <div className="modal-panel" onMouseDown={(e) => e.stopPropagation()} style={{ width: 'min(320px, calc(100vw - 32px))' }}>
-            <div className="modal-header">
-              <h3>群二维码</h3>
-              <button className="modal-close" onClick={() => setQrOpen(false)}>✕</button>
-            </div>
-            <div className="modal-body" style={{ textAlign: 'center', padding: '24px 0' }}>
-              {qrUrl ? (
-                <img src={qrUrl} alt="群二维码" style={{ maxWidth: '100%', width: 220, borderRadius: 8 }} />
-              ) : (
-                <div style={{ color: 'var(--muted)' }}>暂无二维码</div>
-              )}
-            </div>
+      {/* 群二维码 Popover：贴着二维码按钮下方展示，不遮挡整屏 */}
+      {qrPopoverOpen && (
+        <div className="qr-popover" style={{ top: qrPos.top, left: qrPos.left }}>
+          <div className="qr-popover-arrow" />
+          <div className="qr-popover-body">
+            {qrLoadError ? (
+              <div className="qr-popover-error">
+                <div>二维码加载失败</div>
+                <button className="btn btn-primary btn-sm" onClick={retryGroupQr}>重试</button>
+              </div>
+            ) : (
+              <img
+                src={qrImageUrl}
+                alt="群二维码"
+                onError={() => setQrLoadError(true)}
+              />
+            )}
           </div>
         </div>
       )}
