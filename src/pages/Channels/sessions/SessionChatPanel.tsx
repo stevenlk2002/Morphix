@@ -6,6 +6,7 @@ import { Smile, Image as ImageIcon, FileText, Folder, Send, Bot } from 'lucide-r
 import type { HostingBotDTO, MessageExtDTO, SessionDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
 import { isAppSession as isAppEntity } from '../shared/sessionKind'
+import { renderWecomContent, emotionPlaceholder } from '../shared/wecomEmoji'
 import { toast, errText } from '../../../utils/toast'
 
 interface SessionChatPanelProps {
@@ -257,6 +258,12 @@ export default function SessionChatPanel({
           const isOutbound = m.direction === 'outbound' || m.senderType === 'bot'
           const avatarUrl = m.senderAvatar ?? ''
           const showAvatar = Boolean(avatarUrl) && !brokenAvatars[m.id]
+          // 图片气泡必须有真实 URL，否则回落文本分支：表情类回调常出现
+          // contentType=image 但 mediaUrl 为空的形态，直出 <img> 会渲染成裂图。
+          const asImage = m.contentType === 'image' && Boolean(m.mediaUrl)
+          const asFile = !asImage && m.contentType === 'file'
+          // 孤立的 [表情]/[动画表情]（协议未给图）降级成友好徽标，避免裸文本占位。
+          const emotionBadge = !asImage && !asFile ? emotionPlaceholder(m.content) : null
           return (
             <div key={m.id} className={`message-row ${isOutbound ? 'outbound' : 'inbound'}`}>
               {showAvatar ? (
@@ -276,18 +283,37 @@ export default function SessionChatPanel({
               )}
               <div className={`message ${isOutbound ? 'bot' : 'user'}`}>
                 <div className="message-meta">
-                  {m.contentType === 'image' ? (
+                  {asImage ? (
                     <img
                       src={m.mediaUrl}
                       alt={m.content || '图片'}
                       style={{ maxWidth: 220, borderRadius: 8, display: 'block' }}
                     />
-                  ) : m.contentType === 'file' ? (
+                  ) : asFile ? (
                     <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="message-file">
                       📎 {m.content || '文件'}
                     </a>
+                  ) : emotionBadge ? (
+                    <span
+                      className="message-emotion-badge"
+                      title="对方发送了一个表情（协议未提供图片）"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        fontSize: 12,
+                        lineHeight: '18px',
+                        background: 'var(--bg-tertiary, rgba(0,0,0,0.05))',
+                        color: 'var(--text-secondary, #666)',
+                      }}
+                    >
+                      <span aria-hidden="true">{emotionBadge.icon}</span>
+                      {emotionBadge.label}
+                    </span>
                   ) : (
-                    m.content
+                    renderWecomContent(m.content)
                   )}
                   <span style={{ color: 'var(--text-tertiary)', marginLeft: 8, fontSize: 11 }}>
                     {m.createdAt.slice(11, 16)}

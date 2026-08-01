@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from datetime import datetime
 from typing import Any
@@ -59,6 +60,53 @@ _MSG_TYPE_LABEL = {
 # 之所以不定义在本模块：`ipad_sync` 在加载期就 import `repositories`，
 # 反向 import 会构成循环依赖；repositories 是更底层模块，由它承载常量最安全。
 # 同步层与单测可继续用 `ipad_sync.APP_MSG_TYPES` 作为语义入口。
+
+
+# ---- 消息 msgType 可见性分类（IPad协议API文档「下发-消息接收」）----
+# 「有用户可见内容」的 msgType 白名单：文档中逐条列举的接收类消息。
+#   2 文本 / 6 位置·合并 / 13 链接 / 14·101 图片 / 15·102 文件 / 23·103 视频 /
+#   29 表情发送回执 / 41 名片 / 50 音视频通话 / 78 小程序 / 104 GIF 动画表情 /
+#   106 语音 / 141 视频号 / 213 接龙 / 1011 红包 / 1022 入群提示 /
+#   1611 系统提醒 / 10002 撤回。0 为「负载未带 msgType」的兜底文本。
+RENDERABLE_MSG_TYPES = frozenset(
+    {0, 2, 6, 13, 14, 15, 23, 29, 41, 50, 78, 101, 102, 103, 104, 106, 141,
+     213, 1011, 1022, 1611, 10002}
+)
+
+# 控制/回执类事件：协议侧用于多端同步，**没有任何聊天内容**，禁止落库成气泡。
+# 2001：`MarkAsRead`（文档「58. 已读消息（去除聊天小红点）」）回执的 msgtype，
+#       手机端已读时下发；历史实现误判为「表情」，导致聊天框刷出成片 `[表情]`。
+CONTROL_EVENT_MSG_TYPES = frozenset({2001})
+
+# 动画/GIF 表情 msgType：104（文档「2. GIF表情消息接收」）、
+# 29（文档「50. 发送gif表情」SendEmotionMessage 回执）。
+EMOTION_MSG_TYPES = frozenset({104, 29})
+
+# 表情特征字段（携带任一即可判定为表情消息，兼容未文档化的 msgType 变体）。
+EMOTION_FIELD_KEYS = (
+    "emotionType", "emotion_type", "EmotionType", "emotionUrl", "emotion_url",
+)
+
+# 「表情/图片形态」msgType 全集：104/29（表情）、2001（线上真实动画表情回调）、
+# 101/14（图片）。仅对这些类型启用图片 URL 兜底扫描，避免误伤链接/小程序消息。
+EMOTION_LIKE_MSG_TYPES = EMOTION_MSG_TYPES | frozenset({2001, 101, 14})
+
+# 媒体 URL 候选字段（按优先级）：协议在表情/图片上的字段名极不统一，
+# 线上实测出现过 url / cdnurl / picUrl / emotionUrl 等多种形态。
+MEDIA_URL_KEYS = (
+    "media_url", "mediaUrl", "url", "file_id", "fileId",
+    "voice_url", "voiceUrl", "emotionUrl", "emotion_url",
+    "img_url", "image_url", "pic_url", "thumb_url", "emoji_url",
+    "cdnurl", "cdnUrl", "picUrl", "imageUrl", "imgUrl",
+)
+
+# 图片 URL 特征：企业微信 CDN 域名片段 + 常见图片扩展名。
+_IMAGE_URL_HINTS = ("qpic", "qlogo", "wx", "wework", "emoji", "emoticon")
+_IMAGE_URL_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+
+# C0/C1 控制字符（保留 \t \n \r）：协议偶发下发 protobuf 裸字节，
+# 直接落库会在聊天框渲染成不可见乱码气泡。
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class IPadSyncError(ValueError):
@@ -1703,14 +1751,117 @@ def _first_of(item: dict, *keys: str) -> Any:
     return None
 
 
+def _clean_text(value: object) -> str:
+    """清洗协议文本：剔除 C0/C1 控制字符；整体空白则归一为空串。
+
+    协议在部分事件类 msgType（如 2118）上会把 protobuf 裸字节塞进 `msg`，
+    直接落库会渲染成不可见乱码气泡，故统一清洗。`\\t\\n\\r` 属正常排版字符，
+    不在剔除范围内，保证真实文本（含换行/制表/emoji）原样保留。
+    """
+    text = str(value or "")
+    if not text:
+        return ""
+    cleaned = _CONTROL_CHARS_RE.sub("", text)
+    return "" if not cleaned.strip() else cleaned
+
+
+def _is_emotion_payload(c: dict, msg_type: int) -> bool:
+    """判定一条回调消息体是否为「表情（GIF/动画/自定义）」消息。
+
+    双判据（任一命中即可），兼容协议未文档化的 msgType 变体：
+    1. `msg_type ∈ EMOTION_MSG_TYPES`（104 接收 / 29 发送回执）；
+    2. 消息体携带 `emotionType` / `emotionUrl` 等表情特征字段。
+    """
+    if msg_type in EMOTION_MSG_TYPES:
+        return True
+    return _first_of(c, *EMOTION_FIELD_KEYS) is not None
+
+
+def _emotion_summary(c: dict) -> str:
+    """表情消息的文字摘要（无图可渲染时的兜底文案）。
+
+    协议 `emotionType` 取值：`EMOTION_DYNAMIC`（动图）/`EMOTION_STATIC`（静态图），
+    发送侧亦可为数字 0/1。区分静动态可避免所有表情都折叠成无信息的 `[表情]`。
+    """
+    raw = _first_of(c, "emotionType", "emotion_type", "EmotionType")
+    etype = str(raw if raw is not None else "").strip().upper()
+    if etype in ("EMOTION_STATIC", "0"):
+        return "[表情]"
+    if etype in ("EMOTION_DYNAMIC", "1"):
+        return "[动画表情]"
+    return "[动画表情]"
+
+
+def _emotion_media_meta(c: dict) -> dict:
+    """抽取表情消息的媒体元信息（供前端按原始尺寸/类型渲染）。"""
+    meta: dict[str, Any] = {}
+    etype = _first_of(c, "emotionType", "emotion_type", "EmotionType")
+    if etype is not None:
+        meta["emotionType"] = etype
+    width = _as_int(_first_of(c, "width", "img_width", "imgWidth"))
+    height = _as_int(_first_of(c, "height", "img_height", "imgHeight"))
+    if width > 0:
+        meta["width"] = width
+    if height > 0:
+        meta["height"] = height
+    return meta
+
+
+def _looks_like_image_url(value: object) -> bool:
+    """判定一个字段值是否形似「图片 URL」。
+
+    判据：必须是 http(s) 链接，且（命中企业微信 CDN 域名特征 或 以图片扩展名结尾）。
+    仅用于表情/图片类 msgType 的兜底扫描，宁可漏判不可误判。
+    """
+    if not isinstance(value, str):
+        return False
+    url = value.strip()
+    low = url.lower()
+    if not low.startswith(("http://", "https://")):
+        return False
+    if any(hint in low for hint in _IMAGE_URL_HINTS):
+        return True
+    path = low.split("?", 1)[0].split("#", 1)[0]
+    return path.endswith(_IMAGE_URL_EXTS)
+
+
+def _scan_image_url(c: dict) -> str:
+    """兜底：扫描消息体（含一层嵌套）取首个形似图片的 URL。
+
+    协议对表情图片的字段命名未文档化且线上多变，显式候选列表
+    (`MEDIA_URL_KEYS`) 未命中时用本函数兜底，避免表情消息落库丢图。
+    dict 保序遍历，结果稳定可测。
+    """
+    for value in c.values():
+        if _looks_like_image_url(value):
+            return str(value).strip()
+        if isinstance(value, dict):
+            for nested in value.values():
+                if _looks_like_image_url(nested):
+                    return str(nested).strip()
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                if _looks_like_image_url(nested):
+                    return str(nested).strip()
+    return ""
+
+
 def _render_message_content(c: dict, msg_type: int) -> str:
     """按 iPad 协议 msgType 从专属字段提取可读摘要，避免非文本消息显示空气泡。
 
     协议来源：IPad协议API文档「下发-消息接收」章节。
     """
+    # 控制/回执类事件（2001=MarkAsRead 等）本身无聊天正文，统一返回空串；
+    # 仍参与表情类图片 URL 兜底扫描（见 _extract_callback_messages），有图则按图片
+    # 气泡渲染，无图时由前端降级为友好占位徽标（💬表情 / 🎭动画表情），避免裸 `[表情]`。
+    if msg_type in CONTROL_EVENT_MSG_TYPES:
+        return ""
+
     # 纯文本：唯一使用 content 字段的消息类型。
+    # ⚠️ 文字表情（`[强]`/`[微笑]`）即以此形态下发，原样保留协议编码，
+    # 由前端 `renderWecomEmoji` 在渲染期替换为 Unicode，保证数据保真。
     if msg_type == 2:
-        return str(_first_of(c, "content", "text") or "")
+        return _clean_text(_first_of(c, "content", "text"))
 
     # 系统/红包/通知类：优先取 msg 字段。
     if msg_type in (1011, 1611, 10002):
@@ -1981,21 +2132,27 @@ def _extract_callback_messages(data: dict, type_: str) -> list[dict]:
         receiver = str(_first_of(c, "receiver", "toUser", "to_user") or "").strip()
         if receiver == "0":  # 群消息 receiver=0，无 1:1 对端语义
             receiver = ""
-        media_url = str(
-            _first_of(
-                c, "media_url", "mediaUrl", "url", "file_id", "fileId",
-                "voice_url", "voiceUrl", "emotionUrl", "emotion_url",
-            )
-            or ""
-        )
+        media_url = str(_first_of(c, *MEDIA_URL_KEYS) or "")
         content_type = str(_first_of(c, "content_type", "contentType") or "").strip()
         msg_type = _as_int(_first_of(c, "msgType", "msg_type", "msgtype"))
+        # 表情/图片类消息若显式候选字段都没命中，兜底扫描消息体里的图片链接，
+        # 否则前端只能拿到 `[表情]` 文本占位（Bug：表情消息不显示图）。
+        is_emotion_like = msg_type in EMOTION_LIKE_MSG_TYPES or _is_emotion_payload(c, msg_type)
+        if not media_url and is_emotion_like:
+            media_url = _scan_image_url(c)
         if not content_type:
             if media_url and not c.get("content"):
                 # 无文本但携带媒体：有文件名视为文件，否则视为图片（GIF/表情等）。
                 content_type = "file" if _first_of(c, "file_name", "fileName") else "image"
             else:
                 content_type = "text"
+        # 媒体元信息：以协议显式 media_meta 为底，表情类再叠加
+        # emotionType / width / height（供前端按原始尺寸渲染）。
+        media_meta = c.get("media_meta") or c.get("mediaMeta") or {}
+        if not isinstance(media_meta, dict):
+            media_meta = {}
+        if is_emotion_like:
+            media_meta = {**media_meta, **_emotion_media_meta(c)}
         out.append(
             {
                 "legacy_session_id": str(
@@ -2021,7 +2178,7 @@ def _extract_callback_messages(data: dict, type_: str) -> list[dict]:
                 ),
                 "content_type": content_type,
                 "media_url": media_url,
-                "media_meta": c.get("media_meta") or c.get("mediaMeta") or {},
+                "media_meta": media_meta,
             }
         )
     return out
