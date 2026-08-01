@@ -400,10 +400,17 @@ def dismiss_group_endpoint(account_id: str, room_id: str):
 
 @router.get("/{account_id}/group/{room_id}/qrcode", response_model=GroupQrcodeDTO)
 def get_group_qrcode_endpoint(account_id: str, room_id: str):
-    """获取群二维码图片 URL。"""
+    """获取群二维码图片 URL。
+
+    错误码：404 账号或群不存在；400 其他业务失败（未绑定实例 / 协议侧失败）。
+    """
     repo = ChannelMgmtRepository(get_backend())
     if not repo.get_account_by_id(account_id):
         return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    # 群归属校验前置：非法 / 他账号的 room_id 必须在调用协议前拦截，
+    # 否则协议侧会因 roomid 被降级为 0 而返回其他群的有效入群二维码（越权）。
+    if not repo.get_group_by_room_id(account_id, room_id):
+        return JSONResponse(status_code=404, content={"message": "群不存在"})
     try:
         return ipad_sync.get_group_qrcode(account_id, room_id)
     except ipad_sync.IPadSyncError as exc:
@@ -414,11 +421,14 @@ def get_group_qrcode_endpoint(account_id: str, room_id: str):
 def get_group_qrcode_image_endpoint(account_id: str, room_id: str):
     """代理下载群二维码图片并返回二进制流（前端 <img> 直接引用，避免跨域）。
 
-    错误码：404 账号不存在；502 协议侧地址缺失或图片下载失败。
+    错误码：404 账号或群不存在；502 协议侧失败、地址缺失或图片下载失败。
     """
     repo = ChannelMgmtRepository(get_backend())
     if not repo.get_account_by_id(account_id):
         return JSONResponse(status_code=404, content={"message": "账号不存在"})
+    # 同上：先确认群确属该账号，避免把其他群的二维码字节回传给调用方
+    if not repo.get_group_by_room_id(account_id, room_id):
+        return JSONResponse(status_code=404, content={"message": "群不存在"})
     try:
         image_bytes, content_type = ipad_sync.fetch_group_qrcode_image(account_id, room_id)
         return Response(content=image_bytes, media_type=content_type)

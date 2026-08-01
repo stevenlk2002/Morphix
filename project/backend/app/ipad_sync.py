@@ -22,7 +22,6 @@ import logging
 import re
 import threading
 from datetime import datetime
-from urllib.parse import urlparse, urlunparse
 from typing import Any
 
 import httpx
@@ -451,94 +450,127 @@ def dismiss_group(account_id: str, room_id: str) -> dict:
     return {"dismissed": True, "groupId": g["id"]}
 
 
-def _rewrite_qrcode_host(url: str) -> str:
-    """将协议返回的二维码图片 URL 的 host:port 改写为 iPad 协议 API 同址。
+def _resolve_qrcode_urls(account_id: str, room_id: str) -> str:
+    """校验账号 / 群归属后调用协议 WxRoomInvite，返回二维码图片 URL。
 
-    协议 WxRoomInvite 返回的 QrCodePath 常指向内网 :8083；当部署环境与 :8083 不通、
-    但 :9912（API 端口，即 settings.ipad_protocol_base_url）可达时，统一改写为 API 同址，
-    确保前端 <img> 能加载。
-    """
-    if not url:
-        return ""
-    try:
-        parsed = urlparse(url)
-        if not parsed.netloc:
-            return url
-        base = urlparse(settings.ipad_protocol_base_url or "")
-        new_netloc = base.netloc or parsed.netloc
-        return urlunparse(
-            (parsed.scheme or "http", new_netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
-        )
-    except Exception:
-        return url
+    单点封装账号校验 + 群归属校验 + 协议调用，供 `get_group_qrcode` 与
+    `fetch_group_qrcode_image` 共用，避免重复调用协议。
 
+    校验顺序与本文件其余 5 处群操作（`add_group_members` / `remove_group_member` /
+    `update_group_notice` / `transfer_group_owner` / `dismiss_group`）保持一致：
+    账号存在性 → 群归属 → iPad 实例绑定。
 
-def _resolve_qrcode_urls(account_id: str, room_id: str) -> tuple[str, str]:
-    """调用协议 WxRoomInvite，返回 `(改写后的 URL, 协议原始 URL)`。
+    **群归属校验不可省略（安全要求）**：`ipad_client._to_int_id()` 在解析失败时静默
+    返回 0，非法 room_id 会以 `roomid=0` 送达协议侧，协议会返回**任意其他群**的有效
+    入群二维码，造成越权。必须先经 `_resolve_group` 确认该群确属本账号。
 
-    单点封装账号校验 + 协议调用，供 `get_group_qrcode`（对外只暴露改写后地址）
-    与 `fetch_group_qrcode_image`（下载兜底还需要原始地址）共用，
-    避免为拿两种形态的地址而重复调用协议。
+    返回值为 QrCodePath（静态文件服务器上的二维码图片，后端可直接 HTTP GET 下载）。
+    不返回协议同时下发的 `image_url`：该字段是腾讯 CDN 上的群头像缩略图，**不是二维码**，
+    无消费方（详见 `ipad_client.wx_room_invite` 的字段说明）。
+
+    重要：不再对 QrCodePath 做 host/port 改写。实测协议返回的 QrCodePath 指向独立静态文件
+    服务（如 :8060），该地址从后端进程可达；改写为 API 同址端口会导致 404。
 
     Raises:
-        IPadSyncError: 账号不存在或未绑定 iPad 协议实例。
+        IPadSyncError: 账号不存在、群不存在/不属于该账号、未绑定 iPad 协议实例，
+            或协议侧业务失败（如实例未登录）。
     """
     repo = ChannelMgmtRepository(get_backend())
     account = repo.get_account_by_id(account_id)
     if not account:
         raise IPadSyncError("账号不存在")
+    # 群归属校验：拦截非法 / 他账号的 room_id，防止越权取到其他群的入群二维码
+    _resolve_group(account_id, room_id)
     uuid = account.get("ipadUuid", "")
     if not uuid:
         raise IPadSyncError("该账号未绑定 iPad 协议实例")
-    res = ipad_client.wx_room_invite(uuid, room_id)
-    raw_url = str(res.get("qr_code_path") or "")
-    return _rewrite_qrcode_host(raw_url), raw_url
+    # 协议业务失败（HTTP 200 + errcode != 0，如「实例未登录」）转为业务异常，
+    # 否则 IPadProtocolError(RuntimeError) 会穿透路由层的 IPadSyncError(ValueError)
+    # 捕获，直接变成 HTTP 500 + 堆栈。
+    try:
+        res = ipad_client.wx_room_invite(uuid, room_id)
+    except ipad_client.IPadProtocolError as exc:
+        raise IPadSyncError(f"iPad 协议服务不可用（WxRoomInvite）：{exc}")
+    return str(res.get("qr_code_path") or "")
 
 
 def get_group_qrcode(account_id: str, room_id: str) -> dict:
     """获取群二维码图片 URL（调用 iPad 协议 WxRoomInvite）。
 
     返回 `{"qrCodeUrl": str}`；协议未返回时 `qrCodeUrl` 为空串。
+    直接透传协议返回的原始 URL，不做 host/port 改写。
     """
-    rewritten, _raw = _resolve_qrcode_urls(account_id, room_id)
-    return {"qrCodeUrl": rewritten}
+    return {"qrCodeUrl": _resolve_qrcode_urls(account_id, room_id)}
+
+
+def _sniff_content_type(data: bytes) -> str:
+    """根据文件头魔数推断 Content-Type，避免依赖上游不可靠的响应头。
+
+    协议静态文件服务器常返回 image/jpeg 但实际内容为 PNG（magic: 89 50 4E 47）。
+
+    判别顺序注意：WebP 是 RIFF 容器（`RIFF....WEBP`，`RIFF` 在 [0:4]、`WEBP` 在 [8:12]），
+    必须先于 GIF 判别，且不能只看前 4 字节——否则 WebP 会被误判为 GIF。
+    """
+    if len(data) >= 8 and data[:4] == b"\x89PNG":
+        return "image/png"
+    if len(data) >= 2 and data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if len(data) >= 4 and data[:4] == b"GIF8":
+        return "image/gif"
+    return "image/jpeg"
 
 
 def _download_qrcode_image(url: str) -> tuple[bytes, str]:
     """下载单个二维码图片地址，返回 `(bytes, content_type)`。
 
+    使用 httpx 直接 GET，不经过任何代理。Content-Type 根据文件头魔数嗅探，
+    不信任上游返回的 content-type（协议服务器实测声称 JPEG 实际为 PNG）。
+
     Raises:
         IPadSyncError: HTTP 非 2xx 或网络异常。
     """
     try:
-        with httpx.Client(timeout=15) as client:
+        # 显式禁用代理：launchd 环境可能注入 HTTP_PROXY 导致请求被代理拦截
+        client = httpx.Client(
+            timeout=15,
+            proxy=None,
+            trust_env=False,
+        )
+        with client:
             resp = client.get(url)
             resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "image/jpeg")
-            return resp.content, content_type
+            content = resp.content
     except httpx.HTTPStatusError as exc:
         raise IPadSyncError(f"下载群二维码失败：HTTP {exc.response.status_code}")
     except Exception as exc:  # noqa: BLE001 - 网络异常统一转业务错误（路由转 502）
         raise IPadSyncError(f"下载群二维码失败：{exc}")
 
+    # 上游可能 200 但返回 0 字节；直接回传会让前端拿到空图裂图，
+    # 这里转成可读错误，避免故障被伪装成成功响应。
+    if not content:
+        raise IPadSyncError("下载群二维码失败：上游返回空响应体")
+
+    ct = _sniff_content_type(content)
+    logger.debug("群二维码下载成功 url=%s size=%d sniffed_ct=%s", url, len(content), ct)
+    return content, ct
+
 
 def fetch_group_qrcode_image(account_id: str, room_id: str) -> tuple[bytes, str]:
     """获取群二维码图片字节及 Content-Type（后端代理下载）。
 
-    先通过协议拿到图片 URL，再用 httpx 下载图片字节，返回
-    `(image_bytes, content_type)`。
+    调用 iPad 协议 WxRoomInvite 获取二维码图片 URL，再用 httpx 直接下载图片字节，
+    返回 `(image_bytes, content_type)`。
 
-    存在的意义：协议返回的图片 URL 浏览器直连会遇到 404 / 跨域，前端 `<img>`
-    因此裂图。改由后端代理抓取并回传二进制流，前端只需引用同源的
-    `/api/channels/{account_id}/group/{room_id}/qrcode/image`。
-
-    下载策略（按顺序尝试，任一成功即返回）：
-    1. `_rewrite_qrcode_host` 改写为 API 同址（:9912）后的 URL —— 部署环境常只放通
-       该端口；
-    2. 协议返回的**原始** URL（常为内网 :8083）—— 后端与协议服务同内网时可直连，
-       而浏览器不可达。正是这一路让「9912 静态路径 404」的环境仍能出图。
-
-    两路都失败时抛出第一路的错误，保持错误信息与主链路一致。
+    设计要点：
+    - **群归属校验前置**。`_resolve_qrcode_urls` 会先校验群属于该账号，非法 room_id
+      在发起协议调用前就被拦截，绝不会返回其他群的二维码字节。
+    - **不再做 host/port 改写**。协议返回的 QrCodePath 指向独立静态文件服务（如 :8060），
+      该地址从后端进程可达；改写为 API 同址端口会导致 404（根因修复）。
+    - **不使用 CDN image_url 作为二维码源**。image_url 字段内容为腾讯 CDN 群头像缩略图，
+      非二维码本身（已通过肉眼验证确认）。
+    - httpx 显式禁用代理（trust_env=False），防止 launchd 环境变量注入导致请求被拦截。
 
     Args:
         account_id: 渠道账号 id。
@@ -548,32 +580,14 @@ def fetch_group_qrcode_image(account_id: str, room_id: str) -> tuple[bytes, str]
         tuple[bytes, str]: 图片二进制内容与 Content-Type。
 
     Raises:
-        IPadSyncError: 未取到图片地址，或所有候选地址均下载失败。
+        IPadSyncError: 账号/群校验失败、协议业务失败、未取到图片地址，或下载失败。
     """
-    rewritten, raw = _resolve_qrcode_urls(account_id, room_id)
+    qr_url = _resolve_qrcode_urls(account_id, room_id)
 
-    candidates: list[str] = []
-    for url in (rewritten.strip(), raw.strip()):
-        if url and url not in candidates:
-            candidates.append(url)
-    if not candidates:
+    if not qr_url:
         raise IPadSyncError("未获取到群二维码图片地址")
 
-    first_error: IPadSyncError | None = None
-    for url in candidates:
-        try:
-            return _download_qrcode_image(url)
-        except IPadSyncError as exc:
-            if first_error is None:
-                first_error = exc
-            logger.warning(
-                "群二维码下载失败 account=%s room=%s url=%s: %s",
-                account_id,
-                room_id,
-                url,
-                exc,
-            )
-    raise first_error or IPadSyncError("下载群二维码失败")
+    return _download_qrcode_image(qr_url)
 
 
 def mark_sessions_read_local(

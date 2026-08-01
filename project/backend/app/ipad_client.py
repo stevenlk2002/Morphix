@@ -832,7 +832,24 @@ def dissolution_room(uuid: str, room_id: Any) -> dict:
 
 # ---- 获取群二维码 ----
 def wx_room_invite(uuid: str, room_id: Any) -> dict:
-    """获取群二维码 POST wxwork/WxRoomInvite。"""
+    """获取群二维码 POST wxwork/WxRoomInvite。
+
+    协议返回三个关键字段：
+    - QrCodePath：静态文件服务器上的二维码图片 URL（内网可达）—— **这是唯一的二维码来源**
+    - image_url：腾讯 CDN 上的图片 URL（公网可达，但内容为群头像/缩略图，**不是二维码**）
+    - roomid：群 ID
+
+    关于 `image_url`：本函数作为协议适配层如实透出该字段，但上层
+    （`ipad_sync._resolve_qrcode_urls`）**刻意不消费**它。保留的目的是留档说明——
+    它公网可达、名字看起来像图片，极易被误当成二维码源使用；实测其内容为群头像缩略图，
+    扫码无效。若未来需要群头像可从这里取，但**不要**用它替代 QrCodePath。
+
+    实测响应示例（2026-08-01）：
+    {"data":{"roomid":123745564770147,
+     "image_url":"https://wework.qpic.cn/wwpic3az/583577__Zf4JUOVTuiU5nV_1720341812/0",
+     "QrCodePath":"http://47.94.7.218:8060/download/RoomQrCode/123745564770147.jpg"},
+     "errcode":0,"errmsg":"ok"}
+    """
     data = _post(
         "wxwork/WxRoomInvite",
         {"uuid": uuid, "roomid": _to_int_id(room_id)},
@@ -841,6 +858,7 @@ def wx_room_invite(uuid: str, room_id: Any) -> dict:
     return {
         "room_id": str(body.get("roomid") or room_id),
         "qr_code_path": body.get("QrCodePath") or body.get("qr_code_path") or "",
+        "image_url": body.get("image_url") or body.get("imageUrl") or "",
     }
 
 
