@@ -1737,3 +1737,50 @@
 .form-field { display: flex; flex-direction: column; gap: 6px; }
 .form-field > label { font-size: 12px; color: var(--muted); font-weight: 700; }
 .form-field > .input { padding: 8px 10px; }
+
+/* ==========================================================================
+   企业微信「应用/小程序」会话专用样式
+   - 应用头像使用 8px 圆角矩形（与人/群的圆形头像形成视觉区分）
+   - 应用徽标使用紫色系，避免与「群」蓝色徽标、外部联系人金色标签混淆
+   - 只读会话输入区整体降透明度 + 禁用光标
+   ========================================================================== */
+
+/* 圆角矩形头像：Avatar 组件 shape="rounded" 时附加，同时用于消息气泡头像 */
+.avatar-rounded {
+  border-radius: 8px !important;
+}
+
+/* 会话行「应用 / 小程序」徽标（紫色系） */
+.session-row-type-app {
+  background: var(--purple-soft, #ede9fe);
+  color: var(--purple, #7c3aed);
+}
+
+/* 合并区域头部「应用 / 小程序」徽标（与会话行同色系） */
+.right-panel-tag-app {
+  background: var(--purple-soft, #ede9fe);
+  color: var(--purple, #7c3aed);
+}
+
+/* 只读会话（应用通知）输入区：整体禁用态 */
+.chat-input-wrap.composer-disabled {
+  position: relative;
+  background: var(--surface-soft);
+}
+.chat-input-wrap.composer-disabled .chat-toolbar .btn-icon,
+.chat-input-wrap.composer-disabled .chat-input,
+.chat-input-wrap.composer-disabled .chat-input-box .btn {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.chat-input-wrap.composer-disabled .chat-toolbar .btn-icon:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+/* 机器人下拉在只读会话下的禁用态 */
+.right-panel-bot-trigger.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: var(--surface-soft);
+}

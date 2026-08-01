@@ -292,6 +292,28 @@ CREATE TABLE IF NOT EXISTS channel_sessions (
   hosting_chain TEXT NOT NULL DEFAULT '-'
 );
 
+-- ---- iPad 协议：企业应用（不污染 channel_contacts，wecom_app_display §3.1） ----
+-- 应用 ID 空间（10xxx / 5629499*）与真人 vid 空间（1688* / 7881*）完全不重叠，
+-- 单独建表可避免 cc.user_id = cs.remote_session_id 这条既有 JOIN 跨语义误命中，
+-- 也不会污染 channel_contacts 的联系人统计口径。
+-- ⚠️ 所有 ID 列一律 TEXT：appId 最长 17 位，已超 JS Number.MAX_SAFE_INTEGER。
+-- ⚠️ 本 DDL 必须与 project/backend/app/schema.py 保持一致（架构文档 §8.5）。
+CREATE TABLE IF NOT EXISTS channel_apps (
+  id            TEXT PRIMARY KEY,              -- {account_id}:{app_id}
+  account_id    TEXT NOT NULL,                 -- 账号隔离
+  app_id        TEXT NOT NULL DEFAULT '',      -- 协议 appId（TEXT 存，防精度丢失）
+  app_open_id   TEXT NOT NULL DEFAULT '',      -- 协议 appOpenId
+  corpid        TEXT NOT NULL DEFAULT '',
+  name          TEXT NOT NULL DEFAULT '',      -- 应用名称（显示名来源）
+  avatar        TEXT NOT NULL DEFAULT '',      -- 协议 imgId（URL，与 contacts.avatar 命名对齐）
+  app_type      INTEGER NOT NULL DEFAULT 0,    -- 2=小程序
+  description   TEXT NOT NULL DEFAULT '',      -- 协议 desc（desc 是 SQL 保留字，改名）
+  home_info     TEXT NOT NULL DEFAULT '',
+  last_mod_time INTEGER NOT NULL DEFAULT 0,    -- 协议时间戳，用于 P1 增量
+  extra_json    TEXT NOT NULL DEFAULT '{}',    -- appFlag/stat/groupId/businessId 等原样镜像
+  updated_at    TEXT NOT NULL DEFAULT ''       -- 本地同步时间，用于 TTL
+);
+
 CREATE TABLE IF NOT EXISTS hosting_sessions (
   id             TEXT PRIMARY KEY,
   session_key    TEXT NOT NULL DEFAULT '',
@@ -329,5 +351,10 @@ CREATE INDEX IF NOT EXISTS idx_channel_contacts_account  ON channel_contacts(acc
 CREATE INDEX IF NOT EXISTS idx_channel_sessions_account  ON channel_sessions(account_id, read_status, hosted_status, online_status);
 CREATE INDEX IF NOT EXISTS idx_hosting_sessions_account  ON hosting_sessions(account_id, hosted_status);
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_contact ON customer_profiles(contact_id);
+-- 企业应用双键索引：appId(16/17位) 与 appOpenId(5位) 两族并存，
+-- list_sessions 的第三路 LEFT JOIN 用 OR 同时匹配两列，两列都必须有索引。
+-- (account_id, app_id) 由下方 UNIQUE 索引覆盖，无需再建同列普通索引（K5）。
+CREATE INDEX IF NOT EXISTS idx_channel_apps_account_openid ON channel_apps(account_id, app_open_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_channel_apps_account_appid ON channel_apps(account_id, app_id);
 CREATE INDEX IF NOT EXISTS idx_communication_records_cust ON communication_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_custom_attributes_cust    ON custom_attributes(customer_id);

@@ -1,89 +1,147 @@
 classDiagram
-    %% ---------- 前端组件 / hooks ----------
-    class ChannelSessionsPage {
-        +selectedAccountId: string|null
-        +sessions: SessionDTO[]
-        +selectedSessionId: string|null
-        +syncStatus: SyncStatusDTO|null
-        +activeTab: 'sessions'|'friends'|'groups'
-        +lastAutoSyncAt: Record~string,number~
-        +handleAutoSync(accountId) void
-        +handleCreateGroup(memberIds, roomName) void
-        +handleMarkAllRead() void
-        +scrollToSession(id) void
-    }
-    class AccountListPanel {
-        +accounts: AccountDTO[]
-        +selectedAccountId: string|null
-        +onSelect(id) void
-    }
-    class Resizer {
-        +onResizeStart(e) void
-    }
-    class CreateGroupModal {
-        +open: boolean
-        +accountId: string
-        +friends: ContactDTO[]
-        +onClose() void
-        +onCreated(group) void
-    }
-    class useResizablePanels {
-        -min: number = 180
-        -max: number = 360
-        +width: number
-        +startDrag(e) void
-    }
-    class useSessionActions {
-        +scrollToTop() void
-        +locateUnread() void
-        +locateSelected() void
-        +markAllRead() void
-    }
-    class channelsApi {
-        +syncAccount(id) SyncResultDTO
-        +getSyncStatus(id) SyncStatusDTO
-        +listContacts(p) ContactDTO[]
-        +createGroup(id, req) GroupDTO
-        +markSessionsReadLocal(id, ids?) MarkReadLocalResultDTO
+    direction LR
+
+    class IPadClient {
+        <<module ipad_client.py>>
+        +_post(path, payload, timeout) dict
+        +_norm(data) dict
+        +get_session_list(uuid, star_index, limit) dict
+        +get_user_info_by_vids(uuid, vids) list
+        +get_corp_wx_app(uuid) list
     }
 
-    %% ---------- 后端 ----------
-    class iPadSyncRouter {
-        +POST /{id}/sync
-        +GET /{id}/sync-status
-        +POST /{id}/groups
-        +POST /{id}/sessions/read-local
+    class IPadProtocolError {
+        <<exception>>
     }
-    class ipad_sync {
-        +trigger_sync(id) bool
-        +run_full_sync(id) dict
-        +create_group(id, memberIds, roomName) dict
-        +mark_sessions_read_local(id, sessionIds) dict
+
+    class ChannelApp {
+        <<table channel_apps>>
+        +str id
+        +str account_id
+        +str app_id
+        +str app_open_id
+        +str corpid
+        +str name
+        +str avatar
+        +int app_type
+        +str description
+        +str home_info
+        +int last_mod_time
+        +str extra_json
+        +str updated_at
     }
-    class ipad_client {
-        +create_chatroom(uuid, wxids, roomName) dict
-        +mark_as_read(uuid, uid, isRoom) dict
+
+    class ChannelSession {
+        <<table channel_sessions>>
+        +str id
+        +str account_id
+        +str remote_session_id
+        +int msg_type
+        +str name
+        +str contact_id
+        +str session_type
+        +str external_tag
+        +str begin_msg_seq
     }
+
+    class ChannelContact {
+        <<table channel_contacts>>
+        +str id
+        +str account_id
+        +str user_id
+        +str name
+        +str nickname
+        +str avatar
+        +str type
+        +str extra_json
+    }
+
+    class Message {
+        <<table messages>>
+        +str id
+        +str conversation_id
+        +str sender_id
+        +str sender_type
+        +str direction
+        +int msg_type
+        +str content
+    }
+
     class ChannelMgmtRepository {
-        +mark_session_read_db(sessionId) dict
-        +upsert_channel_group(group) void
-        +create_session_for_room(accountId, roomId, name, ch, ct) dict
-        +get_contact_by_id(id) dict
-        +list_groups(accountId, type) list
+        <<module repositories.py>>
+        +upsert_channel_app(payload) None
+        +get_app_by_session_id(account_id, sid) dict
+        +list_apps(account_id) list
+        +upsert_channel_contact(payload) None
+        +upsert_channel_session(payload) None
+        +list_sessions(account_id, read, hosted, online, search) list
+        +_resolve_sender_avatar(account_id, direction, sender_id, conversation_id) str
+        +row_to_session(row) dict
+        +row_to_message_ext(row) dict
     }
 
-    %% ---------- 关系 ----------
-    ChannelSessionsPage *-- AccountListPanel
-    ChannelSessionsPage *-- Resizer
-    ChannelSessionsPage *-- CreateGroupModal
-    ChannelSessionsPage ..> useResizablePanels : uses
-    ChannelSessionsPage ..> useSessionActions : uses
-    ChannelSessionsPage ..> channelsApi : calls
-    CreateGroupModal ..> channelsApi : listContacts / createGroup
-    useSessionActions ..> channelsApi : markSessionsReadLocal
-    channelsApi ..> iPadSyncRouter : HTTP
-    iPadSyncRouter ..> ipad_sync : invoke
-    ipad_sync ..> ipad_client : create_chatroom
-    ipad_sync ..> ChannelMgmtRepository : persist
-    iPadSyncRouter ..> ChannelMgmtRepository : read/write
-    ipad_client ..> ChannelMgmtRepository : (none; protocol only)
+    class IPadSync {
+        <<module ipad_sync.py>>
+        +APP_MSG_TYPES
+        +VID_MSG_TYPES
+        +run_full_sync(account_id) dict
+        +_sync_corp_apps(repo, uuid, account_id) int
+        +_backfill_unknown_vids(repo, uuid, account_id, items) int
+        +_upsert_session(repo, account_id, channel, ctype, item) None
+        +_resolve_send_target(repo, target_type, target_id) tuple
+    }
+
+    class IPadSyncError {
+        <<exception>>
+    }
+
+    class SessionDTO {
+        <<schemas.py and types/channels.ts>>
+        +str id
+        +str name
+        +str avatar
+        +str sessionType
+        +int msgType
+        +str entityKind
+        +bool readonly
+    }
+
+    class ChannelSessionsPage {
+        <<ChannelSessions.tsx>>
+        +renderSessionRow(session)
+    }
+
+    class SessionChatPanel {
+        <<SessionChatPanel.tsx>>
+        +renderComposer(session)
+        +renderBubbleAvatar(message)
+    }
+
+    class Avatar {
+        <<shared/Avatar.tsx>>
+        +str url
+        +str name
+        +str id
+        +int size
+        +str shape
+    }
+
+    IPadClient ..> IPadProtocolError : raises
+    IPadSync --> IPadClient : calls
+    IPadSync ..> IPadSyncError : raises
+    IPadSync --> ChannelMgmtRepository : upsert
+
+    ChannelMgmtRepository --> ChannelApp : upsert and query
+    ChannelMgmtRepository --> ChannelSession : upsert and query
+    ChannelMgmtRepository --> ChannelContact : upsert and query
+    ChannelMgmtRepository --> Message : query
+
+    ChannelSession ..> ChannelApp : LEFT JOIN on app_id OR app_open_id
+    ChannelSession ..> ChannelContact : LEFT JOIN on contact_id OR user_id
+    Message --> ChannelSession : conversation_id
+
+    ChannelMgmtRepository --> SessionDTO : row_to_session
+    ChannelSessionsPage --> SessionDTO : consumes
+    SessionChatPanel --> SessionDTO : consumes
+    ChannelSessionsPage --> Avatar : uses
+    SessionChatPanel --> Avatar : uses

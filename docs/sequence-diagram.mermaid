@@ -1,58 +1,136 @@
 sequenceDiagram
     autonumber
-    actor U as 运营
-    participant P as ChannelSessionsPage
-    participant H as useSessionActions / useResizablePanels
-    participant A as channelsApi
-    participant R as iPadSyncRouter
-    participant S as ipad_sync
-    participant C as ipad_client
-    participant Repo as ChannelMgmtRepository
+    actor U as 运营人员
+    participant FE as ChannelSessions.tsx
+    participant API as FastAPI Router
+    participant SY as ipad_sync.run_full_sync
+    participant CL as ipad_client
+    participant SVC as iPad 协议服务
+    participant REPO as ChannelMgmtRepository
+    participant DB as SQLite
 
-    Note over P: ① 进入页自动同步（Q2 全量复用 + Q7 30s 节流）
-    P->>P: mount / selectedAccountId 变化
-    P->>P: 30s 内同账号？是→跳过
-    P->>A: syncAccount(accountId)
-    A->>R: POST /{id}/sync
-    R->>S: trigger_sync(id) → run_full_sync (后台线程)
-    S->>Repo: set_account_sync_status(syncing)
-    P->>A: 轮询 getSyncStatus(id) (2s)
-    A->>R: GET /{id}/sync-status
-    R-->>P: {syncing:false}
-    P->>A: listSessions({accountId})
-    A->>R: GET /channels/sessions
-    R-->>P: 会话列表刷新
+    rect rgb(235, 244, 255)
+    Note over SY,DB: 流程一 全量同步 六路编排
+    SY->>REPO: get_account_by_id(account_id)
+    REPO-->>SY: ipadUuid / channel / channelType
+    SY->>REPO: set_account_sync_status(syncing)
 
-    Note over U,P: ② 创建群聊（Q4 mock-first + Q6 复用 listContacts）
-    U->>P: 点击「创建群聊」
-    P->>A: listContacts({accountId})
-    A->>R: GET /channels/contacts
-    R-->>P: 好友列表（弹窗数据源）
-    U->>P: 多选好友 + 确认
-    P->>A: createGroup(accountId, {memberIds, roomName})
-    A->>R: POST /{id}/groups
-    R->>S: create_group(id, memberIds, roomName)
-    S->>Repo: get_contact_by_id → 解析 user_id 列表
-    S->>C: create_chatroom(uuid, wxids, roomName)
-    alt 真实失败 / mock 模式
-        C-->>S: 降级 mock room_id（auto 记 warning）
+    SY->>CL: get_inner_contacts(uuid, strSeq)
+    CL->>SVC: POST /wxwork/GetInnerContacts
+    SVC-->>CL: 内部联系人
+    CL-->>SY: list
+    SY->>REPO: upsert_channel_contact xN
+
+    SY->>CL: get_external_contacts(uuid, seq)
+    CL-->>SY: 外部联系人
+    SY->>REPO: upsert_channel_contact xN
+
+    SY->>CL: get_session_room_list 与 get_chatroom_members
+    CL-->>SY: 群列表
+    SY->>REPO: upsert_channel_group xN
+
+    Note over SY,SVC: 第五路 应用列表 须早于会话规范化
+    SY->>CL: get_corp_wx_app(uuid)
+    CL->>SVC: POST /wxwork/getCorpWxApp
+    alt errcode 为 0
+        SVC-->>CL: data.wxAppList
+        CL-->>SY: list of app
+        SY->>REPO: upsert_channel_app xN
+        REPO->>DB: UPSERT channel_apps
+    else HTTP 404 或 errcode 非 0
+        SVC-->>CL: HTTP 404 Not Found
+        CL-->>SY: raise IPadProtocolError
+        SY->>SY: degraded 置 true 且 counts.apps 置 0
+        Note right of SY: 单路失败不阻断其余路
     end
-    S->>Repo: upsert_channel_group (customer_group)
-    S->>Repo: create_session_for_room (支撑直接聊天)
-    R-->>P: GroupDTO
-    P->>P: setActiveTab('groups') + 重载 groups
 
-    Note over U,P: ③ 一键已读（Q3 仅本地持久化）
-    U->>P: 点击「一键已读」
-    P->>A: markSessionsReadLocal(accountId)
-    A->>R: POST /{id}/sessions/read-local
-    R->>S: mark_sessions_read_local(id, None)
-    S->>Repo: UPDATE channel_sessions SET unread_count=0, read_status='read' WHERE account_id=?
-    R-->>P: {updated: N}
-    P->>P: 本地 sessions 未读清零（或重载列表）
+    Note over SY,SVC: 第六路 会话列表 与 未知 vid 兜底补拉
+    SY->>CL: get_session_list(uuid, star_index)
+    CL->>SVC: POST /wxwork/GetSessionList
+    SVC-->>CL: room_list 仅含 sessionid 与 msgtype 无 name
+    CL-->>SY: room_list
+    SY->>SY: 收集 msg_type 属于 0 或 6 且本地无 contact 的 id
+    alt 存在未知 vid
+        SY->>CL: get_user_info_by_vids(uuid, vids)
+        CL->>SVC: POST /wxwork/GetUserInfoByVids
+        SVC-->>CL: user_id 与 nickname 与 avatar
+        CL-->>SY: 命中的身份
+        SY->>REPO: upsert_channel_contact type=service xN
+        REPO->>DB: UPSERT channel_contacts
+    end
 
-    Note over U,P: ④ 左中栏拖拽（Q5 180–360 + localStorage）
-    U->>H: 拖拽 resizer
-    H->>H: 计算宽度并 clamp(180,360)
-    H->>P: set --session-left-width (CSS 变量)
-    H->>H: mouseup → localStorage['morphix.sessionLeftWidth']=width
+    loop 每个 session
+        alt msg_type 等于 1 群聊
+            SY->>REPO: get_group_by_room_id 取群名
+        else msg_type 属于 3 或 103 或 107 应用
+            SY->>REPO: get_app_by_session_id 双键匹配
+            REPO->>DB: SELECT channel_apps WHERE app_id 或 app_open_id
+            DB-->>REPO: app 或 None
+            REPO-->>SY: name 取 app.name 且 contact_id 置 None
+        else msg_type 属于 0 或 6
+            SY->>REPO: get_contact_by_id 取 nickname
+        end
+        SY->>REPO: upsert_channel_session
+        REPO->>DB: UPSERT channel_sessions
+    end
+    SY->>REPO: set_account_sync_status success 或 degraded
+    end
+
+    rect rgb(240, 255, 240)
+    Note over U,DB: 流程二 会话列表查询
+    U->>FE: 打开企业微信渠道
+    FE->>API: GET /api/channels/sessions
+    API->>REPO: list_sessions(account_id)
+    REPO->>DB: SELECT 加三路 LEFT JOIN 加收敛式过滤
+    Note right of DB: 名称链 cc.nickname 到 cc.name 到 cg.nickname 到 ca.name 到 cs.name
+    Note right of DB: 头像链 cc.avatar 到 cg.room_url 到 ca.avatar 到 空串
+    DB-->>REPO: rows 未解析的应用会话被自动隐藏
+    REPO->>REPO: row_to_session 追加 msgType 与 entityKind 与 readonly
+    REPO-->>API: list of SessionDTO
+    API-->>FE: 200 JSON
+    FE->>FE: 应用条目使用圆角头像与应用徽标
+    FE-->>U: 渲染真实名称与头像 无裸数字
+    end
+
+    rect rgb(255, 248, 235)
+    Note over U,DB: 流程三 消息气泡头像解析
+    U->>FE: 点击应用会话
+    FE->>API: GET /api/channels/sessions/{id}/messages
+    API->>REPO: list_session_messages_ext(session_id)
+    REPO->>DB: SELECT messages WHERE conversation_id
+    DB-->>REPO: rows
+    loop 每条消息
+        REPO->>REPO: _resolve_sender_avatar
+        alt direction 为 outbound
+            REPO->>DB: SELECT avatar FROM channel_accounts
+        else 会话 msg_type 属于 3 或 103 或 107
+            REPO->>DB: SELECT avatar FROM channel_apps 双键匹配
+            DB-->>REPO: 应用头像
+            Note right of REPO: 按会话维度解析 不依赖 sender_id
+        else 群消息
+            REPO->>DB: SELECT avatar FROM channel_group_members
+        else 一对一消息
+            REPO->>DB: SELECT avatar FROM channel_contacts
+        end
+        REPO->>REPO: 未命中返回空串 交前端首字兜底
+    end
+    REPO-->>API: MessageExtDTO 含 senderAvatar
+    API-->>FE: 200 JSON
+    FE->>FE: readonly 为 true 则禁用输入区
+    FE-->>U: 气泡头像为应用图标 圆角矩形
+    end
+
+    rect rgb(255, 240, 240)
+    Note over U,REPO: 流程四 发送拦截 防御性兜底
+    U->>FE: 异常路径尝试发送
+    FE->>API: POST /api/channels/messages/send
+    API->>SY: _resolve_send_target(session, target_id)
+    SY->>REPO: get_session_by_id(target_id)
+    REPO-->>SY: msg_type
+    alt msg_type 属于 3 或 103 或 107
+        SY-->>API: raise IPadSyncError 应用类会话不支持发送消息
+        API-->>FE: 400 Bad Request
+    else 正常会话 含 msg_type 等于 6
+        SY-->>API: target 与 is_room
+    end
+    end

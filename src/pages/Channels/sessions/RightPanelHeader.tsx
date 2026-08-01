@@ -6,6 +6,7 @@ import { ChevronDown, Settings2, Eraser } from 'lucide-react'
 import type { AccountDTO, HostingBotDTO, SessionDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
 import { avatarColor } from '../shared/avatarUtils'
+import { isAppSession, appBadgeText } from '../shared/sessionKind'
 import { toast, errText } from '../../../utils/toast'
 
 interface RightPanelHeaderProps {
@@ -45,6 +46,8 @@ export default function RightPanelHeader({
 
   const hosted = session?.hostedStatus === 'hosted'
   const isGroup = isGroupSession(session)
+  // 应用通知会话只读：托管开关与机器人下拉一律禁用（后端也会拒绝发送，双重防御）。
+  const isApp = isAppSession(session)
   const name = session?.name ?? '未选择会话'
   const botName =
     bots.find((b) => b.id === session?.hostedBotId)?.name ?? '请选择客...'
@@ -54,6 +57,10 @@ export default function RightPanelHeader({
 
   const toggleHosting = async (checked: boolean) => {
     if (!session) return
+    if (isApp) {
+      toast('应用通知会话，暂不支持回复', { level: 'warning', duration: 2400 })
+      return
+    }
     // 前置校验：开启托管必须先在下拉框选择机器人（后端同样拦截，双重防御）。
     if (checked && !session.hostedBotId) {
       toast('请先选择机器人', { level: 'warning', duration: 2400 })
@@ -103,6 +110,9 @@ export default function RightPanelHeader({
         <span className="right-panel-name" title={name}>
           {name}
         </span>
+        {isApp && session && (
+          <span className="right-panel-tag right-panel-tag-app">{appBadgeText(session)}</span>
+        )}
         {tag && <span className="right-panel-tag">{tag}</span>}
         {isGroup && session && (
           <span className="right-panel-sub">群主：{name.split(/[、,，\s]/)[0]}</span>
@@ -115,7 +125,7 @@ export default function RightPanelHeader({
           <input
             type="checkbox"
             checked={hosted}
-            disabled={!session || busy}
+            disabled={!session || busy || isApp}
             onChange={(e) => toggleHosting(e.target.checked)}
           />
           <span className="slider" />
@@ -123,15 +133,16 @@ export default function RightPanelHeader({
 
         <div className="import-select right-panel-bot-select">
           <div
-            className="import-select-trigger right-panel-bot-trigger"
-            onClick={() => session && setBotOpen((v) => !v)}
+            className={`import-select-trigger right-panel-bot-trigger${isApp ? ' disabled' : ''}`}
+            title={isApp ? '应用通知会话，暂不支持回复' : undefined}
+            onClick={() => session && !isApp && setBotOpen((v) => !v)}
           >
-            <span style={{ color: hosted ? 'var(--muted)' : 'var(--ink)' }}>
+            <span style={{ color: hosted || isApp ? 'var(--muted)' : 'var(--ink)' }}>
               {botName}
             </span>
             <ChevronDown size={14} />
           </div>
-          {botOpen && (
+          {botOpen && !isApp && (
             <div className="import-select-dropdown" onClick={(e) => e.stopPropagation()}>
               {bots.length === 0 ? (
                 <div className="import-select-option" style={{ color: 'var(--muted)' }}>

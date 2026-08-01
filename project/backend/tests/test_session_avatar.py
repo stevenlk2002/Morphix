@@ -8,6 +8,12 @@
 2. `row_to_group` 返回的群字典必须包含 `avatar` 字段，且
    当 avatar 列为空但 room_url 有值时 fallback 到 room_url。
 
+⚠️ wecom_app_display 变更说明：`list_sessions` 的硬编码 `WHERE cs.msg_type != 3`
+已被**收敛式过滤**取代（「名称解析得出才展示」）。因此应用会话不再按 msg_type
+一刀切排除，而是「名称未解析才隐藏」—— 对应断言已同步更新，语义等价于改动前
+（getCorpWxApp 未上线期间可见结果完全一致，零视觉回归）。
+详见 `tests/test_wecom_app_display.py::TestConvergentFiltering`。
+
 运行：
     cd project/backend && MORPHIX_DEV=1 .venv/bin/python -m pytest tests/test_session_avatar.py -q -p no:cacheprovider
 """
@@ -223,12 +229,49 @@ class TestListSessionsAvatar:
         assert len(sessions) == 1
         assert sessions[0]["avatar"] == ""
 
-    def test_msg_type_3_app_sessions_excluded(self, repo):
-        """应用类会话（msg_type=3）应被过滤，不进入列表。"""
+    def test_unresolved_app_session_excluded(self, repo):
+        """应用类会话（msg_type=3）名称未解析时应被过滤，不进入列表。
+
+        「未解析」的判据是 `name == remote_session_id`（协议只给了裸 sessionid）。
+        这与改动前 `WHERE cs.msg_type != 3` 在 getCorpWxApp 未上线期间的可见结果
+        完全一致 —— 零视觉回归。
+        """
         _make_session(
-            repo, "app", contact_id=None, remote_session_id="app-room", msg_type=3
+            repo,
+            "app",
+            contact_id=None,
+            remote_session_id="app-room",
+            name="app-room",
+            msg_type=3,
         )
         assert repo.list_sessions(account_id=ACCOUNT_ID) == []
+
+    def test_resolved_app_session_surfaces(self, repo):
+        """应用信息同步到位后（channel_apps 命中），应用会话应自动浮现。"""
+        repo.upsert_channel_app(
+            {
+                "account_id": ACCOUNT_ID,
+                "app_id": "app-room",
+                "app_open_id": "10223",
+                "name": "企业微信团队",
+                "avatar": "http://cdn/app-room.png",
+                "app_type": 1,
+            }
+        )
+        _make_session(
+            repo,
+            "app",
+            contact_id=None,
+            remote_session_id="app-room",
+            name="app-room",
+            msg_type=3,
+        )
+        sessions = repo.list_sessions(account_id=ACCOUNT_ID)
+        assert len(sessions) == 1
+        assert sessions[0]["name"] == "企业微信团队"
+        assert sessions[0]["avatar"] == "http://cdn/app-room.png"
+        assert sessions[0]["entityKind"] == "app"
+        assert sessions[0]["readonly"] is True
 
 
 class TestListGroupsAvatarRegression:

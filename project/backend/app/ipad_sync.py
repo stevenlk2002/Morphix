@@ -26,7 +26,11 @@ from typing import Any
 from . import ipad_client
 from .config import settings
 from .database import get_backend
-from .repositories import ChannelMgmtRepository
+from .repositories import (
+    APP_MSG_TYPES,
+    VID_MSG_TYPES,
+    ChannelMgmtRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,24 @@ _sync_active: dict[str, bool] = {}
 # 单账号单次同步累计上限（决策 #4）。
 SYNC_TOTAL_CAP = 5000
 
-# msg_type 映射（0 好友 / 1 群聊 / 3 应用 / 6 开放平台）。
-_MSG_TYPE_LABEL = {0: "好友", 1: "群聊", 3: "应用", 6: "开放平台"}
+# msg_type 映射（0 好友 / 1 群聊 / 3 应用 / 6 开放平台 / 103·107 应用变体）。
+# 对拍结论 A（wecom_app_display §1.1）：用户可见的裸数字里没有一个是 msg_type=3，
+# 它们分别是 107 / 103 / 0，因此 103 / 107 必须一并归入「应用」文案，
+# 否则 session_type 会落成「其他」，前端无法识别。
+_MSG_TYPE_LABEL = {
+    0: "好友",
+    1: "群聊",
+    3: "应用",
+    6: "开放平台",
+    103: "应用",
+    107: "应用",
+}
+
+# `APP_MSG_TYPES = {3, 103, 107}` / `VID_MSG_TYPES = {0, 6}` 由 repositories
+# 单点定义并在本模块 re-export（架构文档 §8.1 要求「全项目唯一定义」）。
+# 之所以不定义在本模块：`ipad_sync` 在加载期就 import `repositories`，
+# 反向 import 会构成循环依赖；repositories 是更底层模块，由它承载常量最安全。
+# 同步层与单测可继续用 `ipad_sync.APP_MSG_TYPES` 作为语义入口。
 
 
 class IPadSyncError(ValueError):
@@ -396,9 +416,18 @@ def mark_sessions_read_local(
 # 全量同步核心
 # ---------------------------------------------------------------------------
 def run_full_sync(account_id: str) -> dict:
-    """执行一次全量同步（四路拉取 + 游标分页 + 5000 上限 + 状态写入）。
+    """执行一次全量同步（六路拉取 + 游标分页 + 5000 上限 + 状态写入）。
 
-    返回 `{"counts": {...}, "degraded": bool, "error": str|None, "total": int}`。
+    编排顺序（wecom_app_display §5.2 流程一，顺序有依赖不可调换）：
+    1) 内部联系人 → 2) 外部联系人 → 3) 群（3.1 主源 + 3.2 兜底）
+    → **4) 企业应用（第五路，须早于会话规范化）**
+    → 5) 会话（内含 **第六路 vid 兜底补拉，须早于 `_upsert_session` 循环**）
+    → 6) 为缺失会话的联系人补会话。
+
+    返回 `{"counts": {...}, "degraded": bool, "error": str|None, "total": int}`；
+    `counts` 含 `inner/external/groups/apps/vids/sessions`。
+    `apps` / `vids` 两路**自带 try/except 降级**：协议接口不可用时只记 0，
+    不影响其余路，也不会把整次同步标记为失败（§8.4 分路容错）。
     互斥由调用方（trigger_sync / 自动触发）保证；本函数只做业务编排。
     """
     repo = ChannelMgmtRepository(get_backend())
@@ -415,7 +444,14 @@ def run_full_sync(account_id: str) -> dict:
     channel: str = account.get("channel", "企业微信")
     channel_type: str = account.get("channelType", "wecom")
 
-    counts: dict[str, int] = {"inner": 0, "external": 0, "groups": 0, "sessions": 0}
+    counts: dict[str, int] = {
+        "inner": 0,
+        "external": 0,
+        "groups": 0,
+        "apps": 0,
+        "vids": 0,
+        "sessions": 0,
+    }
     total = 0
     repo.set_account_sync_status(account_id, "syncing", _now())
 
@@ -519,13 +555,25 @@ def run_full_sync(account_id: str) -> dict:
                 break
             star = nxt
 
-        # 4) 会话（游标 star_index，依赖 contact/group 名称，放最后）
+        # 4) 企业应用（第五路，wecom_app_display T02）
+        #    必须早于会话规范化：_upsert_session 依赖 get_app_by_session_id 取应用名。
+        #    该路自带 try/except，getCorpWxApp 404 时只记 0，不阻断后续路。
+        #    不计入 total：应用不占「5000 条实体」配额，且条数极少（个位数）。
+        counts["apps"] = _sync_corp_apps(repo, uuid, account_id)
+
+        # 5) 会话（游标 star_index，依赖 contact/group/app 名称，放最后）
         star = 0
         while total < SYNC_TOTAL_CAP:
             res = ipad_client.get_session_list(uuid, star, 100)
             lst = res["room_list"]
             if not lst:
                 break
+            # 5.1 第六路：vid 兜底补拉。必须在 _upsert_session 循环**之前**，
+            #     否则本页 msg_type∈{0,6} 的会话仍会以裸数字落库。
+            counts["vids"] += _backfill_unknown_vids(
+                repo, uuid, account_id, channel, channel_type, lst
+            )
+            # 5.2 会话规范化
             for item in lst:
                 _upsert_session(repo, account_id, channel, channel_type, item)
                 counts["sessions"] += 1
@@ -539,7 +587,7 @@ def run_full_sync(account_id: str) -> dict:
                 break
             star = nxt
 
-        # 5) 为尚未建立会话的联系人补一条会话。
+        # 6) 为尚未建立会话的联系人补一条会话。
         #    真实 iPad 服务 GetSessionList 常不返回内部联系人单聊，导致内部好友
         #    只出现在「联系人列表」却不在「会话列表」。按联系人反查补全，保证
         #    内外部好友都能在会话列表中按真实昵称展示（决策 #11）。
@@ -658,7 +706,10 @@ def _resolve_target(
         if not s:
             raise IPadSyncError("会话不存在")
         msg_type = _as_int(s.get("msg_type"))
-        if msg_type == 3:
+        # 只读拦截（防御性兜底，前端已置灰输入区）：应用族 {3, 103, 107} 没有
+        # 可聊天对象，发送必然失败。⚠️ 对拍结论：msg_type=6（开放平台 /
+        # AI数字员工）实测有 111 条 outbound，**必须放行**，不得并入只读族。
+        if msg_type in APP_MSG_TYPES:
             raise IPadSyncError("应用类会话不支持发送消息")
         if msg_type == 1:
             remote = s.get("remote_session_id") or ""
@@ -834,6 +885,172 @@ def _upsert_group(repo: ChannelMgmtRepository, account_id: str, item: dict) -> N
     )
 
 
+def _sync_corp_apps(
+    repo: ChannelMgmtRepository,
+    uuid: str,
+    account_id: str,
+) -> int:
+    """第五路：拉取企业应用列表 → 落 `channel_apps`（wecom_app_display T02）。
+
+    **必须早于会话规范化执行** —— `_upsert_session` 依赖
+    `repo.get_app_by_session_id()` 取应用显示名。
+
+    ⚠️ 协议接口 `getCorpWxApp` 在生产实例 `47.94.7.218:9912` 当前返回
+    HTTP 404（协议服务版本缺口，架构文档 §9-U1）。因此本函数**必须**吞掉
+    `IPadProtocolError` 并返回 0：单路失败不阻断其余路（§8.4 分路容错），
+    会话侧由查询层的收敛式过滤保证零视觉回归。接口一旦上线，本函数无需
+    任何改动即自动生效。
+
+    Args:
+        repo: 渠道管理仓储。
+        uuid: iPad 协议实例 uuid。
+        account_id: 渠道账号 id。
+
+    Returns:
+        int: 成功落库的应用条数；接口不可用 / 返回空时为 0。
+    """
+    try:
+        apps = ipad_client.get_corp_wx_app(uuid)
+    except ipad_client.IPadProtocolError as exc:
+        logger.warning(
+            "getCorpWxApp 不可用（应用会话将继续隐藏，不产生回归） account=%s: %s",
+            account_id,
+            exc,
+        )
+        return 0
+
+    now = _now()
+    saved = 0
+    for app in apps:
+        app_id = str(app.get("appId") or "")
+        app_open_id = str(app.get("appOpenId") or "")
+        if not app_id and not app_open_id:
+            continue
+        repo.upsert_channel_app(
+            {
+                "account_id": account_id,
+                "app_id": app_id,
+                "app_open_id": app_open_id,
+                "corpid": str(app.get("corpid") or ""),
+                "name": str(app.get("name") or ""),
+                "avatar": str(app.get("avatar") or ""),
+                "app_type": _as_int(app.get("appType")),
+                "description": str(app.get("description") or ""),
+                "home_info": str(app.get("homeInfo") or ""),
+                "last_mod_time": _as_int(app.get("lastModTime")),
+                "extra_json": json.dumps(app.get("extra") or {}, ensure_ascii=False),
+                "updated_at": now,
+            }
+        )
+        saved += 1
+    return saved
+
+
+def _backfill_unknown_vids(
+    repo: ChannelMgmtRepository,
+    uuid: str,
+    account_id: str,
+    channel: str,
+    channel_type: str,
+    session_items: list[dict],
+) -> int:
+    """第六路：为「本地无联系人记录」的 vid 族会话补拉真实身份。
+
+    `GetSessionList` 的 `room_list[]` 只有 `sessionid` / `msgtype`，**不含名称**；
+    `msg_type ∈ {0, 6}` 的 sessionid 落在真人 vid 空间，若该 vid 未被
+    `GetInnerContacts` / `GetExternalContacts` 覆盖（如「企业微信团队」
+    `1688852792312821`、「AI数字员工」`5629499770789533`），会话名就会退化成裸数字。
+
+    本函数用 **可用的** `GetUserInfoByVids` 批量解析这些 vid，命中的以
+    `type='service'` / `source='vid_backfill'` 落 `channel_contacts`。
+    落库后 `list_sessions` 现有的 `cc.user_id = cs.remote_session_id` JOIN
+    直接命中 —— **查询层零改动**（架构文档 结论 2C）。
+
+    ⚠️ 必须在 `_upsert_session` 循环**之前**调用，否则本轮会话仍写裸数字名。
+
+    Args:
+        repo: 渠道管理仓储。
+        uuid: iPad 协议实例 uuid。
+        account_id: 渠道账号 id。
+        channel: 渠道名（如「企业微信」）。
+        channel_type: 渠道类型（如 `wecom`）。
+        session_items: 本页 `GetSessionList` 的 `room_list`。
+
+    Returns:
+        int: 成功补拉并落库的身份条数；无待补 / 接口失败时为 0。
+    """
+    unknown: list[str] = []
+    seen: set[str] = set()
+    for item in session_items or []:
+        sessionid = str(item.get("sessionid") or item.get("sessionId") or "")
+        if not sessionid or sessionid in seen:
+            continue
+        msg_type = _as_int(item.get("msgtype", item.get("msgType")))
+        if msg_type not in VID_MSG_TYPES:
+            continue
+        # 已有联系人记录则无需补拉（自然键 {account_id}:{user_id}）
+        if repo.get_contact_by_id(f"{account_id}:{sessionid}"):
+            continue
+        seen.add(sessionid)
+        unknown.append(sessionid)
+
+    if not unknown:
+        return 0
+
+    try:
+        users = ipad_client.get_user_info_by_vids(uuid, unknown)
+    except ipad_client.IPadProtocolError as exc:
+        logger.warning(
+            "GetUserInfoByVids 补拉失败（相关会话继续隐藏） account=%s count=%d: %s",
+            account_id,
+            len(unknown),
+            exc,
+        )
+        return 0
+
+    saved = 0
+    for user in users:
+        user_id = str(user.get("user_id") or "")
+        if not user_id:
+            continue
+        nickname = str(user.get("nickname") or user.get("name") or "")
+        if not nickname:
+            # 协议命中但无名称：落库只会得到空名，不如留给收敛式过滤隐藏
+            continue
+        repo.upsert_channel_contact(
+            {
+                "id": f"{account_id}:{user_id}",
+                "account_id": account_id,
+                "channel": channel,
+                "channel_type": channel_type,
+                "name": str(user.get("name") or nickname),
+                "nickname": nickname,
+                # type='service'：与真人 customer/inner 区分开，
+                # 避免污染「联系人 / 客户」统计口径（PRD 无回归要求）。
+                "type": "service",
+                "status": "online",
+                "remark": "",
+                "description": "",
+                "add_time": "",
+                "source": "vid_backfill",
+                "user_id": user_id,
+                "label_ids": "[]",
+                "raw_status": "",
+                "extra_json": json.dumps(
+                    {
+                        "corpid": user.get("corpid", ""),
+                        "acctid": user.get("acctid", ""),
+                        "source": "GetUserInfoByVids",
+                    },
+                    ensure_ascii=False,
+                ),
+                "avatar": str(user.get("avatar") or ""),
+            }
+        )
+        saved += 1
+    return saved
+
+
 def _upsert_session(
     repo: ChannelMgmtRepository,
     account_id: str,
@@ -859,8 +1076,20 @@ def _upsert_session(
         if grp:
             # 兼容 DTO(name) 与单测 FakeRepo(nickname)
             name = grp.get("name") or grp.get("nickname") or sessionid
+    elif msg_type in APP_MSG_TYPES:
+        # 应用族 {3, 103, 107}：sessionid 落在 appOpenId(5 位) / appId(16-17 位)
+        # 空间，与真人 vid 空间不重叠。
+        # ⚠️ 修 PRD F4：这里**绝不能**沿用 `contact_id = {account_id}:{sessionid}`
+        # 的伪造键 —— 那会让 list_sessions 的第一路 JOIN 跨语义误命中，
+        # 也会污染联系人统计。应用会话恒 `contact_id = None`。
+        app = repo.get_app_by_session_id(account_id, sessionid)
+        if app:
+            name = str(app.get("name") or "") or sessionid
+        # 未命中（getCorpWxApp 尚未上线）→ name 保持 sessionid，
+        # 由查询层的收敛式过滤自动隐藏，不会以裸数字暴露给用户。
     else:
-        # 好友 / 开放平台：contact_id = {account_id}:{sessionid}（假设 sessionid==user_id）
+        # 好友 / 开放平台（VID_MSG_TYPES 及未知类型）：
+        # contact_id = {account_id}:{sessionid}（假设 sessionid==user_id）
         contact_id = f"{account_id}:{sessionid}"
         c = repo.get_contact_by_id(contact_id)
         if c:

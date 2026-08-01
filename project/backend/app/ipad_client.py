@@ -959,3 +959,217 @@ def set_callback_url(uuid: str, url: str, callbackType: str = "HTTP") -> dict:
         {"uuid": uuid, "url": url, "callbackType": callbackType},
     )
     return _norm(data)
+
+
+# ---------------------------------------------------------------------------
+# 企业应用 / vid 身份解析（wecom_app_display T01）
+#
+# 沿用 _post + _norm，**不修改 `_post`**、**不补 mock 分支**（架构文档 §8.4）；
+# 失败一律抛 `IPadProtocolError`，由 `ipad_sync` 分路 try/except 降级。
+#
+# ⚠️ 精度约定（架构文档 §8.2）：`appId` / `appOpenId` / `corpid` / `vid` 在协议
+# 中均为 Long（最长 17 位，如 13102694783555467 已超 JS
+# Number.MAX_SAFE_INTEGER = 9007199254740991）。解析后**立即 str() 化**，
+# DB / DTO / TS 全链路以字符串传递，避免前端 JSON 反序列化静默丢精度。
+# 唯一例外是 `GetUserInfoByVids` 的**请求体** vids 必须是整型数组，
+# 该转换只在本模块内部完成，不外泄。
+# ---------------------------------------------------------------------------
+# `GetUserInfoByVids` 单批 vid 上限（协议约定，架构文档 §8.4）。
+VIDS_BATCH_LIMIT = 100
+
+
+def _id_str(val: Any) -> str:
+    """把协议 Long 型 ID 归一化为字符串；None / 空 / 非法 → 空串。"""
+    if val is None or isinstance(val, bool):
+        return ""
+    if isinstance(val, float):
+        # 少数 JSON 实现会把 Long 反序列化成 float，取整避免出现 "1.3e+16"
+        try:
+            return str(int(val))
+        except (OverflowError, ValueError):
+            return ""
+    text = str(val).strip()
+    return "" if text.lower() in ("none", "null", "nan") else text
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    """宽松 int 转换：失败返回 `default`（协议字段可能是 str/None）。"""
+    if val is None or isinstance(val, bool):
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return default
+
+
+# 应用条目中已被显式映射的字段；其余原样进 `extra`（不丢信息）。
+_WX_APP_KNOWN_KEYS = frozenset(
+    {
+        "appId", "app_id", "appOpenId", "app_open_id",
+        "corpid", "corpId", "corp_id",
+        "name", "imgId", "img_id", "logo",
+        "appType", "app_type",
+        "desc", "description",
+        "homeInfo", "home_info",
+        "lastModTime", "last_mod_time",
+    }
+)
+
+
+def _norm_wx_app(item: dict) -> dict:
+    """归一化单个应用条目，键名与 `channel_apps` 列语义一一对齐。
+
+    Args:
+        item: `wxAppList[]` 中的原始条目。
+
+    Returns:
+        dict: `{appId, appOpenId, corpid, name, avatar, appType, description,
+        homeInfo, lastModTime, extra}`；所有 ID 均为 `str`。
+        `imgId` 刻意映射为 `avatar`、`desc` 刻意映射为 `description`
+        （`desc` 是 SQL 保留字，见架构文档 §3.1 字段映射表）。
+    """
+    if not isinstance(item, dict):
+        return {}
+    extra = {k: v for k, v in item.items() if k not in _WX_APP_KNOWN_KEYS}
+    # extra 中可能仍含 Long ID（groupId / businessId），一并字符串化
+    for long_key in ("groupId", "businessId", "group_id", "business_id"):
+        if long_key in extra:
+            extra[long_key] = _id_str(extra[long_key])
+    return {
+        "appId": _id_str(item.get("appId") if item.get("appId") is not None else item.get("app_id")),
+        "appOpenId": _id_str(
+            item.get("appOpenId") if item.get("appOpenId") is not None else item.get("app_open_id")
+        ),
+        "corpid": _id_str(item.get("corpid") or item.get("corpId") or item.get("corp_id")),
+        "name": str(item.get("name") or ""),
+        "avatar": str(item.get("imgId") or item.get("img_id") or item.get("logo") or ""),
+        "appType": _safe_int(item.get("appType") if item.get("appType") is not None else item.get("app_type")),
+        "description": str(item.get("desc") or item.get("description") or ""),
+        "homeInfo": str(item.get("homeInfo") or item.get("home_info") or ""),
+        "lastModTime": _safe_int(
+            item.get("lastModTime") if item.get("lastModTime") is not None else item.get("last_mod_time")
+        ),
+        "extra": extra,
+    }
+
+
+def get_corp_wx_app(uuid: str) -> list[dict]:
+    """POST `{base}/wxwork/getCorpWxApp` → 企业应用（微信应用）列表。
+
+    协议返回 `{"data": {"wxAppList": [...]}, "errcode": 0}`，条目字段含
+    `appId` / `appOpenId` / `corpid` / `name` / `imgId` / `appType` /
+    `desc` / `homeInfo` / `lastModTime` 等。
+
+    Args:
+        uuid: iPad 协议实例 uuid。
+
+    Returns:
+        list[dict]: 归一化后的应用列表（见 `_norm_wx_app`）；
+        `appId` 与 `appOpenId` 均为空的脏条目会被丢弃。
+
+    Raises:
+        IPadProtocolError: 服务不可达 / 非 200 / 非 JSON / errcode 非 0。
+            ⚠️ 生产实例 `47.94.7.218:9912` 当前对该路径返回 **HTTP 404**
+            （协议服务版本缺口，见架构文档 §9-U1），因此本函数抛异常
+            **是当前的预期行为**；调用方（`ipad_sync._sync_corp_apps`）
+            必须捕获并降级，不得阻断其余同步路。
+    """
+    data = _post("wxwork/getCorpWxApp", {"uuid": uuid})
+    body = _norm(data)
+    raw_list = (
+        body.get("wxAppList")
+        or body.get("wx_app_list")
+        or body.get("appList")
+        or body.get("list")
+        or []
+    )
+    if not isinstance(raw_list, list):
+        return []
+    apps: list[dict] = []
+    for item in raw_list:
+        normalized = _norm_wx_app(item)
+        # 双键至少有一个非空才可作为自然键落库（架构文档 §3.1）
+        if normalized and (normalized.get("appId") or normalized.get("appOpenId")):
+            apps.append(normalized)
+    return apps
+
+
+def _norm_vid_user(item: dict) -> dict:
+    """归一化 `GetUserInfoByVids` 单条身份，键名与 `channel_contacts` 对齐。"""
+    if not isinstance(item, dict):
+        return {}
+    user_id = _id_str(
+        item.get("user_id")
+        if item.get("user_id") is not None
+        else (item.get("userId") if item.get("userId") is not None else item.get("vid"))
+    )
+    name = str(item.get("name") or item.get("realname") or item.get("realName") or "")
+    nickname = str(item.get("nickname") or item.get("nickName") or "") or name
+    return {
+        "user_id": user_id,
+        "name": name or nickname,
+        "nickname": nickname,
+        "avatar": str(
+            item.get("avatar") or item.get("headUrl") or item.get("head_url") or item.get("imgUrl") or ""
+        ),
+        "corpid": _id_str(item.get("corpid") or item.get("corpId") or item.get("corp_id")),
+        "acctid": _id_str(item.get("acctid") or item.get("acctId") or item.get("acct_id")),
+        "raw": item,
+    }
+
+
+def get_user_info_by_vids(uuid: str, vids: list[str]) -> list[dict]:
+    """POST `{base}/wxwork/GetUserInfoByVids` → 按 vid 批量解析身份。
+
+    对拍验证（架构文档 §1.2）：
+    - 请求体 `vids` **必须是整型数组**，传字符串数组服务端不识别；
+    - 响应体 `data` 是**顶层 list**，不是 `{"list": [...]}`；
+    - 未命中的 vid 不会出现在返回中（请求 16 个可能只回 2 个）。
+
+    Args:
+        uuid: iPad 协议实例 uuid。
+        vids: 待解析的 vid 列表（字符串；内部按 `VIDS_BATCH_LIMIT` 分批）。
+
+    Returns:
+        list[dict]: 命中的身份列表，每项含
+        `{user_id, name, nickname, avatar, corpid, acctid, raw}`，
+        `user_id` 为字符串。未命中的 vid 不在返回中。
+
+    Raises:
+        IPadProtocolError: 服务不可达 / 非 200 / errcode 非 0（任一批次失败
+            即向上抛，由 `ipad_sync._backfill_unknown_vids` 捕获降级）。
+    """
+    # 去重 + 过滤非数字（协议 vid 恒为数字串），保持入参顺序
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw_vid in vids or []:
+        text = _id_str(raw_vid)
+        if not text or not text.isdigit() or text in seen:
+            continue
+        seen.add(text)
+        cleaned.append(text)
+    if not cleaned:
+        return []
+
+    results: list[dict] = []
+    for start in range(0, len(cleaned), VIDS_BATCH_LIMIT):
+        batch = cleaned[start : start + VIDS_BATCH_LIMIT]
+        data = _post(
+            "wxwork/GetUserInfoByVids",
+            {"uuid": uuid, "vids": [int(v) for v in batch]},
+        )
+        # data 形如 {"data": [...], "errcode": 0}；_norm 只处理 dict 信封，
+        # 这里的 data 是 list，需单独取。
+        payload = data.get("data") if isinstance(data, dict) else None
+        if isinstance(payload, dict):
+            payload = payload.get("list") or payload.get("userList") or payload.get("user_list") or []
+        if not isinstance(payload, list):
+            payload = []
+        for item in payload:
+            normalized = _norm_vid_user(item)
+            if normalized.get("user_id"):
+                results.append(normalized)
+    return results

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { Smile, Image as ImageIcon, FileText, Folder, Send, Bot } from 'lucide-react'
 import type { HostingBotDTO, MessageExtDTO, SessionDTO } from '../../../types/channels'
 import { channelsApi } from '../../../api/client'
+import { isAppSession as isAppEntity } from '../shared/sessionKind'
 import { toast, errText } from '../../../utils/toast'
 
 interface SessionChatPanelProps {
@@ -43,8 +44,9 @@ export default function SessionChatPanel({
   const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({})
 
   const hosted = session?.hostedStatus === 'hosted'
-  // 应用类会话（msg_type==3）后端禁发，前端禁用输入并提示（决策 #6）。
-  const isAppSession = session?.sessionType === '应用'
+  // 应用/小程序通知类会话（后端 msg_type ∈ {3, 103, 107}）后端禁发，前端禁用输入并提示（决策 #6）。
+  // 判定统一走 shared/sessionKind，避免与会话列表 / 右侧头部的判定漂移。
+  const isAppSession = isAppEntity(session)
   const inputDisabled = hosted || isAppSession
   const botName = useMemo(
     () => bots.find((b) => b.id === (session?.hostedBotId ?? botId))?.name ?? '请选择机器人',
@@ -103,7 +105,7 @@ export default function SessionChatPanel({
       return
     }
     if (inputDisabled) {
-      toast('应用类会话或托管中，暂不支持发送')
+      toast(isAppSession ? '应用通知会话，暂不支持回复' : '托管中，暂不支持发送')
       return
     }
     setSending(true)
@@ -146,6 +148,11 @@ export default function SessionChatPanel({
     if (!text) return
     if (!accountId) {
       toast('该会话未关联渠道账号，无法发送')
+      return
+    }
+    // 只读会话（应用通知）后端会直接拒绝，前端提前拦截，避免无效请求与误导性报错。
+    if (inputDisabled) {
+      toast(isAppSession ? '应用通知会话，暂不支持回复' : '托管中，暂不支持发送')
       return
     }
     setSending(true)
@@ -242,7 +249,7 @@ export default function SessionChatPanel({
       <div className="chat-messages">
         {messages.length === 0 && (
           <div className="message user">
-            <div className="message-meta">（暂无聊天记录）</div>
+            <div className="message-meta">{isAppSession ? '暂无应用通知' : '（暂无聊天记录）'}</div>
           </div>
         )}
         {messages.map((m) => {
@@ -254,13 +261,16 @@ export default function SessionChatPanel({
             <div key={m.id} className={`message-row ${isOutbound ? 'outbound' : 'inbound'}`}>
               {showAvatar ? (
                 <img
-                  className="msg-avatar"
+                  className={`msg-avatar${isAppSession && !isOutbound ? ' avatar-rounded' : ''}`}
                   src={avatarUrl}
                   alt={avatarAlt(isOutbound)}
                   onError={() => setBrokenAvatars((prev) => ({ ...prev, [m.id]: true }))}
                 />
               ) : (
-                <div className="msg-avatar-fallback" aria-hidden="true">
+                <div
+                  className={`msg-avatar-fallback${isAppSession && !isOutbound ? ' avatar-rounded' : ''}`}
+                  aria-hidden="true"
+                >
                   {avatarInitial(isOutbound)}
                 </div>
               )}
@@ -289,18 +299,27 @@ export default function SessionChatPanel({
         })}
       </div>
 
-      <div className={`chat-input-wrap${hosted ? ' hosting' : ''}`}>
+      <div
+        className={`chat-input-wrap${hosted ? ' hosting' : ''}${
+          isAppSession ? ' composer-disabled' : ''
+        }`}
+      >
         <div className="chat-toolbar">
-          <button className="btn-icon" title="表情" onClick={() => toast('表情功能开发中')}>
+          <button
+            className="btn-icon"
+            title="表情"
+            disabled={inputDisabled}
+            onClick={() => toast('表情功能开发中')}
+          >
             <Smile size={16} />
           </button>
-          <button className="btn-icon" title="图片" onClick={() => pickFile('image')}>
+          <button className="btn-icon" title="图片" disabled={inputDisabled} onClick={() => pickFile('image')}>
             <ImageIcon size={16} />
           </button>
-          <button className="btn-icon" title="文件" onClick={() => pickFile('file')}>
+          <button className="btn-icon" title="文件" disabled={inputDisabled} onClick={() => pickFile('file')}>
             <FileText size={16} />
           </button>
-          <button className="btn-icon" title="文件夹" onClick={() => pickFile('file')}>
+          <button className="btn-icon" title="文件夹" disabled={inputDisabled} onClick={() => pickFile('file')}>
             <Folder size={16} />
           </button>
         </div>
@@ -324,7 +343,7 @@ export default function SessionChatPanel({
               hosted
                 ? '已开启机器人托管'
                 : isAppSession
-                ? '应用类会话不支持发送消息'
+                ? '应用通知会话，暂不支持回复'
                 : '“Enter”发送，Shift+Enter 换行'
             }
             value={draft}
@@ -350,7 +369,7 @@ export default function SessionChatPanel({
         {isAppSession && !hosted && (
           <div className="chat-hosting-mask">
             <Bot size={13} style={{ verticalAlign: '-2px', marginRight: 4 }} />
-            应用类会话不支持发送消息
+            应用通知会话，暂不支持回复
           </div>
         )}
       </div>

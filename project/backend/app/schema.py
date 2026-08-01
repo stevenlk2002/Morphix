@@ -322,6 +322,27 @@ CREATE TABLE IF NOT EXISTS channel_groups (
   updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ---- iPad 协议：企业应用（不污染 channel_contacts，wecom_app_display §3.1） ----
+-- 应用 ID 空间（10xxx / 5629499*）与真人 vid 空间（1688* / 7881*）完全不重叠，
+-- 单独建表可避免 cc.user_id = cs.remote_session_id 这条既有 JOIN 跨语义误命中，
+-- 也不会污染 channel_contacts 的联系人统计口径。
+-- ⚠️ 所有 ID 列一律 TEXT：appId 最长 17 位，已超 JS Number.MAX_SAFE_INTEGER。
+CREATE TABLE IF NOT EXISTS channel_apps (
+  id            TEXT PRIMARY KEY,              -- {account_id}:{app_id}
+  account_id    TEXT NOT NULL,                 -- 账号隔离
+  app_id        TEXT NOT NULL DEFAULT '',      -- 协议 appId（TEXT 存，防精度丢失）
+  app_open_id   TEXT NOT NULL DEFAULT '',      -- 协议 appOpenId
+  corpid        TEXT NOT NULL DEFAULT '',
+  name          TEXT NOT NULL DEFAULT '',      -- 应用名称（显示名来源）
+  avatar        TEXT NOT NULL DEFAULT '',      -- 协议 imgId（URL，与 contacts.avatar 命名对齐）
+  app_type      INTEGER NOT NULL DEFAULT 0,    -- 2=小程序
+  description   TEXT NOT NULL DEFAULT '',      -- 协议 desc（desc 是 SQL 保留字，改名）
+  home_info     TEXT NOT NULL DEFAULT '',
+  last_mod_time INTEGER NOT NULL DEFAULT 0,    -- 协议时间戳，用于 P1 增量
+  extra_json    TEXT NOT NULL DEFAULT '{}',    -- appFlag/stat/groupId/businessId 等原样镜像
+  updated_at    TEXT NOT NULL DEFAULT ''       -- 本地同步时间，用于 TTL
+);
+
 CREATE TABLE IF NOT EXISTS channel_group_members (
   id          TEXT PRIMARY KEY,
   group_id    TEXT NOT NULL DEFAULT '',
@@ -529,6 +550,11 @@ CREATE INDEX IF NOT EXISTS idx_channel_contacts_user ON channel_contacts(account
 CREATE INDEX IF NOT EXISTS idx_channel_groups_account ON channel_groups(account_id, group_type);
 CREATE INDEX IF NOT EXISTS idx_channel_groups_room ON channel_groups(account_id, room_id);
 CREATE INDEX IF NOT EXISTS idx_channel_group_members_group ON channel_group_members(group_id);
+-- 企业应用双键索引：对拍结论 2B，appId(16/17位) 与 appOpenId(5位) 两族并存，
+-- list_sessions 的第三路 LEFT JOIN 会用 OR 同时匹配两列，两列都必须有索引。
+-- (account_id, app_id) 由下方 UNIQUE 索引覆盖，无需再建同列普通索引（K5）。
+CREATE INDEX IF NOT EXISTS idx_channel_apps_account_openid ON channel_apps(account_id, app_open_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_channel_apps_account_appid ON channel_apps(account_id, app_id);
 CREATE INDEX IF NOT EXISTS idx_communication_records_cust ON communication_records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_custom_attributes_cust    ON custom_attributes(customer_id);
 
@@ -654,6 +680,56 @@ def migrate_schema(backend: DatabaseBackend) -> None:
     for col, ddl in _channel_sessions_cols.items():
         if not _has_column(backend, "channel_sessions", col):
             backend.execute(f"ALTER TABLE channel_sessions ADD COLUMN {col} {ddl}")
+
+    # ---- 企业应用表（wecom_app_display T01） ----
+    # 新库由 SCHEMA_SQL 直接建出；此处 CREATE IF NOT EXISTS 覆盖「旧库首次升级」
+    # 场景，并保证索引在 INDEX_SQL 之前就绪。全部幂等，重复启动不报错。
+    backend.execute(
+        """
+        CREATE TABLE IF NOT EXISTS channel_apps (
+          id            TEXT PRIMARY KEY,
+          account_id    TEXT NOT NULL,
+          app_id        TEXT NOT NULL DEFAULT '',
+          app_open_id   TEXT NOT NULL DEFAULT '',
+          corpid        TEXT NOT NULL DEFAULT '',
+          name          TEXT NOT NULL DEFAULT '',
+          avatar        TEXT NOT NULL DEFAULT '',
+          app_type      INTEGER NOT NULL DEFAULT 0,
+          description   TEXT NOT NULL DEFAULT '',
+          home_info     TEXT NOT NULL DEFAULT '',
+          last_mod_time INTEGER NOT NULL DEFAULT 0,
+          extra_json    TEXT NOT NULL DEFAULT '{}',
+          updated_at    TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    _channel_apps_indexes = (
+        "CREATE INDEX IF NOT EXISTS idx_channel_apps_account_openid ON channel_apps(account_id, app_open_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uk_channel_apps_account_appid ON channel_apps(account_id, app_id)",
+    )
+    for index_sql in _channel_apps_indexes:
+        try:
+            backend.execute(index_sql)
+        except Exception:  # noqa: BLE001
+            # 唯一索引在存量脏数据（同 account 下重复 app_id）时会创建失败，
+            # 与 uq_channel_accounts_ipad_uuid 同样降级为告警，不阻断启动。
+            logger.warning("创建 channel_apps 索引失败，已跳过：%s", index_sql)
+
+    # K5：清理冗余索引 —— idx_channel_apps_account_appid 与 uk_channel_apps_account_appid
+    # 建在完全相同的列 (account_id, app_id) 上，唯一索引已能服务普通索引的全部查询，
+    # 多留一棵 B-tree 只是白白放大写入。
+    # ⚠️ 必须先确认唯一索引**确实存在**再 DROP：上面的建索引是 try/except 降级的，
+    # 若存量库有重复 app_id 导致唯一索引没建成，此时贸然删普通索引会让该列对彻底
+    # 失去索引，list_sessions 第三路 JOIN 退化成全表扫描。
+    try:
+        _uk_exists = backend.query_one(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name='uk_channel_apps_account_appid'"
+        )
+        if _uk_exists:
+            backend.execute("DROP INDEX IF EXISTS idx_channel_apps_account_appid")
+    except Exception:  # noqa: BLE001
+        logger.warning("清理冗余索引 idx_channel_apps_account_appid 失败，已跳过")
 
     # customer_profiles.tags（外部联系人 labelid[] 原样镜像）
     if not _has_column(backend, "customer_profiles", "tags"):

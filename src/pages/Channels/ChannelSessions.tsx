@@ -27,6 +27,7 @@ import TeamSelector from './shared/TeamSelector'
 import AccountListPanel from './shared/AccountListPanel'
 import RightPanelArea from './sessions/RightPanelArea'
 import Avatar from './shared/Avatar'
+import { isAppSession as isAppEntity, appBadgeText } from './shared/sessionKind'
 import { toast, errText } from '../../utils/toast'
 import { useResizablePanels } from './shared/useResizablePanels'
 import Resizer from './shared/Resizer'
@@ -595,14 +596,24 @@ export default function ChannelSessionsPage() {
                 className={`session-row${s.id === selectedSessionId ? ' active' : ''}`}
                 onClick={() => setSelectedSessionId(s.id)}
               >
-                <Avatar url={s.avatar} name={s.name} id={s.id} className="session-row-avatar" size={40} />
+                <Avatar
+                  url={s.avatar}
+                  name={s.name}
+                  id={s.id}
+                  className="session-row-avatar"
+                  size={40}
+                  shape={isAppEntity(s) ? 'rounded' : 'circle'}
+                />
                 <div className="session-row-body">
                   <div className="session-row-top">
                     <div className="session-row-name-wrap">
                       <span className="session-row-name">{s.name}</span>
                       {s.sessionType === '群聊' && <span className="session-row-type">群</span>}
+                      {isAppEntity(s) && (
+                        <span className="session-row-type session-row-type-app">{appBadgeText(s)}</span>
+                      )}
                       {s.externalTag && <span className="session-row-tag">{s.externalTag}</span>}
-                      <HostedBotBadge session={s} bots={bots} />
+                      {!isAppEntity(s) && <HostedBotBadge session={s} bots={bots} />}
                     </div>
                     <span className="session-row-time">{s.lastTime}</span>
                   </div>

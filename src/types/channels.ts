@@ -167,8 +167,22 @@ export interface SessionDTO {
   externalTag: string
   addTime: string
   hostingChain: string
-  /** 会话头像 URL（联系人头像或群 room_url）。 */
+  /** 会话头像 URL（联系人头像 / 群 room_url / 应用图标）。 */
   avatar?: string
+  /**
+   * 原始协议类型：0 好友 / 1 群聊 / 3 应用 / 6 开放平台 / 103·107 应用变体。
+   * 仅用于排障与日志；**渲染分支一律使用 `entityKind` / `readonly`**。
+   */
+  msgType?: number
+  /**
+   * 语义分类（后端 `row_to_session` 单点派生）。
+   * 前端只消费该字段，禁止在组件里写 `msgType === 3` 之类的 magic number。
+   */
+  entityKind?: 'person' | 'group' | 'app' | 'service'
+  /** 是否禁止发送（true = 应用族 `{3, 103, 107}`；开放平台 6 可发送）。 */
+  readonly?: boolean
+  /** 应用子类型：0 普通应用 / 2 小程序（仅 `entityKind === 'app'` 时有意义）。 */
+  appType?: number
 }
 
 /** 聊天消息（复用 messages 表）。 */

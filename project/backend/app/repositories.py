@@ -23,6 +23,63 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{_uuid.uuid4().hex[:8]}"
 
 
+# ---------------------------------------------------------------------------
+# 企业微信 msg_type 语义（wecom_app_display 架构文档 §8.1，全项目唯一定义）
+#
+# 定义放在仓储层而非 ipad_sync：`ipad_sync` 在模块加载期就
+# `from .repositories import ChannelMgmtRepository`，若反向 import 会构成
+# 循环依赖。仓储层是更底层的模块，由它单点定义、其余模块 import，
+# 既满足「唯一事实来源」，又不引入循环。
+# ---------------------------------------------------------------------------
+# 应用族：只读、圆角头像、名称/头像走 channel_apps。
+APP_MSG_TYPES: frozenset[int] = frozenset({3, 103, 107})
+# vid 族：走 channel_contacts（含 GetUserInfoByVids 兜底补拉）。
+# ⚠️ msg_type=6（开放平台）实测有 111 条 outbound，**可发送**，不属只读族。
+VID_MSG_TYPES: frozenset[int] = frozenset({0, 6})
+
+# msg_type -> entityKind 语义分类（后端单点计算，前端只消费该字段，
+# 禁止在组件里写 `msgType === 3` 之类的 magic number）。
+_ENTITY_KIND_BY_MSG_TYPE: dict[int, str] = {
+    0: "person",
+    1: "group",
+    3: "app",
+    6: "service",
+    103: "app",
+    107: "app",
+}
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    """宽松 int 转换：None / 非法值 → `default`（DB 列可能为 NULL）。"""
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+
+
+def resolve_entity_kind(msg_type: object) -> str:
+    """由 `msg_type` 派生语义分类（架构文档 §3.5）。
+
+    Args:
+        msg_type: `channel_sessions.msg_type` 原始值。
+
+    Returns:
+        `'person'` | `'group'` | `'app'` | `'service'`；未知类型回落 `'person'`
+        （保持与现状一致的圆形头像 + 可发送，避免误伤新协议类型）。
+    """
+    return _ENTITY_KIND_BY_MSG_TYPE.get(_as_int(msg_type), "person")
+
+
+def is_readonly_session(msg_type: object) -> bool:
+    """会话是否只读（禁止发送）。仅应用族 `{3, 103, 107}` 为 True。"""
+    return _as_int(msg_type) in APP_MSG_TYPES
+
+
 # ---- 模块级 helper（账号卡片增强，T01） ----
 def _resolve_avatar_url(user_info: dict | None) -> str:
     """从 iPad 协议 userInfo 解析真实头像 URL。
@@ -1219,12 +1276,28 @@ def row_to_contact(row: dict) -> dict:
 
 
 def row_to_session(row: dict) -> dict:
+    """行 -> 会话 DTO。
+
+    额外派生三个语义字段（架构文档 §3.5），供前端区分「人 / 群 / 应用」：
+
+    - `msgType`：原始协议类型（0/1/3/6/103/107），保留供排障；
+    - `entityKind`：语义分类，**前端只消费这个**，不做 magic number 判断；
+    - `readonly`：是否禁止发送（仅应用族为 True）。
+
+    `appType` 只有 `list_sessions` 的三路 JOIN 结果集才带（`ca.app_type`），
+    其余按主键直查的调用点缺列，按 0 兜底（0 = 普通应用，2 = 小程序）。
+
+    `display_name` 同理：仅三路 JOIN 结果集才带，是 COALESCE 出来的真实
+    昵称/群名/应用名。**不能**在 SQL 里直接别名成 `name` —— `cs.*` 已经展开出
+    `channel_sessions.name`，同名列会被 `sqlite3.Row` 取到前一个，静默丢弃解析结果。
+    """
+    msg_type = _as_int(row.get("msg_type"))
     return {
         "id": row["id"],
         "accountId": row["account_id"],
         "contactId": row.get("contact_id"),
         "remoteSessionId": row.get("remote_session_id"),
-        "name": row["name"],
+        "name": row.get("display_name") or row["name"],
         "channel": row["channel"],
         "channelType": row["channel_type"],
         "lastMessage": row["last_message"],
@@ -1240,6 +1313,10 @@ def row_to_session(row: dict) -> dict:
         "addTime": row["add_time"],
         "hostingChain": row["hosting_chain"],
         "avatar": row.get("avatar", ""),
+        "msgType": msg_type,
+        "entityKind": resolve_entity_kind(msg_type),
+        "readonly": is_readonly_session(msg_type),
+        "appType": _as_int(row.get("app_type")),
     }
 
 
@@ -1702,22 +1779,60 @@ class ChannelMgmtRepository:
         online: str | None = None,
         search: str | None = None,
     ) -> list[dict]:
-        # LEFT JOIN channel_contacts，把真实昵称作为会话显示名带出，避免会话列表 /
-        # 右侧面板展示 raw sessionid 编号（见任务 Issue #2）。
-        # 关联条件覆盖「按 contact_id」与「按 remote_session_id 反查 user_id」两种情形；
-        # COALESCE 优先取联系人的真实昵称，兜底回退到会话自身 name。
-        # 过滤 msg_type=3 的应用类会话：它们没有可聊天对象，只显示 raw id，会
-        # 被用户误认为是「内部好友」（决策 #11）。
+        # 三路 LEFT JOIN，把真实昵称/群名/应用名作为会话显示名带出，避免会话列表 /
+        # 右侧面板展示 raw sessionid 编号（见任务 Issue #2、wecom_app_display §5.3）。
+        # - 第一路 channel_contacts：覆盖「按 contact_id」与「按 remote_session_id
+        #   反查 user_id」两种情形（真人 vid 空间 1688*/7881*）；
+        # - 第二路 channel_groups：按 room_id 取群名/群头像；
+        # - 第三路 channel_apps：**双键匹配** app_id / app_open_id —— 对拍结论 2B，
+        #   appOpenId(5 位，如 10223) 与 appId(16/17 位，如 5629499770789533)
+        #   两族并存于同一份会话列表，单键必漏。
+        # channel_apps 恒排在联系人与群之后：真人昵称优先级最高，避免 ID 空间
+        # 万一重叠时误显示应用名（§8.3）。
+        #
+        # ⚠️ 三路 JOIN 的 `cs.remote_session_id` 一律包 `NULLIF(..., '')`（BUG-1）：
+        # 本项目约定「空串表示未设置」，而 SQL 里 `'' = ''` 恒真 —— 演示种子数据 /
+        # 历史脏行的 `remote_session_id` 为空串时，会与 `channel_apps.app_open_id`
+        # （或 `channel_contacts.user_id` / `channel_groups.room_id`）同为空串的行
+        # 笛卡尔命中，把真人会话的 name / avatar 覆盖成无关应用的名字和头像。
+        # 更隐蔽的是 `entityKind` / `readonly` 仍由 `cs.msg_type` 派生（= person /
+        # false），前端不显示「应用」徽标 → 用户看到「一个叫某应用的真人好友」。
+        # `NULLIF(col, '')` 把空串折成 NULL，而 `NULL = NULL` 在 SQL 里求值为 NULL
+        # （非真），空串因此彻底不参与 JOIN 匹配。注意第一路的 `cc.id = cs.contact_id`
+        # 不需要包：`contact_id` 未设置时是真 NULL，本就不会误匹配。
+        #
+        # ⚠️ 收敛式过滤（本设计的关键机制，取代硬编码的 `WHERE cs.msg_type != 3`）：
+        # 语义从「按类型隐藏」改为「**名称已解析出来的才显示**」。
+        #   - 解析不出名称（应用表为空 / 协议接口未就绪）→ 继续隐藏 = 当前行为，零回归；
+        #   - `getCorpWxApp` 一旦上线 → 应用会话自动浮现，**无需再改任何代码**；
+        #   - `msg_type∈{103,107}` 这类当前"裸数字可见"的脏条目也会被一并收敛掉，
+        #     严格满足 PRD「绝不允许再回落到裸数字 ID」的验收红线。
+        # `cs.name <> cs.remote_session_id` 这一支保证：只要同步时已写入过真实
+        # 名称（真人/群/演示种子数据 remote_session_id 为空串），一律照常显示。
+        #
+        # ⚠️ 显示名必须别名为 `display_name`，**不能**复用 `name`：
+        # `cs.*` 已展开出 `channel_sessions.name`，再 `AS name` 会让结果集出现
+        # 两个同名列，而 `sqlite3.Row.__getitem__` 取的是**第一个**（即 cs.name），
+        # 导致 JOIN 出来的真实名称被静默丢弃（改动前该 COALESCE 实际是死代码，
+        # 显示名全靠同步层写进 cs.name）。本需求下这会直接踩 PRD 红线：
+        # channel_apps 一命中，收敛式过滤放行会话，却仍显示裸数字 ID。
+        # 故改为独立别名，由 `row_to_session` 优先取 `display_name`。
         sql = (
             "SELECT cs.*, "
-            "COALESCE(cc.nickname, cc.name, cg.nickname, cs.name) AS name, "
-            "COALESCE(cc.avatar, cg.room_url, '') AS avatar "
+            "COALESCE(NULLIF(cc.nickname, ''), NULLIF(cc.name, ''), "
+            "NULLIF(cg.nickname, ''), NULLIF(ca.name, ''), cs.name) AS display_name, "
+            "COALESCE(cc.avatar, cg.room_url, ca.avatar, '') AS avatar, "
+            "ca.app_type AS app_type "
             "FROM channel_sessions cs "
             "LEFT JOIN channel_contacts cc ON cc.account_id = cs.account_id "
-            "AND (cc.id = cs.contact_id OR cc.user_id = cs.remote_session_id) "
+            "AND (cc.id = cs.contact_id OR cc.user_id = NULLIF(cs.remote_session_id, '')) "
             "LEFT JOIN channel_groups cg ON cg.account_id = cs.account_id "
-            "AND cg.room_id = cs.remote_session_id "
-            "WHERE cs.msg_type != 3"
+            "AND cg.room_id = NULLIF(cs.remote_session_id, '') "
+            "LEFT JOIN channel_apps ca ON ca.account_id = cs.account_id "
+            "AND (ca.app_id = NULLIF(cs.remote_session_id, '') "
+            "OR ca.app_open_id = NULLIF(cs.remote_session_id, '')) "
+            "WHERE (COALESCE(cc.nickname, cc.name, cg.nickname, ca.name, '') <> '' "
+            "OR cs.name <> cs.remote_session_id)"
         )
         params: list = []
         if account_id:
@@ -1733,14 +1848,15 @@ class ChannelMgmtRepository:
             sql += " AND cs.online_status = ?"
             params.append(online)
         if search:
-            # 搜索同时匹配会话名与联系人昵称，保证昵称可被检索。
-            sql += " AND (cs.name LIKE ? OR cc.nickname LIKE ?)"
-            params.append(f"%{search}%")
-            params.append(f"%{search}%")
+            # 搜索同时匹配会话名、联系人昵称与应用名，保证三类显示名都可被检索。
+            sql += " AND (cs.name LIKE ? OR cc.nickname LIKE ? OR ca.name LIKE ?)"
+            like = f"%{search}%"
+            params.extend([like, like, like])
         sql += " ORDER BY cs.last_time DESC, cs.id"
         rows = self._db.query(sql, tuple(params))
-        # 结果集中 `name` 已由 COALESCE(cc.nickname, cc.name, s.name) 覆盖为真实昵称，
-        # 直接交给 row_to_session 映射即可（见任务 Issue #2）。
+        # 结果集中 `display_name` 为 COALESCE(cc.nickname, cc.name, cg.nickname,
+        # ca.name, cs.name) 解析出的真实昵称/群名/应用名；`row_to_session` 会优先
+        # 取它，缺列（按主键直查等调用点）时回退 cs.name。
         return [row_to_session(r) for r in rows]
 
     def list_session_messages(self, session_id: str) -> list[dict]:
@@ -1992,6 +2108,90 @@ class ChannelMgmtRepository:
             (account_id, room_id),
         )
         return row_to_group(row) if row else None
+
+    # ---- 企业应用 channel_apps（wecom_app_display T02） ----
+    def upsert_channel_app(self, app: dict) -> None:
+        """upsert 一个企业应用（自然键 `(account_id, app_id)`）。
+
+        入参约定（`ipad_sync._sync_corp_apps` 负责从协议归一化结果组装）：
+        `account_id` / `app_id` / `app_open_id` / `corpid` / `name` / `avatar` /
+        `app_type` / `description` / `home_info` / `last_mod_time` /
+        `extra_json`（dict 或 JSON 文本皆可）。
+
+        ⚠️ 所有 ID **一律按字符串落库**：`appId` 最长 17 位，已超
+        `Number.MAX_SAFE_INTEGER`，任何一处走整数都会静默丢精度（§8.2）。
+
+        `app_id` 缺失时以 `app_open_id` 兜底构造主键，保证 `id` 非空（§3.1）；
+        `account_id` 与双键都为空的脏条目直接忽略，不落库。
+
+        Args:
+            app: 应用字段字典（见上）。
+
+        Returns:
+            None。
+        """
+        account_id = str(app.get("account_id") or "")
+        app_id = str(app.get("app_id") or "")
+        app_open_id = str(app.get("app_open_id") or "")
+        natural_key = app_id or app_open_id
+        if not account_id or not natural_key:
+            return
+        extra = app.get("extra_json", "{}")
+        extra_json = extra if isinstance(extra, str) else json.dumps(extra, ensure_ascii=False)
+        self._db.execute(
+            "INSERT OR REPLACE INTO channel_apps("
+            "id, account_id, app_id, app_open_id, corpid, name, avatar, app_type, "
+            "description, home_info, last_mod_time, extra_json, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(app.get("id") or f"{account_id}:{natural_key}"),
+                account_id,
+                app_id or natural_key,
+                app_open_id,
+                str(app.get("corpid") or ""),
+                str(app.get("name") or ""),
+                str(app.get("avatar") or ""),
+                _as_int(app.get("app_type")),
+                str(app.get("description") or ""),
+                str(app.get("home_info") or ""),
+                _as_int(app.get("last_mod_time")),
+                extra_json,
+                str(app.get("updated_at") or datetime.now().isoformat(timespec="seconds")),
+            ),
+        )
+
+    def get_app_by_session_id(self, account_id: str, sid: str) -> dict | None:
+        """按会话远程 id **双键匹配**企业应用，返回原始行（未命中 None）。
+
+        对拍结论 2B：`appOpenId`（5 位，如 `10223`）与 `appId`（16/17 位，如
+        `5629499770789533`）两族并存于同一份会话列表，**单键必漏**，
+        因此必须 `app_id = ? OR app_open_id = ?`；两列均已建索引。
+
+        Args:
+            account_id: 渠道账号 id（账号隔离）。
+            sid: `channel_sessions.remote_session_id`（协议 sessionid）。
+
+        Returns:
+            `channel_apps` 原始行 dict；未命中返回 None。
+        """
+        if not account_id or not sid:
+            return None
+        key = str(sid)
+        return self._db.query_one(
+            "SELECT * FROM channel_apps WHERE account_id = ? "
+            "AND (app_id = ? OR app_open_id = ?) LIMIT 1",
+            (account_id, key, key),
+        )
+
+    def list_apps(self, account_id: str) -> list[dict]:
+        """列出某账号下已同步的企业应用（按名称排序），返回 DTO 列表。"""
+        if not account_id:
+            return []
+        rows = self._db.query(
+            "SELECT * FROM channel_apps WHERE account_id = ? ORDER BY name, app_id",
+            (account_id,),
+        )
+        return [row_to_app(r) for r in rows]
 
     def get_session_by_id(self, session_id: str) -> dict | None:
         """按 id 取会话原始行（反查 user_id/room_id + isRoom 用）。"""
@@ -2405,6 +2605,10 @@ class ChannelMgmtRepository:
         数据来源均为已同步入库的真实头像列，不发起任何远程调用：
 
         - `direction == "outbound"`（本账号发出）→ `channel_accounts.avatar`；
+        - inbound **应用消息**（会话 `msg_type ∈ {3, 103, 107}`）→
+          `channel_apps.avatar`（双键匹配）。⚠️ 对拍结论 3：应用消息的
+          `sender_id == remote_session_id`，逐条按 `sender_id` 查联系人必然落空，
+          因此该分支**按会话维度解析，不依赖 `sender_id`**；
         - inbound 群消息 → `channel_group_members.avatar`
           （由 `conversation_id` 冒号后的 `room_id` 定位 `channel_groups`，
           再按成员 `user_id`/`uin` 命中发送者）；
@@ -2434,6 +2638,29 @@ class ChannelMgmtRepository:
                 "SELECT avatar FROM channel_accounts WHERE id = ?", (account_id,)
             )
             return str(row.get("avatar") or "") if row else ""
+
+        # 应用消息（wecom_app_display §5.2 流程三）：按**会话维度**解析。
+        # 必须置于群/联系人分支之前，且不受 `if not sender_id` 早退影响 ——
+        # 应用通知的 sender_id 恒等于 remote_session_id，走联系人分支必然落空。
+        if remote_session_id:
+            session_row = self._db.query_one(
+                "SELECT msg_type FROM channel_sessions WHERE id = ?", (conversation_id,)
+            )
+            if session_row is None:
+                session_row = self._db.query_one(
+                    "SELECT msg_type FROM channel_sessions "
+                    "WHERE account_id = ? AND remote_session_id = ? LIMIT 1",
+                    (account_id, remote_session_id),
+                )
+            if session_row is not None and _as_int(session_row.get("msg_type")) in APP_MSG_TYPES:
+                app_row = self._db.query_one(
+                    "SELECT avatar FROM channel_apps WHERE account_id = ? "
+                    "AND (app_id = ? OR app_open_id = ?) LIMIT 1",
+                    (account_id, remote_session_id, remote_session_id),
+                )
+                # 应用分支是终态：未命中直接返回空串交前端首字兜底，
+                # 不再回落到群/联系人（ID 空间不重叠，回落只会误命中）。
+                return str(app_row.get("avatar") or "") if app_row else ""
 
         if not sender_id:
             return ""
@@ -2679,6 +2906,29 @@ def row_to_group(row: dict) -> dict:
         "updateTime": row["update_time"],
         "extra": _parse_json_field(row.get("extra_json"), {}),
         "avatar": row.get("avatar", "") or row.get("room_url", ""),
+    }
+
+
+def row_to_app(row: dict) -> dict:
+    """行 -> 企业应用 DTO（wecom_app_display T02）。
+
+    ⚠️ `appId` / `appOpenId` / `corpid` 一律以 **字符串** 透出：17 位 ID 已超
+    `Number.MAX_SAFE_INTEGER`，前端 JSON 反序列化成 number 会静默丢精度（§8.2）。
+    """
+    return {
+        "id": row["id"],
+        "accountId": row["account_id"],
+        "appId": str(row.get("app_id") or ""),
+        "appOpenId": str(row.get("app_open_id") or ""),
+        "corpid": str(row.get("corpid") or ""),
+        "name": row.get("name", "") or "",
+        "avatar": row.get("avatar", "") or "",
+        "appType": _as_int(row.get("app_type")),
+        "description": row.get("description", "") or "",
+        "homeInfo": row.get("home_info", "") or "",
+        "lastModTime": _as_int(row.get("last_mod_time")),
+        "extra": _parse_json_field(row.get("extra_json"), {}),
+        "updatedAt": row.get("updated_at", "") or "",
     }
 
 
