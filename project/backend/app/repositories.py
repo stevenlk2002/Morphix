@@ -1595,12 +1595,15 @@ class ChannelMgmtRepository:
         ipad_user_info: dict | str | None,
         host_status: str = "hosted",
         avatar: str = "",
+        wecomm_corp_id: str = "",
+        wecomm_user_id: str = "",
     ) -> dict:
         """企业微信 iPad 协议托管落库（loginType==2 时由路由自动调用）。
 
         复用 `_generate_id("acc")`；channel_label 同 `create_account`；
         status='online'、bound_bot='yefengqiu'、daily_quota=0、sessions_count=0。
         `ipad_user_info` 以 JSON 字符串持久化（已是 str 则原样落库）。
+        `wecom_corp_id` / `wecom_user_id` 从 userInfo 提取，用于企微自然唯一键去重。
         """
         account_id = _generate_id("acc")
         channel_label = {
@@ -1624,12 +1627,13 @@ class ChannelMgmtRepository:
         self._db.execute(
             "INSERT INTO channel_accounts("
             "id, channel, account_name, status, bound_bot, daily_quota, team_id, "
-            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status, avatar, vid) "
-            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+            "channel_type, protocol, sessions_count, ipad_uuid, ipad_user_info, host_status, "
+            "avatar, vid, wecom_corp_id, wecom_user_id) "
+            "VALUES (?, ?, ?, 'online', ?, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
             (
                 account_id, channel_label, account_name, "yefengqiu", team_id,
                 channel_type, protocol, ipad_uuid, ipad_user_info_str, host_status,
-                avatar or "", vid,
+                avatar or "", vid, wecomm_corp_id, wecomm_user_id,
             ),
         )
         row = self._db.query_one(
@@ -1682,6 +1686,32 @@ class ChannelMgmtRepository:
             "WHERE a.ipad_uuid = ? "
             "ORDER BY a.created_at, a.id LIMIT 1",
             (ipad_uuid,),
+        )
+        return row_to_account(row) if row else None
+
+    def get_account_by_wecomm_identity(
+        self, corp_id: str, user_id: str
+    ) -> dict | None:
+        """按企微自然唯一键 (corpId, userId) 查账号；任一为空返回 None。
+
+        用于托管落库幂等的第二道防线：同一企微人可能因多点验证码产生不同
+        ipad_uuid（协议每次 /start 生成新 uuid），仅靠 ipad_uuid 无法拦截重复。
+        用 corpId+userId 作为业务唯一键，保证同一企微人只落库一次。
+        """
+        if not corp_id or not user_id:
+            return None
+        row = self._db.query_one(
+            "SELECT a.*, s.seats_left, s.online_sessions, t.name AS team_name, "
+            "       b1.name AS default_single_bot_name, "
+            "       b2.name AS default_group_bot_name "
+            "FROM channel_accounts a "
+            "LEFT JOIN channel_seats s ON s.channel_account_id = a.id "
+            "LEFT JOIN teams t ON t.id = a.team_id "
+            "LEFT JOIN bots b1 ON b1.id = a.default_single_bot_id "
+            "LEFT JOIN bots b2 ON b2.id = a.default_group_bot_id "
+            "WHERE a.wecom_corp_id = ? AND a.wecom_user_id = ? "
+            "ORDER BY a.created_at, a.id LIMIT 1",
+            (corp_id, user_id),
         )
         return row_to_account(row) if row else None
 

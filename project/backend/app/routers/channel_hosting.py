@@ -176,14 +176,31 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
         avatar = _resolve_avatar_url(user_info)
         repo = ChannelMgmtRepository(get_backend())
 
-        # —— 幂等保护：同一 ipad_uuid 只落库一个账号 ——
-        # 前端每 2s 轮询一次；loginType==2 会在多轮轮询中持续返回，且多个轮询
-        # 请求可能并发在途。若不加保护，每个命中 loginType==2 的 poll 都会
-        # INSERT 一条账号，导致重复创建（本次 Bug：清空渠道后扫码出现 4 个相同账号）。
-        # 用进程内锁 + 按 uuid 查重，保证整进程内仅创建一次；数据库层另有
-        # ipad_uuid 唯一索引兜底（多 worker / 并发请求场景）。
+        # —— 幂等保护（双重防线） ——
+        # 防线 1：ipad_uuid 进程内锁 + 查重（拦截同一 uuid 的并发轮询）
+        # 防线 2：企微自然唯一键 (corpId, userId) 查重（拦截不同 uuid 的重复扫码）
+        #
+        # 用户可能多点验证码 → 前端发两次 /start → 协议生成两个不同 uuid
+        # → 各自 poll 落库 → ipad_uuid 不同，防线 1 拦不住。
+        # 用 userInfo 中的 corpId + userId 作为业务唯一键做第二道去重。
+        corp_id = (user_info.get("corpId") or "") if isinstance(user_info, dict) else ""
+        user_id = (user_info.get("userId") or "") if isinstance(user_info, dict) else ""
+
         with _CREATE_LOCK:
+            # 防线 1：按 ipad_uuid 查
             existing = repo.get_account_by_ipad_uuid(payload.uuid)
+            if existing is None and corp_id and user_id:
+                # 防线 2：按企微身份查（不同 uuid 但同一人）
+                existing = repo.get_account_by_wecomm_identity(corp_id, user_id)
+                if existing is not None:
+                    logger.info(
+                        "企微身份去重命中：corpId=%s userId=%s 已有账号 %s"
+                        "（当前 uuid=%s 与已有 uuid=%s 不同，更新为新 uuid）",
+                        corp_id, user_id, existing["id"],
+                        payload.uuid, existing.get("ipadUuid", ""),
+                    )
+                    # 更新为新 uuid（协议侧 uuid 可能已轮换）
+                    repo.update_account_ipad_uuid(existing["id"], payload.uuid)
             if existing is None:
                 account = repo.create_account_with_ipad(
                     channel_type=channel_type,
@@ -194,6 +211,8 @@ def poll_wecom(payload: WecomHostPollRequest) -> dict:
                     ipad_user_info=user_info,
                     host_status="hosted",
                     avatar=avatar,
+                    wecomm_corp_id=corp_id,
+                    wecomm_user_id=user_id,
                 )
                 created = True
             else:

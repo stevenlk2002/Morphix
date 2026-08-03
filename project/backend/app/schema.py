@@ -761,6 +761,29 @@ def migrate_schema(backend: DatabaseBackend) -> None:
             "创建 channel_accounts.ipad_uuid 唯一索引失败（可能存在重复数据），已跳过"
         )
 
+    # ---- 防重复落库：企微自然唯一键（corpId, userId） ----
+    # 同一个企微人可能因多点验证码产生不同 ipad_uuid（协议每次 /start 生成新 uuid），
+    # 仅靠 ipad_uuid 唯一索引无法拦截。用 (corpId, userId) 作为企微账号的自然唯一键，
+    # 在应用层和数据库层双重去重。
+    _wecomm_identity_cols = {
+        "wecom_corp_id": "TEXT NOT NULL DEFAULT ''",
+        "wecom_user_id": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, ddl in _wecomm_identity_cols.items():
+        if not _has_column(backend, "channel_accounts", col):
+            backend.execute(f"ALTER TABLE channel_accounts ADD COLUMN {col} {ddl}")
+    try:
+        backend.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_accounts_wecomm_identity "
+            "ON channel_accounts(wecom_corp_id, wecom_user_id) "
+            "WHERE wecom_corp_id <> '' AND wecom_user_id <> ''"
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "创建 channel_accounts.wecomm_identity 唯一索引失败"
+            "（可能存在重复的 corpId+userId），已跳过"
+        )
+
     # ---- 账号卡片增强迁移（本期 T01） ----
     # channel_accounts 头像 + 默认单聊/群聊机器人（空串表示未设置，与既有 ipad_uuid 列一致）
     _channel_account_card_cols = {
