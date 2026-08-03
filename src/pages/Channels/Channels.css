@@ -1042,7 +1042,7 @@
 }
 .detail-tab.active { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
 .detail-pane { display: none; }
-.detail-pane.active { display: block; }
+.detail-pane.active { display: block; width: 100%; }
 .detail-avatar { text-align: center; margin-bottom: 14px; }
 .detail-avatar .avatar-sm {
   width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 8px;
@@ -1745,6 +1745,7 @@
   gap: 12px;
   text-align: left;
   margin-bottom: 16px;
+  width: 100%;
 }
 .detail-avatar-row .avatar-sm { margin: 0; }
 .detail-avatar-row .detail-name {
@@ -1764,7 +1765,6 @@
 }
 .detail-avatar-row__info {
   flex: 1;
-  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
