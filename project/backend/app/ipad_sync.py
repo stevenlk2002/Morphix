@@ -78,7 +78,11 @@ RENDERABLE_MSG_TYPES = frozenset(
 # 控制/回执类事件：协议侧用于多端同步，**没有任何聊天内容**，禁止落库成气泡。
 # 2001：`MarkAsRead`（文档「58. 已读消息（去除聊天小红点）」）回执的 msgtype，
 #       手机端已读时下发；历史实现误判为「表情」，导致聊天框刷出成片 `[表情]`。
-CONTROL_EVENT_MSG_TYPES = frozenset({2001})
+# 2118：多端同步的会话状态事件，`msg` 字段常塞 protobuf 裸字节
+#       （线上样本 `\n\x06\x08\x00\x12\x02\n\x00`），清洗控制字符后为空。
+# 2131：多端同步事件，线上样本 114/114 条正文全空、无媒体。
+# 三者线上均无任何用户可见正文，落库即「只有时间戳的空气泡」（Bug 根因）。
+CONTROL_EVENT_MSG_TYPES = frozenset({2001, 2118, 2131})
 
 # 动画/GIF 表情 msgType：104（文档「2. GIF表情消息接收」）、
 # 29（文档「50. 发送gif表情」SendEmotionMessage 回执）。
@@ -1714,6 +1718,10 @@ def backfill_session_messages(account_id: str, session_id: str) -> dict:
             }
         for item in res.get("list") or res.get("listdata") or []:
             msg = _parse_group_msg(item, session, account_id)
+            # 与回调入站同一把闸门：无正文且无媒体的信令项不落库成空气泡。
+            if msg and not _has_visible_content(msg):
+                logger.debug("群历史回填跳过无可见内容项 server_id=%s", msg["server_id"])
+                continue
             if msg and not repo.message_exists(msg["conversation_id"], msg["server_id"]):
                 repo.upsert_channel_message(msg)
                 upserted += 1
@@ -2100,8 +2108,27 @@ def _render_message_content(c: dict, msg_type: int) -> str:
         return "[接龙]"
 
     # 兜底：尝试常见文本字段，避免完全空白。
-    fallback = str(_first_of(c, "msg", "content_msg", "content", "text") or "")
-    return fallback
+    # 未文档化的事件类 msgType 常把 protobuf 裸字节塞进 msg/content，
+    # 统一走 `_clean_text` 清洗控制字符，纯控制字符则归一为空串（上游据此拦截）。
+    return _clean_text(_first_of(c, "msg", "content_msg", "content", "text"))
+
+
+def _has_visible_content(msg: dict) -> bool:
+    """判定一条待落库消息是否「有用户可见内容」（决定要不要生成气泡）。
+
+    判据（任一命中即可见）：
+    1. 携带媒体 URL（图片/表情/文件/语音等，正文可为空由前端渲染媒体气泡）；
+    2. 正文清洗控制字符后非空。
+
+    另外，`CONTROL_EVENT_MSG_TYPES` 中的控制/回执事件（2001 已读回执等）即便
+    携带了残缺正文也一律判为不可见——它们是多端同步信令，不是聊天消息。
+    Bug 根因：这类事件被当普通消息 INSERT，前端渲染出成片「只有时间的空气泡」。
+    """
+    if str(msg.get("media_url") or "").strip():
+        return True
+    if _as_int(msg.get("msg_type")) in CONTROL_EVENT_MSG_TYPES:
+        return False
+    return bool(_clean_text(msg.get("content")))
 
 
 def _account_own_remote_ids(account: dict) -> set[str]:
@@ -2147,7 +2174,12 @@ def handle_callback(uuid: str, payload: object, type_: str) -> dict:
     关键约定（修复入站消息不显示 Bug）：落库 `conversation_id` 必须等于
     `channel_sessions.id`（`{account_id}:{remote_session_id}`），与
     `list_session_messages(session_id)` / `backfill_session_messages` 完全一致。
-    `referid != 0` 为对原消息的操作回调（如已读），不作为新消息插入。
+
+    落库前有两道相互独立的闸门：
+    1. `referid != 0`：对原消息的操作回调（如已读），不作为新消息插入；
+    2. `_has_visible_content()`：控制/回执类事件（2001/2118/2131 —— 它们的
+       `referid` 恰为 0，会整批绕过第 1 道闸门）与「正文、媒体皆空」的消息不插入，
+       否则前端会渲染成成片「只有时间戳的空气泡」（线上 Bug 根因）。
     """
     # 可观测性：完整记录原始回调负载，便于线上核对真实协议字段形态。
     raw_repr = payload if isinstance(payload, str) else json.dumps(
@@ -2191,6 +2223,18 @@ def handle_callback(uuid: str, payload: object, type_: str) -> dict:
         if m["referid"] != 0:
             logger.info(
                 "iPad 回调跳过操作类消息 referid=%s server_id=%s", m["referid"], m["server_id"]
+            )
+            skipped += 1
+            continue
+
+        # 无用户可见内容（控制/回执事件、或正文与媒体皆空）：不落库。
+        # 与上面的 referid 过滤是两层各自独立的闸门：referid 管「对既有消息的操作」，
+        # 本闸门管「压根没有聊天内容的信令」（2001 MarkAsRead 的 referid 恰为 0，
+        # 曾整批漏网落库成空气泡）。
+        if not _has_visible_content(m):
+            logger.info(
+                "iPad 回调跳过无可见内容事件 msg_type=%s server_id=%s",
+                m["msg_type"], m["server_id"],
             )
             skipped += 1
             continue

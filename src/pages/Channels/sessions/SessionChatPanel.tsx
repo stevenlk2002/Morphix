@@ -11,6 +11,7 @@ import {
   renderWecomContent,
   emotionPlaceholder,
 } from '../shared/wecomEmoji'
+import { filterVisibleMessages } from '../shared/messageVisibility'
 import { toast, errText } from '../../../utils/toast'
 
 /** 常用 Unicode emoji（直接插入输入框，无需转义）。 */
@@ -70,6 +71,9 @@ export default function SessionChatPanel({
     () => bots.find((b) => b.id === (session?.hostedBotId ?? botId))?.name ?? '请选择机器人',
     [bots, session, botId]
   )
+  // 控制/回执类事件（已读回执等）无任何可见内容，渲染出来就是「只有时间戳的空气泡」。
+  // 后端已在入库侧根治，这里是前端防御层，同时兜住库里遗留的历史脏数据。
+  const visibleMessages = useMemo(() => filterVisibleMessages(messages), [messages])
 
   /** 在 textarea 当前光标处插入文本，并重新聚焦恢复光标位置。 */
   const insertAtCursor = (text: string): void => {
@@ -315,12 +319,12 @@ export default function SessionChatPanel({
       )}
 
       <div className="chat-messages">
-        {messages.length === 0 && (
+        {visibleMessages.length === 0 && (
           <div className="message user">
             <div className="message-meta">{isAppSession ? '暂无应用通知' : '（暂无聊天记录）'}</div>
           </div>
         )}
-        {messages.map((m) => {
+        {visibleMessages.map((m) => {
           // 气泡方向以 direction 为准（outbound = 本账号发出，靠右）。
           const isOutbound = m.direction === 'outbound' || m.senderType === 'bot'
           const avatarUrl = m.senderAvatar ?? ''

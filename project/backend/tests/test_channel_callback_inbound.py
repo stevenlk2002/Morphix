@@ -198,6 +198,110 @@ class TestReferidDedup:
         assert repo.list_session_messages(sid) == []
 
 
+class TestControlEventNotPersisted:
+    """回归：控制/回执类事件禁止落库（Bug：聊天框刷出成片只有时间戳的空气泡）。
+
+    根因：`msgType=2001`（MarkAsRead 已读回执）的 `referid` 恰为 0，绕过了
+    `referid != 0` 那道闸门，被当普通消息 INSERT，前端无条件 map 渲染成空气泡。
+    """
+
+    @pytest.mark.parametrize("msg_type", [2001, 2118, 2131])
+    def test_control_event_skipped(self, backend, account, msg_type):
+        """2001/2118/2131 即便 referid=0 也不落库，计入 skipped。"""
+        repo = ChannelMgmtRepository(backend)
+        sid = _friend_session(repo, account["id"])
+        res = ipad_sync.handle_callback(
+            IPAD_UUID,
+            _text_payload(content="", msgType=msg_type, server_id=7131000 + msg_type),
+            "102000",
+        )
+        assert res["ok"] is True
+        assert res["upserted"] == 0 and res["skipped"] == 1
+        assert repo.list_session_messages(sid) == []
+
+    def test_control_event_with_garbage_protobuf_skipped(self, backend, account):
+        """2118 携带 protobuf 裸字节正文 → 清洗后为空，同样不落库。"""
+        repo = ChannelMgmtRepository(backend)
+        sid = _friend_session(repo, account["id"])
+        res = ipad_sync.handle_callback(
+            IPAD_UUID,
+            _text_payload(content="\n\x06\x08\x00\x12\x02\n\x00", msgType=2118, server_id=7131900),
+            "102000",
+        )
+        assert res["upserted"] == 0 and res["skipped"] == 1
+        assert repo.list_session_messages(sid) == []
+
+    def test_blank_content_unknown_msgtype_skipped(self, backend, account):
+        """未文档化的空正文事件（1002/1023/2055/2063 等）由通用闸门兜底拦截。"""
+        repo = ChannelMgmtRepository(backend)
+        sid = _friend_session(repo, account["id"])
+        for idx, msg_type in enumerate((1002, 1003, 1023, 2055, 2063)):
+            res = ipad_sync.handle_callback(
+                IPAD_UUID,
+                _text_payload(content="", msgType=msg_type, server_id=7132000 + idx),
+                "102000",
+            )
+            assert res["upserted"] == 0 and res["skipped"] == 1
+        assert repo.list_session_messages(sid) == []
+
+    def test_control_event_does_not_bump_unread(self, backend, account):
+        """控制事件不得把会话染成未读（旧实现每条已读回执都 +1）。"""
+        repo = ChannelMgmtRepository(backend)
+        sid = _friend_session(repo, account["id"])
+        ipad_sync.handle_callback(
+            IPAD_UUID, _text_payload(content="", msgType=2001, server_id=7133000), "102000"
+        )
+        sess = repo._db.query_one(
+            "SELECT unread_count, read_status FROM channel_sessions WHERE id = ?", (sid,)
+        )
+        assert sess["unread_count"] == 0 and sess["read_status"] == "read"
+
+    def test_control_event_with_media_still_persisted(self, backend, account):
+        """2001 若真带了表情图片 URL → 仍按图片气泡落库（不误伤动画表情）。"""
+        repo = ChannelMgmtRepository(backend)
+        sid = _friend_session(repo, account["id"])
+        res = ipad_sync.handle_callback(
+            IPAD_UUID,
+            _text_payload(
+                content="",
+                msgType=2001,
+                server_id=7134000,
+                cdnurl="https://wework.qpic.cn/wwpic3az/emoticon.gif",
+            ),
+            "102000",
+        )
+        assert res["upserted"] == 1
+        msgs = repo.list_session_messages_ext(sid)
+        assert len(msgs) == 1
+        assert msgs[0]["contentType"] == "image"
+        assert msgs[0]["mediaUrl"] == "https://wework.qpic.cn/wwpic3az/emoticon.gif"
+
+    def test_normal_text_still_persisted(self, backend, account):
+        """正常文本消息不受影响（防过度过滤）。"""
+        repo = ChannelMgmtRepository(backend)
+        sid = _friend_session(repo, account["id"])
+        assert ipad_sync.handle_callback(IPAD_UUID, _text_payload(), "102000")["upserted"] == 1
+        assert len(repo.list_session_messages(sid)) == 1
+
+    def test_has_visible_content_matrix(self):
+        """`_has_visible_content` 判定矩阵（媒体优先、控制类恒不可见）。"""
+        assert ipad_sync._has_visible_content(
+            {"msg_type": 2, "content": "你好", "media_url": ""}
+        ) is True
+        assert ipad_sync._has_visible_content(
+            {"msg_type": 101, "content": "", "media_url": "https://x/a.png"}
+        ) is True
+        assert ipad_sync._has_visible_content(
+            {"msg_type": 2, "content": "   ", "media_url": ""}
+        ) is False
+        assert ipad_sync._has_visible_content(
+            {"msg_type": 2001, "content": "[表情]", "media_url": ""}
+        ) is False
+        assert ipad_sync._has_visible_content(
+            {"msg_type": 1011, "content": "已提醒成员填写汇报", "media_url": ""}
+        ) is True
+
+
 class TestCamelCaseCompat:
     def test_camel_case_room_message(self, backend, account):
         """camelCase 变体（roomId/fromUser/msgId/createTime）也能正确解析。"""
@@ -372,17 +476,22 @@ class TestFieldDegradation:
 
 
 class TestContentBoundary:
-    """内容边界：空内容与超大内容都需完整、安全落库。"""
+    """内容边界：空内容不落库（空气泡 Bug），超大内容需完整落库。"""
 
-    def test_empty_content_message(self, backend, account):
-        """空 content（如纯表情/未知类型降级）→ 落库不崩溃，content 为空串。"""
+    def test_empty_content_message_skipped(self, backend, account):
+        """空 content 且无媒体 → 不落库（旧行为落库成只有时间戳的空气泡）。
+
+        原用例断言 `upserted == 1`，钉的是 Bug 行为本身；修复后语义反转为
+        「无可见内容不生成气泡」，同时保留「不抛异常」的边界保护意图。
+        """
         repo = ChannelMgmtRepository(backend)
         sid = _friend_session(repo, account["id"])
-        assert ipad_sync.handle_callback(
+        res = ipad_sync.handle_callback(
             IPAD_UUID, _text_payload(content="", server_id=7131400), "102000"
-        )["upserted"] == 1
-        msgs = repo.list_session_messages(sid)
-        assert len(msgs) == 1 and msgs[0]["content"] == ""
+        )
+        assert res["ok"] is True
+        assert res["upserted"] == 0 and res["skipped"] == 1
+        assert repo.list_session_messages(sid) == []
 
     def test_large_content_persisted_intact(self, backend, account):
         """超大文本（50k 字符）无截断、无异常。"""
@@ -432,7 +541,18 @@ class TestContentRendering:
 
     def test_gif_msgtype_shows_placeholder(self):
         assert ipad_sync._render_message_content({"url": "http://gif"}, 104) == "[动画表情]"
-        assert ipad_sync._render_message_content({}, 2001) == "[表情]"
+
+    def test_control_event_msgtype_yields_empty(self):
+        """2001/2118/2131 是多端同步信令而非聊天消息，摘要恒为空串。
+
+        旧断言 `_render_message_content({}, 2001) == "[表情]"` 是历史误判（把已读
+        回执当表情），已被 `CONTROL_EVENT_MSG_TYPES` 语义取代（见 test_emoji_render
+        同名用例），这里同步纠正，避免两份测试互相矛盾。
+        """
+        assert ipad_sync._render_message_content({}, 2001) == ""
+        assert ipad_sync._render_message_content({}, 2131) == ""
+        # 2118 线上会下发 protobuf 裸字节，清洗后同样为空
+        assert ipad_sync._render_message_content({"msg": "\n\x06\x08\x00\x12\x02\n\x00"}, 2118) == ""
 
     def test_file_msgtype_uses_filename(self):
         assert (
