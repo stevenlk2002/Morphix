@@ -1765,7 +1765,7 @@
 }
 .detail-avatar-row__action {
   margin-bottom: 0;
-  margin-left: 12px;
+  margin-left: auto;
   flex-shrink: 0;
 }
 .detail-edit {
