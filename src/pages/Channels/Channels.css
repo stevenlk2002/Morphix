@@ -1747,16 +1747,23 @@
   margin-bottom: 16px;
 }
 .detail-avatar-row .avatar-sm { margin: 0; }
-.detail-avatar-row .detail-name { margin-top: 0; }
+.detail-avatar-row .detail-name { margin-top: 0; white-space: nowrap; }
 .detail-avatar-row .detail-channel {
   margin-top: 0;
-  margin-left: 8px;
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--surface-soft);
   white-space: nowrap;
 }
-.detail-avatar-row .detail-action {
+.detail-avatar-row__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.detail-avatar-row__action {
   margin-bottom: 0;
   margin-left: 12px;
   flex-shrink: 0;

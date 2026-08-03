@@ -223,14 +223,14 @@ export default function SessionDetailPanel({
 
         {tab === 'customer' ? (
           <div className="detail-pane active">
-            {/* 好友卡片 */}
+            {/* 好友卡片 — 横向布局：头像 | 名字+渠道标签 | 详细按钮 */}
             <div className="detail-avatar detail-avatar-row">
               <Avatar url={contact?.contact.avatar} name={name} id={contact?.contact.id} className="avatar-sm" size={40} />
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div className="detail-avatar-row__info">
                 <span className="detail-name">{name}</span>
                 <span className="detail-channel">{contact.contact.channel}</span>
               </div>
-              <button className="detail-action" onClick={() => setDrawerOpen(true)}>
+              <button className="detail-action detail-avatar-row__action" onClick={() => setDrawerOpen(true)}>
                 详细 <ChevronRight size={12} />
               </button>
             </div>
