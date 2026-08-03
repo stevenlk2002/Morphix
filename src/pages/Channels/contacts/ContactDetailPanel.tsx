@@ -11,7 +11,8 @@ import { toast, errText } from '../../../utils/toast'
 
 interface ContactDetailPanelProps {
   detail: ContactDetailDTO | null
-  accountName: string
+  /** 账号展示名：name@teamName（如「竹绿-健康@医林通」），用于「归属」字段。 */
+  accountLabel?: string
   /** 关联渠道账号 id（用于发消息后端反查 user_id）。 */
   accountId?: string
 }
@@ -25,7 +26,7 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-export default function ContactDetailPanel({ detail, accountName, accountId }: ContactDetailPanelProps) {
+export default function ContactDetailPanel({ detail, accountLabel, accountId }: ContactDetailPanelProps) {
   const navigate = useNavigate()
   // iPad 标签（已解析真实名称，来自 ipad_label_map，决策 #2/#9）
   const [ipadLabels, setIpadLabels] = useState<ContactLabelDTO[]>([])
@@ -95,7 +96,7 @@ export default function ContactDetailPanel({ detail, accountName, accountId }: C
         <div>
           <div className="contacts-detail-name">{contact.name}</div>
           <div className="contacts-detail-sub">
-            {contact.channel} · 归属于：{accountName || '—'}
+            {contact.channel} · 归属于：{accountLabel || '—'}
           </div>
         </div>
       </div>

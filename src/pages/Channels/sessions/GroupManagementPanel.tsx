@@ -9,6 +9,8 @@ import { toast, errText } from '../../../utils/toast'
 
 interface GroupManagementPanelProps {
   accountId: string
+  /** 账号展示名：name@teamName（如「竹绿-健康@医林通」），用于「归属账号」字段。 */
+  accountName?: string
   group: GroupDTO | null
   members: GroupMemberDTO[]
   onReloadMembers: () => void
@@ -17,6 +19,7 @@ interface GroupManagementPanelProps {
 
 export default function GroupManagementPanel({
   accountId,
+  accountName,
   group,
   members,
   onReloadMembers,
@@ -204,7 +207,7 @@ export default function GroupManagementPanel({
           </div>
         </div>
       </div>
-      <div className="group-panel-line">归属账号：{accountId}</div>
+      <div className="group-panel-line">归属账号：{accountName || '—'}</div>
       <div className="group-panel-tags">
         <button className="group-tag-add">
           <Plus size={12} /> 添加标签

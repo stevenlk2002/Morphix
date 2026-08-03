@@ -21,6 +21,7 @@ import ContactDetailPanel from './contacts/ContactDetailPanel'
 import GroupDetailDrawer from './contacts/GroupDetailDrawer'
 import SearchAddContactModal from './contacts/SearchAddContactModal'
 import { avatarColor, avatarChar } from './shared/avatarUtils'
+import { accountLabel } from './shared/accountLabel'
 import { toast, errText } from '../../utils/toast'
 import '../../pages/prototype.css'
 import './Channels.css'
@@ -130,10 +131,13 @@ export default function ChannelContactsPage() {
       .catch(() => setDetail(null))
   }, [selectedContactId])
 
-  const accountName = useMemo(
-    () => accounts.find((a) => a.id === selectedAccountId)?.name ?? '',
+  const selectedAccount = useMemo(
+    () => accounts.find((a) => a.id === selectedAccountId) ?? null,
     [accounts, selectedAccountId]
   )
+
+  // 账号展示名：name@teamName（如「竹绿-健康@医林通」），用于列表项 / 详情页「归属」字段。
+  const accountLabelText = useMemo(() => accountLabel(selectedAccount), [selectedAccount])
 
   const isGroupTab = type === 'customer-group' || type === 'internal-group'
 
@@ -361,14 +365,17 @@ export default function ChannelContactsPage() {
                 </div>
                 <div className="contacts-item-bottom">
                   {it.kind === 'group' ? (
-                    <span>群成员 {it.total} 人</span>
+                    <>
+                      <span>群成员 {it.total} 人</span>
+                      <span>归属于：{accountLabelText}</span>
+                    </>
                   ) : (
                     <>
                       <span className={`contacts-item-status ${it.status === 'online' ? 'online' : ''}`}>
                         <span className="dot" />
                         {it.status === 'online' ? '在线' : '离线'}
                       </span>
-                      <span>归属于：{accountName || '—'}</span>
+                      <span>归属于：{accountLabelText}</span>
                     </>
                   )}
                 </div>
@@ -385,13 +392,14 @@ export default function ChannelContactsPage() {
 
       <ContactDetailPanel
         detail={detail}
-        accountName={accountName}
+        accountLabel={accountLabelText}
         accountId={selectedAccountId ?? ''}
       />
 
       {groupDetailOpen && (
         <GroupDetailDrawer
           accountId={selectedAccountId ?? ''}
+          accountName={accountLabelText}
           roomId={groupRoomId}
           onClose={() => setGroupDetailOpen(false)}
         />

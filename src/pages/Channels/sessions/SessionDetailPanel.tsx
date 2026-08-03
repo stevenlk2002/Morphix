@@ -8,7 +8,8 @@ import Avatar from '../shared/Avatar'
 import { toast, errText } from '../../../utils/toast'
 
 interface SessionDetailPanelProps {
-  accountId: string
+  /** 账号展示名：name@teamName（如「竹绿-健康@医林通」），用于「关联渠道账号」字段。 */
+  accountName?: string
   contact: ContactDetailDTO | null
   onContactUpdated?: (c: ContactDetailDTO) => void
   onCommunicationAdded?: () => void
@@ -32,7 +33,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function SessionDetailPanel({
-  accountId,
+  accountName,
   contact,
   onContactUpdated,
   onCommunicationAdded,
@@ -304,7 +305,7 @@ export default function SessionDetailPanel({
               <div className="detail-section-title">关联私域渠道</div>
               <div className="detail-row"><span className="detail-row-label">渠道类型</span><span className="detail-row-value">企业微信</span></div>
               <div className="detail-row"><span className="detail-row-label">昵称</span><span className="detail-row-value">{contact.contact.nickname || name}</span></div>
-              <div className="detail-row"><span className="detail-row-label">关联渠道账号</span><span className="detail-row-value">{accountId}</span></div>
+              <div className="detail-row"><span className="detail-row-label">关联渠道账号</span><span className="detail-row-value">{accountName || '—'}</span></div>
               <div className="detail-row"><span className="detail-row-label">备注名</span><span className="detail-row-value">{contact.contact.remark || '--'}</span></div>
               <div className="detail-row"><span className="detail-row-label">渠道备注</span><span className="detail-row-value">{contact.contact.description || '--'}</span></div>
             </div>

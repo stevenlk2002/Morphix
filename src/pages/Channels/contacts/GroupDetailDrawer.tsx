@@ -14,6 +14,8 @@ import { toast, errText } from '../../../utils/toast'
 
 interface Props {
   accountId: string
+  /** 账号展示名：name@teamName（如「竹绿-健康@医林通」），用于头部「归属」字段。 */
+  accountName?: string
   roomId: string | null
   onClose: () => void
 }
@@ -24,7 +26,7 @@ function sexLabel(sex: number): string {
   return '未知'
 }
 
-export default function GroupDetailDrawer({ accountId, roomId, onClose }: Props) {
+export default function GroupDetailDrawer({ accountId, accountName, roomId, onClose }: Props) {
   const navigate = useNavigate()
   const [data, setData] = useState<GroupDetailDTO | null>(null)
   const [loading, setLoading] = useState(false)
@@ -78,6 +80,9 @@ export default function GroupDetailDrawer({ accountId, roomId, onClose }: Props)
               <div className="group-detail-header-meta">
                 {group?.roomId ? `群ID：${group.roomId}` : ''}
               </div>
+              {accountName && (
+                <div className="group-detail-header-meta">归属：{accountName}</div>
+              )}
             </div>
             <button
               onClick={onClose}

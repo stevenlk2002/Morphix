@@ -15,6 +15,7 @@ import RightPanelHeader from './RightPanelHeader'
 import SessionChatPanel from './SessionChatPanel'
 import GroupManagementPanel from './GroupManagementPanel'
 import SessionDetailPanel from './SessionDetailPanel'
+import { accountLabel } from '../shared/accountLabel'
 
 interface RightPanelAreaProps {
   session: SessionDTO | null
@@ -71,6 +72,9 @@ export default function RightPanelArea({
 }: RightPanelAreaProps) {
   const isGroup = session?.sessionType === '群聊'
   const detailPanelRef = useRef<HTMLDivElement | null>(null)
+
+  // 账号展示名：name@teamName（如「竹绿-健康@医林通」），透传给群管理 / 单聊详情面板。
+  const accountName = accountLabel(account)
 
   // 拖拽调整 detail 宽度
   const startResize = (e: ReactMouseEvent) => {
@@ -144,6 +148,7 @@ export default function RightPanelArea({
               {isGroup ? (
                 <GroupManagementPanel
                   accountId={account?.id ?? ''}
+                  accountName={accountName}
                   group={group}
                   members={groupMembers}
                   onReloadMembers={reloadGroupMembers}
@@ -151,7 +156,7 @@ export default function RightPanelArea({
                 />
               ) : (
                 <SessionDetailPanel
-                  accountId={account?.id ?? ''}
+                  accountName={accountName}
                   contact={contact}
                   onContactUpdated={onContactUpdated}
                   onCommunicationAdded={onCommunicationAdded}
