@@ -226,9 +226,9 @@ export default function SessionDetailPanel({
             {/* 好友卡片 */}
             <div className="detail-avatar detail-avatar-row">
               <Avatar url={contact?.contact.avatar} name={name} id={contact?.contact.id} className="avatar-sm" size={40} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="detail-name">{name}</div>
-                <div className="detail-channel">{contact.contact.channel}</div>
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span className="detail-name">{name}</span>
+                <span className="detail-channel">{contact.contact.channel}</span>
               </div>
               <button className="detail-action" onClick={() => setDrawerOpen(true)}>
                 详细 <ChevronRight size={12} />
