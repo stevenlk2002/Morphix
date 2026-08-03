@@ -296,10 +296,12 @@ export default function SessionDetailPanel({
           </div>
         ) : (
           <div className="detail-pane active">
-            <div className="detail-avatar">
+            <div className="detail-avatar detail-avatar-row">
               <Avatar url={contact?.contact.avatar} name={name} id={contact?.contact.id} className="avatar-sm" size={40} />
-              <div className="detail-name">{name}</div>
-              <div className="detail-channel">{contact.contact.channel}</div>
+              <div className="detail-avatar-row__info">
+                <span className="detail-name">{name}</span>
+                <span className="detail-channel">{contact.contact.channel}</span>
+              </div>
             </div>
             <div className="detail-section">
               <div className="detail-section-title">关联私域渠道</div>
