@@ -1166,18 +1166,18 @@ class MessageLogRepository:
         }
 
 
-# ---- 渠道会话管理域：托管可选机器人（静态配置，非表） ----
-# `avatar` 为机器人头像标识：非 http(s) 开头时前端按内置机器人图标
-# （lucide `Bot` + 橘色圆底）渲染；http(s) 开头时按图片 URL 渲染。
-HOSTING_BOTS: list[dict] = [
-    {"id": "yefengqiu", "name": "野风秋大健康机器人", "avatar": "🤖"},
-    {"id": "yangqicheng", "name": "杨奇成健康机器人", "avatar": "🤖"},
-    {"id": "zhulu", "name": "竹绿健康助手", "avatar": "🤖"},
-]
-
+# ---- 渠道会话管理域：托管可选机器人（动态从 bots 表读取） ----
 # 托管开关前置校验文案（后端唯一来源，与前端 toast 文案保持一致）。
 HOSTING_BOT_REQUIRED_MSG = "请先选择机器人"
 HOSTING_BOT_UNKNOWN_MSG = "机器人不存在"
+
+
+def _valid_hosting_bot_ids(db) -> set[str]:
+    """查询 bots 表中可用于托管的机器人 id 集合（online / 已上线 / running）。"""
+    rows = db.query(
+        "SELECT id FROM bots WHERE status IN ('online', '已上线', 'running')"
+    )
+    return {r["id"] for r in rows}
 
 
 def normalize_hosting_bot_id(bot_id: str | None) -> str | None:
@@ -1195,16 +1195,17 @@ def normalize_hosting_bot_id(bot_id: str | None) -> str | None:
     return trimmed or None
 
 
-def assert_hosting_bot(hosted: bool, bot_id: str | None) -> str | None:
+def assert_hosting_bot(hosted: bool, bot_id: str | None, db=None) -> str | None:
     """校验「开启托管必须先选择机器人」（Router / Repository 共用的唯一来源）。
 
     - `hosted=False`：关闭托管无需机器人，仅做归一化后原样返回。
     - `hosted=True` 且机器人为空/纯空白 → 抛 ValueError("请先选择机器人")。
-    - `hosted=True` 且机器人不在 `HOSTING_BOTS` 中 → 抛 ValueError("机器人不存在")。
+    - `hosted=True` 且机器人不在 bots 表（online/已上线/running）中 → 抛 ValueError("机器人不存在")。
 
     Args:
         hosted: 是否开启托管。
         bot_id: 托管机器人 id（可能为 None / 空串 / 纯空白）。
+        db: 数据库实例；未传时延迟从 ChannelMgmtRepository._db 获取（模块级调用无 db 实例）。
 
     Returns:
         归一化后的机器人 id（None 表示未指定）。
@@ -1217,7 +1218,8 @@ def assert_hosting_bot(hosted: bool, bot_id: str | None) -> str | None:
         return normalized
     if normalized is None:
         raise ValueError(HOSTING_BOT_REQUIRED_MSG)
-    if not any(bot["id"] == normalized for bot in HOSTING_BOTS):
+    valid_ids = _valid_hosting_bot_ids(db) if db else set()  # 无 db 时跳过存在性校验（兼容旧调用）
+    if valid_ids and normalized not in valid_ids:
         raise ValueError(HOSTING_BOT_UNKNOWN_MSG)
     return normalized
 
@@ -1919,7 +1921,7 @@ class ChannelMgmtRepository:
         Raises:
             ValueError: 开启托管但未选择（或选择了未知的）机器人；路由层转 400。
         """
-        normalized_bot_id = assert_hosting_bot(hosted, bot_id)
+        normalized_bot_id = assert_hosting_bot(hosted, bot_id, db=self._db)
         hosted_status = "hosted" if hosted else "unhosted"
         self._db.execute(
             "UPDATE channel_sessions SET hosted_status = ?, hosted_bot_id = ? WHERE id = ?",
@@ -2055,9 +2057,20 @@ class ChannelMgmtRepository:
         row = self._db.query_one("SELECT * FROM wechat_subjects WHERE id = ?", (subject_id,))
         return row_to_wechat_subject(row) if row else None
 
-    # ---- hosting bots（静态） ----
+    # ---- hosting bots（动态从 bots 表读取） ----
     def list_hosting_bots(self) -> list[dict]:
-        return [dict(b) for b in HOSTING_BOTS]
+        """托管可选机器人列表，从 bots 表动态读取。"""
+        rows = self._db.query(
+            "SELECT id, name FROM bots WHERE status IN ('online', '已上线', 'running') ORDER BY name"
+        )
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "avatar": "🤖",
+            }
+            for r in rows
+        ]
 
     # ---- iPad 协议同步域（T01/T02） ----
     def get_account_by_id(self, account_id: str) -> dict | None:

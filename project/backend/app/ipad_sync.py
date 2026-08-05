@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import datetime
 from typing import Any
 
@@ -877,6 +878,93 @@ def send_text_message(
         "serverId": server_id,
         "ok": True,
     }
+
+
+# ── 托管机器人入站分发（桥接：iPad 回调 → 工作流执行 → 回复发送） ──
+
+# 每会话冷却窗口（秒）：同一会话两次自动回复的最小间隔，防止 LLM 慢导致消息堆积风暴。
+_HOSTING_COOLDOWN_SECS: float = 3.0
+
+# 会话级上次触发时间戳（进程内存，重启清零可接受）。
+_hosting_last_trigger: dict[str, float] = {}
+
+
+def _dispatch_hosted_bot(
+    account_id: str,
+    conv: str,
+    content: str,
+    msg_type: int = 0,
+    content_type: str = "text",
+) -> None:
+    """对已托管会话的入站文本消息，后台触发机器人工作流并回发回复。
+
+    调用时机：handle_callback() 落库 inbound 消息后、return 前异步触发。
+    设计约束：
+    - 仅处理文本消息（msg_type=0 且 content_type=text），媒体/表情等跳过；
+    - 后台守护线程执行，不阻塞 iPad 回调响应（LLM 可能 10-20s）；
+    - 全链路 try/except，机器人失败不影响回调主流程和消息落库；
+    - 防自触发：send_text_message 写 outbound → iPad 回调 is_outbound=True → 本函数不进入；
+    - 冷却防暴：同一会话 _HOSTING_COOLDOWN_SECS 内不重复触发。
+    """
+    # 仅文本消息触发
+    if msg_type != 0 or content_type != "text" or not content or not content.strip():
+        return
+
+    # 冷却检查
+    now = time.time()
+    last = _hosting_last_trigger.get(conv, 0.0)
+    if now - last < _HOSTING_COOLDOWN_SECS:
+        return
+    _hosting_last_trigger[conv] = now
+
+    def _worker() -> None:
+        try:
+            repo = ChannelMgmtRepository(get_backend())
+            session = repo._db.query_one(
+                "SELECT hosted_status, hosted_bot_id FROM channel_sessions WHERE id = ?",
+                (conv,),
+            )
+            if not session:
+                return
+            if session.get("hosted_status") != "hosted":
+                return
+            bot_id = session.get("hosted_bot_id")
+            if not bot_id or not bot_id.strip():
+                return
+
+            logger.info(
+                "托管分发触发 conv=%s bot_id=%s content=%.80s",
+                conv, bot_id, content,
+            )
+
+            # 延迟导入避免循环依赖 + 按需加载
+            from app.services.workflow_runner import run_workflow
+
+            result = run_workflow(bot_id, content)
+            reply = (result or {}).get("finalReply", "")
+            if not reply or not reply.strip():
+                logger.info("托管分发 bot=%s 无回复内容，跳过发送", bot_id)
+                return
+
+            # 截断超长回复（iPad 协议单条上限约 2000 字符）
+            if len(reply) > 1800:
+                reply = reply[:1797] + "…"
+
+            logger.info(
+                "托管分发回复 conv=%s bot_id=%s reply_len=%d usedRealLLM=%s",
+                conv, bot_id, len(reply), result.get("usedRealLLM"),
+            )
+            send_text_message(account_id, "session", conv, reply)
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "托管分发异常 conv=%s account_id=%s: %s",
+                conv, account_id, exc,
+                exc_info=True,
+            )
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 
 def _resolve_target(
@@ -2286,6 +2374,13 @@ def handle_callback(uuid: str, payload: object, type_: str) -> dict:
         repo.upsert_channel_message(msg)
         if not is_outbound:
             repo.increment_session_unread(conv, account_id)
+            # 托管机器人分发：入站文本消息 → 后台工作流 → 自动回复
+            _dispatch_hosted_bot(
+                account_id, conv,
+                content=m.get("content", ""),
+                msg_type=m.get("msg_type", 0),
+                content_type=m.get("content_type", "text"),
+            )
         upserted += 1
     return {"ok": True, "upserted": upserted, "skipped": skipped}
 
