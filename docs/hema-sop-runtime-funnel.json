@@ -1,0 +1,693 @@
+{
+  "name": "河马 SOP · 11步主成交漏斗（运行时）",
+  "source": "docs/hema-sop-funnel-workflow.json",
+  "routing": "stage",
+  "nodes": [
+    {
+      "id": "n_start",
+      "type": "start",
+      "data": {
+        "label": "入口"
+      }
+    },
+    {
+      "id": "n_stage_router",
+      "type": "switch",
+      "data": {
+        "label": "阶段路由（按 stage:* 标签推进一步）",
+        "config": {
+          "switchOn": "tag",
+          "cases": [
+            {
+              "equals": "stage:s1",
+              "target": "n_s1_agent"
+            },
+            {
+              "equals": "stage:s2",
+              "target": "n_s2_agent"
+            },
+            {
+              "equals": "stage:s3",
+              "target": "n_s3_agent"
+            },
+            {
+              "equals": "stage:s4",
+              "target": "n_s4_agent"
+            },
+            {
+              "equals": "stage:s5",
+              "target": "n_s5_agent"
+            },
+            {
+              "equals": "stage:s6",
+              "target": "n_s6_agent"
+            },
+            {
+              "equals": "stage:s7",
+              "target": "n_s7_agent"
+            },
+            {
+              "equals": "stage:s8",
+              "target": "n_s8_agent"
+            },
+            {
+              "equals": "stage:s9",
+              "target": "n_s9_agent"
+            },
+            {
+              "equals": "stage:s10",
+              "target": "n_s10_agent"
+            },
+            {
+              "equals": "stage:s11",
+              "target": "n_s11_agent"
+            }
+          ],
+          "default": "n_s1_agent"
+        }
+      }
+    },
+    {
+      "id": "n_end",
+      "type": "end",
+      "data": {
+        "label": "结束"
+      }
+    },
+    {
+      "id": "n_s1_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤1 欢迎",
+        "prompt": "步骤1 欢迎：发送合规欢迎语，介绍「河马健康线上耳部健康管理」，说明接下来会了解基本情况，不推销、不报价。≤120字。"
+      }
+    },
+    {
+      "id": "n_s1_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s1_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "您好，我是河马健康的线上健康顾问。接下来我会先了解一下您耳部的基本情况，方便药师团队评估。全程不推销、不报价，您可以放心沟通。"
+        },
+        "label": "步骤1 欢迎·发送"
+      }
+    },
+    {
+      "id": "n_s2_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤2 促开口",
+        "prompt": "步骤2 促开口：用一个低门槛选择题邀请客户回复（症状/时长/已就诊？），每次只问1个问题。科普口吻，不提产品。"
+      }
+    },
+    {
+      "id": "n_s2_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s2_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "为了更快帮到您，先问一个问题就好：您目前主要困扰的是耳鸣、听力下降，还是耳朵闷堵感？"
+        },
+        "label": "步骤2 促开口·发送"
+      }
+    },
+    {
+      "id": "n_s3_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤3 信息收集",
+        "prompt": "步骤3 信息收集（A2）：按12槽位逐条采集，先共情再问；禁止证型判断、禁止恐吓、禁止预告价格。详见 hema_kefu n_a2。"
+      }
+    },
+    {
+      "id": "n_s3_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s3_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "{{agentReply}}"
+        },
+        "label": "步骤3 信息收集·发送"
+      }
+    },
+    {
+      "id": "n_s3_tag",
+      "type": "tag",
+      "data": {
+        "label": "打标签",
+        "vocabRef": "docs/hema-sop-controlled-vocab.json#/tagVocab"
+      }
+    },
+    {
+      "id": "n_s3_attr",
+      "type": "attr",
+      "data": {
+        "label": "写画像·chart_summary",
+        "attrName": "chart_summary",
+        "schemaRef": "docs/hema-sop-controlled-vocab.json#/customerAttrSchema"
+      }
+    },
+    {
+      "id": "n_s4_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤4 下结论发视频",
+        "prompt": "步骤4 下结论发视频：基于采集信息做中性小结（不诊断），发送一段耳部科普/机制视频链接，附一句知识性说明。"
+      }
+    },
+    {
+      "id": "n_s4_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s4_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "根据您描述的情况，我先给您发一段耳部结构与常见诱因的科普视频，帮助您了解机制。具体属于哪种情况，还需要药师评估后判断，我不下结论。"
+        },
+        "label": "步骤4 下结论发视频·发送"
+      }
+    },
+    {
+      "id": "n_s5_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "sales_progress",
+        "label": "步骤5 出方案",
+        "prompt": "步骤5 出方案：给出「需药师评估后的一人一方」说明，强调先评估再定方案，不承诺具体见效时间。"
+      }
+    },
+    {
+      "id": "n_s5_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s5_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "我们的做法是一人一方：先由药师根据您的情况评估是否适合调理，再定具体方案。能不能改善要看个体情况，我们以改善和减轻为目标。"
+        },
+        "label": "步骤5 出方案·发送"
+      }
+    },
+    {
+      "id": "n_s6_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤6 提要求",
+        "prompt": "步骤6 提要求：礼貌请求客户配合完成评估/提供补充情况，给一个低成本下一步动作。"
+      }
+    },
+    {
+      "id": "n_s6_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s6_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "{{agentReply}}"
+        },
+        "label": "步骤6 提要求·发送"
+      }
+    },
+    {
+      "id": "n_s7_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤7 给信心发案例",
+        "prompt": "步骤7 给信心发案例：用可核验资质+服务方式给信心；案例用泛化描述，不编造具体人名/数据/原话。详见 hema_kefu n_a4 改写红线。"
+      }
+    },
+    {
+      "id": "n_s7_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s7_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "{{agentReply}}"
+        },
+        "label": "步骤7 给信心发案例·发送"
+      }
+    },
+    {
+      "id": "n_s8_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "sales_progress",
+        "label": "步骤8 报价",
+        "prompt": "步骤8 报价：仅当客户主动问价才给合规价格披露（原价/优惠价/定金/货到付款，纯披露不绑疗效）；价格异议一律转人工，禁止自行谈折扣。"
+      }
+    },
+    {
+      "id": "n_s8_human",
+      "type": "policy",
+      "data": {
+        "gate": "human_approval",
+        "label": "步骤8 报价·人工确认"
+      }
+    },
+    {
+      "id": "n_s8_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s8_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "目前推广期优惠价 598 元，包含药师 1 对 1 跟进；可先付 48 元定金，余款货到付款。"
+        },
+        "label": "步骤8 报价·发送"
+      }
+    },
+    {
+      "id": "n_s9_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "qa",
+        "label": "步骤9 要联系方式",
+        "prompt": "步骤9 要联系方式：请求客户确认收货/联系信息用于药师跟进，说明仅作服务用途。"
+      }
+    },
+    {
+      "id": "n_s9_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s9_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "{{agentReply}}"
+        },
+        "label": "步骤9 要联系方式·发送"
+      }
+    },
+    {
+      "id": "n_s10_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "sales_progress",
+        "label": "步骤10 收定金",
+        "prompt": ""
+      }
+    },
+    {
+      "id": "n_s10_human",
+      "type": "policy",
+      "data": {
+        "gate": "human_approval",
+        "label": "步骤10 收定金·人工确认"
+      }
+    },
+    {
+      "id": "n_s10_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s10_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "定金链接我这边发给您，确认后药师会安排后续发货与跟进。"
+        },
+        "label": "步骤10 收定金·发送"
+      }
+    },
+    {
+      "id": "n_s11_agent",
+      "type": "agent",
+      "data": {
+        "agentType": "summarizer",
+        "label": "步骤11 交接铺垫",
+        "prompt": "步骤11 交接铺垫（A7）：生成 B1-B5 五次交接文案，平实服务导向，不追加销售、不承诺见效时间。"
+      }
+    },
+    {
+      "id": "n_s11_human",
+      "type": "policy",
+      "data": {
+        "gate": "human_approval",
+        "label": "步骤11 交接铺垫·人工确认"
+      }
+    },
+    {
+      "id": "n_s11_gate",
+      "type": "policy",
+      "data": {
+        "gate": "compliance",
+        "label": "A8 合规守门"
+      }
+    },
+    {
+      "id": "n_s11_send",
+      "type": "send_message",
+      "data": {
+        "commandType": "send_message",
+        "payload": {
+          "text": "后续会由专属药师接手跟进您的调理情况，我先把您的资料整理过去。有任何问题随时找我。"
+        },
+        "label": "步骤11 交接铺垫·发送"
+      }
+    },
+    {
+      "id": "n_s11_attr",
+      "type": "attr",
+      "data": {
+        "label": "写画像·handover_plan",
+        "attrName": "handover_plan",
+        "schemaRef": "docs/hema-sop-controlled-vocab.json#/customerAttrSchema"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_n_start__n_stage_router",
+      "source": "n_start",
+      "target": "n_stage_router"
+    },
+    {
+      "id": "e_n_s1_agent__n_s1_gate",
+      "source": "n_s1_agent",
+      "target": "n_s1_gate"
+    },
+    {
+      "id": "e_n_s1_gate__n_s1_send",
+      "source": "n_s1_gate",
+      "target": "n_s1_send"
+    },
+    {
+      "id": "e_n_s1_send__n_end",
+      "source": "n_s1_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s2_agent__n_s2_gate",
+      "source": "n_s2_agent",
+      "target": "n_s2_gate"
+    },
+    {
+      "id": "e_n_s2_gate__n_s2_send",
+      "source": "n_s2_gate",
+      "target": "n_s2_send"
+    },
+    {
+      "id": "e_n_s2_send__n_end",
+      "source": "n_s2_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s3_agent__n_s3_gate",
+      "source": "n_s3_agent",
+      "target": "n_s3_gate"
+    },
+    {
+      "id": "e_n_s3_gate__n_s3_send",
+      "source": "n_s3_gate",
+      "target": "n_s3_send"
+    },
+    {
+      "id": "e_n_s3_send__n_s3_tag",
+      "source": "n_s3_send",
+      "target": "n_s3_tag"
+    },
+    {
+      "id": "e_n_s3_tag__n_s3_attr",
+      "source": "n_s3_tag",
+      "target": "n_s3_attr"
+    },
+    {
+      "id": "e_n_s3_attr__n_end",
+      "source": "n_s3_attr",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s4_agent__n_s4_gate",
+      "source": "n_s4_agent",
+      "target": "n_s4_gate"
+    },
+    {
+      "id": "e_n_s4_gate__n_s4_send",
+      "source": "n_s4_gate",
+      "target": "n_s4_send"
+    },
+    {
+      "id": "e_n_s4_send__n_end",
+      "source": "n_s4_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s5_agent__n_s5_gate",
+      "source": "n_s5_agent",
+      "target": "n_s5_gate"
+    },
+    {
+      "id": "e_n_s5_gate__n_s5_send",
+      "source": "n_s5_gate",
+      "target": "n_s5_send"
+    },
+    {
+      "id": "e_n_s5_send__n_end",
+      "source": "n_s5_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s6_agent__n_s6_gate",
+      "source": "n_s6_agent",
+      "target": "n_s6_gate"
+    },
+    {
+      "id": "e_n_s6_gate__n_s6_send",
+      "source": "n_s6_gate",
+      "target": "n_s6_send"
+    },
+    {
+      "id": "e_n_s6_send__n_end",
+      "source": "n_s6_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s7_agent__n_s7_gate",
+      "source": "n_s7_agent",
+      "target": "n_s7_gate"
+    },
+    {
+      "id": "e_n_s7_gate__n_s7_send",
+      "source": "n_s7_gate",
+      "target": "n_s7_send"
+    },
+    {
+      "id": "e_n_s7_send__n_end",
+      "source": "n_s7_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s8_agent__n_s8_human",
+      "source": "n_s8_agent",
+      "target": "n_s8_human"
+    },
+    {
+      "id": "e_n_s8_human__n_s8_gate",
+      "source": "n_s8_human",
+      "target": "n_s8_gate"
+    },
+    {
+      "id": "e_n_s8_gate__n_s8_send",
+      "source": "n_s8_gate",
+      "target": "n_s8_send"
+    },
+    {
+      "id": "e_n_s8_send__n_end",
+      "source": "n_s8_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s9_agent__n_s9_gate",
+      "source": "n_s9_agent",
+      "target": "n_s9_gate"
+    },
+    {
+      "id": "e_n_s9_gate__n_s9_send",
+      "source": "n_s9_gate",
+      "target": "n_s9_send"
+    },
+    {
+      "id": "e_n_s9_send__n_end",
+      "source": "n_s9_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s10_agent__n_s10_human",
+      "source": "n_s10_agent",
+      "target": "n_s10_human"
+    },
+    {
+      "id": "e_n_s10_human__n_s10_gate",
+      "source": "n_s10_human",
+      "target": "n_s10_gate"
+    },
+    {
+      "id": "e_n_s10_gate__n_s10_send",
+      "source": "n_s10_gate",
+      "target": "n_s10_send"
+    },
+    {
+      "id": "e_n_s10_send__n_end",
+      "source": "n_s10_send",
+      "target": "n_end"
+    },
+    {
+      "id": "e_n_s11_agent__n_s11_human",
+      "source": "n_s11_agent",
+      "target": "n_s11_human"
+    },
+    {
+      "id": "e_n_s11_human__n_s11_gate",
+      "source": "n_s11_human",
+      "target": "n_s11_gate"
+    },
+    {
+      "id": "e_n_s11_gate__n_s11_send",
+      "source": "n_s11_gate",
+      "target": "n_s11_send"
+    },
+    {
+      "id": "e_n_s11_send__n_s11_attr",
+      "source": "n_s11_send",
+      "target": "n_s11_attr"
+    },
+    {
+      "id": "e_n_s11_attr__n_end",
+      "source": "n_s11_attr",
+      "target": "n_end"
+    },
+    {
+      "id": "e_route_0",
+      "source": "n_stage_router",
+      "target": "n_s1_agent"
+    },
+    {
+      "id": "e_route_1",
+      "source": "n_stage_router",
+      "target": "n_s2_agent"
+    },
+    {
+      "id": "e_route_2",
+      "source": "n_stage_router",
+      "target": "n_s3_agent"
+    },
+    {
+      "id": "e_route_3",
+      "source": "n_stage_router",
+      "target": "n_s4_agent"
+    },
+    {
+      "id": "e_route_4",
+      "source": "n_stage_router",
+      "target": "n_s5_agent"
+    },
+    {
+      "id": "e_route_5",
+      "source": "n_stage_router",
+      "target": "n_s6_agent"
+    },
+    {
+      "id": "e_route_6",
+      "source": "n_stage_router",
+      "target": "n_s7_agent"
+    },
+    {
+      "id": "e_route_7",
+      "source": "n_stage_router",
+      "target": "n_s8_agent"
+    },
+    {
+      "id": "e_route_8",
+      "source": "n_stage_router",
+      "target": "n_s9_agent"
+    },
+    {
+      "id": "e_route_9",
+      "source": "n_stage_router",
+      "target": "n_s10_agent"
+    },
+    {
+      "id": "e_route_10",
+      "source": "n_stage_router",
+      "target": "n_s11_agent"
+    }
+  ]
+}

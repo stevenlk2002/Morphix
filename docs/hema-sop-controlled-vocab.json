@@ -1,0 +1,65 @@
+{
+  "$schema": "morphix.controlledVocab/1.0",
+  "botId": "hema_kefu",
+  "source": "SOP 六（标签管理）+ 七（客户画像）",
+  "generatedAt": "2026-08-04",
+  "tagVocab": {
+    "promo": {
+      "rule": "multi_group",
+      "groups": [
+        {"name": "开口状态", "rule": "one_of", "values": ["开口", "未开口", "其他"]},
+        {"name": "成交状态", "rule": "one_of", "values": ["未成交", "成交"]},
+        {"name": "有效/无效", "rule": "one_of", "values": [
+          "报价类", "称签", "有效开口", "无效1_同行媒体广告职能", "无效2_小孩误点", "禁止开发_90以上或重症或未成年"
+        ]},
+        {"name": "触达结果", "rule": "one_of_optional", "values": ["未开口_当天3次未回复", "对方删除拉黑", "同事"]}
+      ]
+    },
+    "process": {
+      "rule": "one_of_dynamic",
+      "values": ["客户信息收集", "下结论出方案", "通天草", "提要求", "给信心发案例反馈", "报价", "成交"],
+      "note": "随流程进展动态改写"
+    },
+    "concern": {
+      "rule": "multi_select",
+      "values": ["价格疑虑", "效果疑虑", "原理疑虑", "服务疑虑", "机构疑虑", "产品疑虑"],
+      "note": "必选至少一项；无疑虑则置空"
+    },
+    "tier": {
+      "rule": "one_of_auto",
+      "values": ["A重点挖掘_30天内", "B重点保持_30-60天", "C重点挽回_60-90天", "D重点沉睡_90天外"],
+      "note": "按进粉时间自动计算"
+    },
+    "aftersale": {
+      "rule": "optional",
+      "values": ["禁止跟进_售后通知", "恶意订购_拒签2次"]
+    }
+  },
+  "customerAttrSchema": {
+    "symptom": {
+      "sound_type": {"type": "enum", "values": ["高频蝉鸣", "低频嗡嗡", "搏动性心跳声", "混合声", "未提供"]},
+      "loudness": {"type": "enum", "values": ["轻微", "中等", "震耳", "未提供"]},
+      "persistence": {"type": "enum", "values": ["24_7持续", "间歇性", "特定环境", "未提供"]},
+      "laterality": {"type": "enum", "values": ["单耳", "双耳", "未提供"]},
+      "assoc_symptoms": {"type": "multi_enum", "values": ["听力下降", "听觉过敏", "耳闷胀", "头晕眩晕", "头痛", "无"]},
+      "trigger": {"type": "free_text"}
+    },
+    "demographics": {
+      "age": {"type": "int", "note": "≥90 或 <18 触发禁止开发"},
+      "gender": {"type": "enum", "values": ["男", "女", "未提供"]}
+    },
+    "hearing": {
+      "checked": {"type": "enum", "values": ["是", "否", "未提供"]},
+      "audiogram_conclusion": {"type": "free_text"}
+    },
+    "persona_type": {"type": "enum", "values": [
+      "焦虑中年高压职场人", "年轻耳机族", "老年听力衰退伴随者", "突聋疾病后遗症患者", "未知"
+    ], "note": "无依据时一律未知，禁止猜测"},
+    "pain_priority": {"type": "ranked_enum", "max": 3, "values": [
+      "睡眠障碍", "注意力受损", "社交障碍", "焦虑抑郁", "沟通困难", "担心恶化"
+    ]},
+    "price_sensitivity": {"type": "enum", "values": ["高", "中", "低", "未知"]},
+    "buy_intent_score": {"type": "int", "range": [0, 100], "source": "A5_signal"},
+    "escalate": {"type": "bool", "note": "年龄≥90/<18、重症、孕期、多处方药、前后矛盾 → true"}
+  }
+}

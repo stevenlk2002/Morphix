@@ -1,0 +1,60 @@
+{
+  "botId": "hema_kefu_funnel",
+  "version": 1,
+  "lastEdited": "2026-08-04T11:30:00+08:00",
+  "description": "SOP 一（企微新线成交 SOP 4.0）11 步主成交漏斗的完整节点图。与 hema_kefu 编排器节点类型一致：userInput / aiChat / kbSearch / multiJudge / msgOutput / setMorphixTag / setCustomerAttr / interruptBefore / policy(compliance)。所有对外发送均经 n_a8 守门 → n_judge → n_msg 单点出口；报价/收定金/交接三处需人工确认（interruptBefore）。标签与画像字段引用 docs/hema-sop-controlled-vocab.json。",
+  "nodes": [
+    {"id": "n_user", "type": "customNode", "position": {"x": 40, "y": 300}, "data": {"nodeType": "userInput", "config": {}, "inputs": {}}},
+
+    {"id": "n_s1_welcome", "type": "customNode", "position": {"x": 300, "y": 40}, "data": {"nodeType": "aiChat", "config": {"model": "DeepSeek", "prompt": "步骤1 欢迎：发送合规欢迎语，介绍「河马健康线上耳部健康管理」，说明接下来会了解基本情况，不推销、不报价。≤120字。"}, "inputs": {}}},
+    {"id": "n_s2_open", "type": "customNode", "position": {"x": 300, "y": 160}, "data": {"nodeType": "aiChat", "config": {"model": "DeepSeek", "prompt": "步骤2 促开口：用一个低门槛选择题邀请客户回复（症状/时长/已就诊？），每次只问1个问题。科普口吻，不提产品。"}, "inputs": {}}},
+    {"id": "n_s3_intake", "type": "customNode", "position": {"x": 300, "y": 280}, "data": {"nodeType": "aiChat", "config": {"model": "GPT-4", "prompt": "步骤3 信息收集（A2）：按12槽位逐条采集，先共情再问；禁止证型判断、禁止恐吓、禁止预告价格。详见 hema_kefu n_a2。"}, "inputs": {}}},
+    {"id": "n_s3_attr", "type": "customNode", "position": {"x": 560, "y": 280}, "data": {"nodeType": "setCustomerAttr", "config": {"attrName": "chart_summary", "schemaRef": "docs/hema-sop-controlled-vocab.json#/customerAttrSchema"}, "inputs": {}}},
+    {"id": "n_s4_conclude", "type": "customNode", "position": {"x": 300, "y": 400}, "data": {"nodeType": "aiChat", "config": {"model": "GPT-4", "prompt": "步骤4 下结论发视频：基于采集信息做中性小结（不诊断），发送一段耳部科普/机制视频链接，附一句知识性说明。"}, "inputs": {}}},
+    {"id": "n_s4_send", "type": "customNode", "position": {"x": 560, "y": 400}, "data": {"nodeType": "msgOutput", "config": {"splitMode": "auto"}, "inputs": {}}},
+    {"id": "n_s5_plan", "type": "customNode", "position": {"x": 300, "y": 520}, "data": {"nodeType": "aiChat", "config": {"model": "GPT-4", "prompt": "步骤5 出方案：给出「需药师评估后的一人一方」说明，强调先评估再定方案，不承诺具体见效时间。"}, "inputs": {}}},
+    {"id": "n_s6_ask", "type": "customNode", "position": {"x": 300, "y": 640}, "data": {"nodeType": "aiChat", "config": {"model": "DeepSeek", "prompt": "步骤6 提要求：礼貌请求客户配合完成评估/提供补充情况，给一个低成本下一步动作。"}, "inputs": {}}},
+    {"id": "n_s7_reassure", "type": "customNode", "position": {"x": 300, "y": 760}, "data": {"nodeType": "aiChat", "config": {"model": "DeepSeek", "prompt": "步骤7 给信心发案例：用可核验资质+服务方式给信心；案例用泛化描述，不编造具体人名/数据/原话。详见 hema_kefu n_a4 改写红线。"}, "inputs": {}}},
+    {"id": "n_s7_send", "type": "customNode", "position": {"x": 560, "y": 760}, "data": {"nodeType": "msgOutput", "config": {"splitMode": "auto"}, "inputs": {}}},
+    {"id": "n_s8_quote", "type": "customNode", "position": {"x": 300, "y": 880}, "data": {"nodeType": "aiChat", "config": {"model": "GPT-4", "prompt": "步骤8 报价：仅当客户主动问价才给合规价格披露（原价/优惠价/定金/货到付款，纯披露不绑疗效）；价格异议一律转人工，禁止自行谈折扣。"}, "inputs": {}}},
+    {"id": "n_s8_human", "type": "customNode", "position": {"x": 560, "y": 880}, "data": {"nodeType": "interruptBefore", "config": {"wait": "human_approval"}, "inputs": {}}},
+    {"id": "n_s8_send", "type": "customNode", "position": {"x": 820, "y": 880}, "data": {"nodeType": "msgOutput", "config": {"splitMode": "auto"}, "inputs": {}}},
+    {"id": "n_s9_contact", "type": "customNode", "position": {"x": 300, "y": 1000}, "data": {"nodeType": "aiChat", "config": {"model": "DeepSeek", "prompt": "步骤9 要联系方式：请求客户确认收货/联系信息用于药师跟进，说明仅作服务用途。"}, "inputs": {}}},
+    {"id": "n_s10_deposit", "type": "customNode", "position": {"x": 300, "y": 1120}, "data": {"nodeType": "interruptBefore", "config": {"wait": "human_approval"}, "inputs": {}}},
+    {"id": "n_s11_handover", "type": "customNode", "position": {"x": 300, "y": 1240}, "data": {"nodeType": "aiChat", "config": {"model": "DeepSeek", "prompt": "步骤11 交接铺垫（A7）：生成 B1-B5 五次交接文案，平实服务导向，不追加销售、不承诺见效时间。"}, "inputs": {}}},
+    {"id": "n_s11_human", "type": "customNode", "position": {"x": 560, "y": 1240}, "data": {"nodeType": "interruptBefore", "config": {"wait": "human_approval"}, "inputs": {}}},
+
+    {"id": "n_a8", "type": "customNode", "position": {"x": 1080, "y": 600}, "data": {"nodeType": "aiChat", "config": {"model": "GPT-4", "prompt": "A8 合规守门：审查待发文本，按 B1-B8 判定 BLOCK(拦截)/WARN(改写)/PASS。B8 仅当价格+疗效承诺捆绑才 BLOCK；纯价格披露放行。verdict=BLOCK 时 allow_send=false。"}, "inputs": {}}},
+    {"id": "n_judge", "type": "customNode", "position": {"x": 1340, "y": 600}, "data": {"nodeType": "multiJudge", "config": {"mode": "allow_send_check"}, "inputs": {}}},
+    {"id": "n_msg", "type": "customNode", "position": {"x": 1600, "y": 600}, "data": {"nodeType": "msgOutput", "config": {"splitMode": "auto"}, "inputs": {}}},
+
+    {"id": "n_tag", "type": "customNode", "position": {"x": 1080, "y": 300}, "data": {"nodeType": "setMorphixTag", "config": {"tagNames": "auto_from_A9", "vocabRef": "docs/hema-sop-controlled-vocab.json#/tagVocab", "enforce": true}, "inputs": {}}}
+  ],
+  "edges": [
+    {"id": "f1", "source": "n_user", "target": "n_s1_welcome"},
+    {"id": "f2", "source": "n_s1_welcome", "target": "n_s2_open"},
+    {"id": "f3", "source": "n_s2_open", "target": "n_s3_intake"},
+    {"id": "f4", "source": "n_s3_intake", "target": "n_s3_attr"},
+    {"id": "f5", "source": "n_s3_attr", "target": "n_s4_conclude"},
+    {"id": "f6", "source": "n_s4_conclude", "target": "n_s4_send"},
+    {"id": "f7", "source": "n_s4_send", "target": "n_s5_plan"},
+    {"id": "f8", "source": "n_s5_plan", "target": "n_s6_ask"},
+    {"id": "f9", "source": "n_s6_ask", "target": "n_s7_reassure"},
+    {"id": "f10", "source": "n_s7_reassure", "target": "n_s7_send"},
+    {"id": "f11", "source": "n_s7_send", "target": "n_s8_quote"},
+    {"id": "f12", "source": "n_s8_quote", "target": "n_s8_human"},
+    {"id": "f13", "source": "n_s8_human", "target": "n_s8_send"},
+    {"id": "f14", "source": "n_s8_send", "target": "n_s9_contact"},
+    {"id": "f15", "source": "n_s9_contact", "target": "n_s10_deposit"},
+    {"id": "f16", "source": "n_s10_deposit", "target": "n_s11_handover"},
+    {"id": "f17", "source": "n_s11_handover", "target": "n_s11_human"},
+
+    {"id": "f18", "source": "n_s4_send", "target": "n_a8", "sourceHandle": "aiReply", "targetHandle": "question"},
+    {"id": "f19", "source": "n_s7_send", "target": "n_a8", "sourceHandle": "aiReply", "targetHandle": "question"},
+    {"id": "f20", "source": "n_s8_send", "target": "n_a8", "sourceHandle": "aiReply", "targetHandle": "question"},
+    {"id": "f21", "source": "n_a8", "target": "n_judge", "sourceHandle": "aiReply", "targetHandle": "cond"},
+    {"id": "f22", "source": "n_judge", "target": "n_msg", "sourceHandle": "result", "targetHandle": "message"},
+
+    {"id": "f23", "source": "n_s3_intake", "target": "n_tag", "sourceHandle": "aiReply", "targetHandle": "tags"}
+  ]
+}
