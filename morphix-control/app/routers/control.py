@@ -478,3 +478,80 @@ def list_agent_invocations(run_id: str, db: Session = Depends(get_db)):
         for a in rows
     ]
     return ok(AgentInvocationListData(items=items))
+
+
+# ---------------- Timer (nurture) listings ----------------
+
+def _parse_iso(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _timer_data(db: Session, run_id: str | None, conversation_id: str | None, status: str | None, page: int, page_size: int):
+    """List scheduled nurture timers recorded by `timer` nodes (event_type='timer_scheduled').
+
+    status='pending' -> scheduled_at still in the future; status='fired' -> already due/elapsed.
+    """
+    q = select(AuditLog).where(AuditLog.event_type == "timer_scheduled")
+    if run_id:
+        q = q.where(AuditLog.actor_id == run_id)
+    if conversation_id:
+        q = q.where(AuditLog.resource_id == conversation_id)
+    rows_all = db.execute(q.order_by(AuditLog.created_at.desc())).scalars().all()
+    now = datetime.now(timezone.utc)
+    items = []
+    for r in rows_all:
+        detail = r.detail or {}
+        scheduled_at = _parse_iso(detail.get("scheduled_at"))
+        is_pending = scheduled_at is None or scheduled_at > now
+        item_status = "pending" if is_pending else "fired"
+        if status and item_status != status:
+            continue
+        items.append(
+            {
+                "timer_id": r.id,
+                "conversation_id": r.resource_id,
+                "run_id": r.actor_id,
+                "scheduled_at": detail.get("scheduled_at"),
+                "delay_seconds": detail.get("delay_seconds"),
+                "topic": detail.get("topic"),
+                "downstream": detail.get("downstream"),
+                "status": item_status,
+                "created_at": r.created_at.isoformat() if isinstance(r.created_at, datetime) else str(r.created_at),
+            }
+        )
+    total = len(items)
+    start_idx = (page - 1) * page_size
+    page_items = items[start_idx : start_idx + page_size]
+    return {
+        "items": page_items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+@router.get("/conversations/{conversation_id}/timers")
+def list_conversation_timers(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    status: str | None = Query(default=None, description="pending | fired | all"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize"),
+):
+    return ok(_timer_data(db, None, conversation_id, status, page, page_size))
+
+
+@router.get("/workflow-runs/{run_id}/timers")
+def list_workflow_run_timers(
+    run_id: str,
+    db: Session = Depends(get_db),
+    status: str | None = Query(default=None, description="pending | fired | all"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize"),
+):
+    return ok(_timer_data(db, run_id, None, status, page, page_size))

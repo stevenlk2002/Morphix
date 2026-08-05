@@ -27,7 +27,7 @@ DeviceCommandStatus = Literal[
 CommandType = Literal["send_message", "send_media", "sync_contacts", "sync_groups", "noop"]
 DecisionType = Literal[
     "bot_selection", "workflow_selection", "interrupt", "handoff",
-    "model_profile", "risk_block", "supervisor_gate",
+    "model_profile", "risk_block", "supervisor_gate", "compliance_gate",
 ]
 EventType = Literal["inbound_message", "timer_trigger", "operator_action", "campaign_trigger"]
 AgentType = Literal[
@@ -268,6 +268,12 @@ class InternalPolicyEvaluateRequest(DTO):
     event_type: EventType
     event_payload: dict
     context: dict
+
+
+class InternalComplianceCheckRequest(DTO):
+    text: str
+    project_id: str = ""
+    conversation_id: str = ""
 
 
 class InternalAgentInvokeRequest(DTO):

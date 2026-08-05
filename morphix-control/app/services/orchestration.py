@@ -11,6 +11,7 @@ HTTP self-calls.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -49,6 +50,10 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _iso_from_ts(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
 def iso(dt) -> str:
     if dt is None:
         return None
@@ -70,6 +75,53 @@ def _find_start_node(nodes: list[dict], edges: list[dict]) -> dict | None:
         if incoming.get(n["id"], 0) == 0:
             return n
     return nodes[0]
+
+
+def _recent_messages(db: Session, conversation_id: str, limit: int = 6) -> list[dict]:
+    """Latest N messages (oldest->newest) for LLM context. Empty list if none."""
+    rows = (
+        db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.sent_at.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    out = []
+    for m in reversed(rows):
+        role = "客户" if (m.sender_type or "customer") == "customer" else "助手"
+        out.append({"role": role, "text": m.content_text or ""})
+    return out
+
+
+def _substitute_agent_reply(nodes: list[dict], edges: list[dict], from_id: str, reply: str) -> None:
+    """In-place replace {{agentReply}} in every downstream send node.
+
+    Must run right after an agent node produces a reply and BEFORE the compliance
+    gate reads the downstream send text — otherwise the gate would evaluate the
+    literal placeholder instead of the real (LLM-generated) text.
+    """
+    if not reply:
+        return
+    seen: set[str] = set()
+    stack = [from_id]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        for e in edges or []:
+            if e.get("source") != cur:
+                continue
+            tgt = e.get("target")
+            node = next((n for n in nodes if n["id"] == tgt), None)
+            if node and node.get("type") in ("send_message", "device_command", "send_media"):
+                payload = node.setdefault("data", {}).setdefault("payload", {})
+                if isinstance(payload.get("text"), str) and "{{agentReply}}" in payload["text"]:
+                    payload["text"] = payload["text"].replace("{{agentReply}}", reply)
+            stack.append(tgt)
 
 
 def _published_workflow(db: Session, project_id: str) -> WorkflowVersion:
@@ -115,8 +167,12 @@ def _step_nodes(
     has_pending_command = False
     current = start
     guard = 0
+    last_text = ""  # last agent output / send payload text, for the compliance gate
+    last_agent_reply = ""  # most recent agent (LLM) reply, for {{agentReply}} substitution
+    switch_target = None  # set by a switch node to override nexts[0]
     while current and guard < 256:
         guard += 1
+        switch_target = None  # reset each iteration; a switch node sets it during this pass
         node_id = current.get("id", f"n_{guard}")
         node_type = current.get("type", "task")
         data = current.get("data") or {}
@@ -135,29 +191,49 @@ def _step_nodes(
 
         if node_type in ("agent",) or data.get("agentType"):
             agent_type = data.get("agentType") or "qa"
+            history = _recent_messages(db, conversation.id, limit=6)
+            contact = conversation.contact or {}
+            structured_input = {
+                "nodeId": node_id,
+                "message": data,
+                "agentType": agent_type,
+                "customerName": contact.get("display_name") or "",
+                "customerTags": contact.get("tags") or [],
+                "history": history,
+                "latestCustomerMessage": history[-1]["text"] if history else "",
+            }
             result = agent_svc.invoke_agent(
                 run_id=run.id,
                 node_execution_id=step.node_execution_id,
                 agent_type=agent_type,
                 model_profile="stub",
-                structured_input={"nodeId": node_id, "message": data},
+                structured_input=structured_input,
             )
             inv = AgentInvocation(
                 id=f"ai_{uuid.uuid4().hex}",
                 run_id=run.id,
                 node_execution_id=step.node_execution_id,
                 agent_type=agent_type,
-                model_name="stub",
+                model_name=result.get("model", "stub"),
                 latency_ms=result["latencyMs"],
                 estimated_cost=result["estimatedCost"],
                 status="succeeded",
                 confidence=result["confidence"],
             )
             db.add(inv)
+            last_text = result.get("summary") or ""
+            last_agent_reply = last_text
+            # Real reply must reach the downstream send text BEFORE the compliance
+            # gate reads it — substitute in place now.
+            _substitute_agent_reply(nodes, edges, node_id, last_agent_reply)
+            step.executor_type = "llm" if result.get("used_llm") else "stub"
 
         elif node_type in ("device_command", "send_message", "send_media") or data.get("commandType"):
             command_type = data.get("commandType", "send_message")
             payload = data.get("payload", {}) or {}
+            if isinstance(payload.get("text"), str):
+                payload["text"] = payload["text"].replace("{{agentReply}}", last_agent_reply or "")
+            last_text = payload.get("text") or json.dumps(payload, ensure_ascii=False)
             cmd = DeviceCommand(
                 id=f"cmd_{uuid.uuid4().hex}",
                 project_id=conversation.project_id,
@@ -182,22 +258,134 @@ def _step_nodes(
             )
 
         elif node_type == "policy":
-            policy_svc.publish_policy_decision(
-                db,
-                project_id=conversation.project_id,
-                conversation_id=conversation.id,
-                run_id=run.id,
-                decision_type="interrupt",
-                decision="continue",
-                reason_codes=["rule:policy_node_pass"],
+            gate = data.get("gate")
+            if gate == "compliance":
+                # A8 守门：评估"即将发送"的文本，命中 B1-B8 红线则拦截（不进入 send 节点）。
+                downstream_ids = [e["target"] for e in edges if e.get("source") == node_id]
+                send_text = ""
+                for did in downstream_ids:
+                    dn = next((n for n in nodes if n["id"] == did), None)
+                    if dn and dn.get("type") in ("device_command", "send_message", "send_media"):
+                        send_text = (dn.get("data", {}).get("payload", {}) or {}).get("text") or ""
+                        break
+                if not send_text:
+                    send_text = last_text
+                verdict = policy_svc.evaluate_compliance(
+                    text=send_text,
+                    project_id=conversation.project_id,
+                    conversation_id=conversation.id,
+                )
+                policy_svc.publish_policy_decision(
+                    db,
+                    project_id=conversation.project_id,
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                    decision_type="compliance_gate",
+                    decision="allowed" if verdict["allow_send"] else "blocked",
+                    reason_codes=verdict["reason_codes"] or ["rule:compliance_clean"],
+                )
+                if not verdict["allow_send"]:
+                    # 硬拦截：停止推进，下游 send 节点不会被执行，无 DeviceCommand 落地。
+                    run.status = "completed"
+                    run.ended_at = _utcnow()
+                    run.result_summary = "compliance blocked: " + ", ".join(v["code"] for v in verdict["violations"])
+                    return False
+                # allowed -> 继续走到下游 send 节点
+            else:
+                policy_svc.publish_policy_decision(
+                    db,
+                    project_id=conversation.project_id,
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                    decision_type="interrupt",
+                    decision="continue",
+                    reason_codes=["rule:policy_node_pass"],
+                )
+
+        elif node_type == "timer":
+            # 延时调度（scaffold）：记录待触发任务到 AuditLog，引擎同步继续走到下游。
+            # 真正的异步触发由定时器服务实现；此处保证「意图被记录、可查询」。
+            cfg = data.get("config") or {}
+            delay = int(cfg.get("delaySeconds") or data.get("delaySeconds") or 0)
+            topic = cfg.get("topic") or data.get("topic") or "scheduled_touch"
+            scheduled_ts = _utcnow().timestamp() + delay
+            downstream_id = next((e["target"] for e in edges if e.get("source") == node_id), None)
+            db.add(
+                AuditLog(
+                    id=f"aud_{uuid.uuid4().hex}",
+                    event_type="timer_scheduled",
+                    resource_type="conversation",
+                    resource_id=conversation.id,
+                    project_id=conversation.project_id,
+                    actor_id=run.id,
+                    detail={
+                        "scheduled_at": _iso_from_ts(scheduled_ts),
+                        "delay_seconds": delay,
+                        "topic": topic,
+                        "run_id": run.id,
+                        "downstream": downstream_id,
+                    },
+                )
+            )
+
+        elif node_type == "switch":
+            # 条件分支：按 config.switchOn + config.cases 选择目标节点，覆盖 nexts[0]。
+            cfg = data.get("config") or {}
+            switch_on = cfg.get("switchOn", "tag")
+            if switch_on == "tag":
+                # contact 可能为 NULL（JSON nullable），必须兜底否则 AttributeError。
+                ctx_values = list((conversation.contact or {}).get("tags") or [])
+                # 标签是离散值 -> 默认精确匹配。子串匹配会让 "stage:s1" 命中 "stage:s10"，
+                # 造成会话被静默误路由（前缀撞车）。
+                default_match = "exact"
+            elif switch_on == "last_text":
+                ctx_values = [last_text]
+                # 自由文本 -> 默认包含匹配（关键词命中）。
+                default_match = "contains"
+            else:
+                ctx_values = []
+                default_match = "exact"
+            chosen = cfg.get("default")
+            matched = None
+            for case in cfg.get("cases", []) or []:
+                eq = case.get("equals")
+                if not eq:
+                    continue
+                mode = case.get("match") or default_match
+                hit = any(
+                    (eq == v) if mode == "exact" else (eq in v)
+                    for v in ctx_values
+                    if isinstance(v, str)
+                )
+                if hit:
+                    chosen = case.get("target")
+                    matched = eq
+                    break
+            switch_target = chosen
+            db.add(
+                AuditLog(
+                    id=f"aud_{uuid.uuid4().hex}",
+                    event_type="switch_branch",
+                    resource_type="conversation",
+                    resource_id=conversation.id,
+                    project_id=conversation.project_id,
+                    actor_id=run.id,
+                    detail={
+                        "switchOn": switch_on,
+                        "chosen": chosen,
+                        "matched": matched,
+                        "values": ctx_values,
+                    },
+                )
             )
 
         # start / end / unknown -> no side effect
 
         nexts = [e["target"] for e in edges if e.get("source") == node_id]
         current = None
+        target_id = switch_target if node_type == "switch" and switch_target else (nexts[0] if nexts else None)
         for n in nodes:
-            if n["id"] == (nexts[0] if nexts else None):
+            if n["id"] == target_id:
                 current = n
                 break
 

@@ -18,6 +18,7 @@ from app.core.responses import ok
 from app.core.security import require_internal_auth
 from app.schemas import (
     InternalAgentInvokeRequest,
+    InternalComplianceCheckRequest,
     InternalPolicyEvaluateRequest,
     InternalSupervisorRequest,
 )
@@ -36,6 +37,16 @@ def evaluate_policy_route(req: InternalPolicyEvaluateRequest, _: str = Depends(r
         event_type=req.event_type,
         event_payload=req.event_payload,
         context=req.context,
+    )
+    return ok(data, status_code=200)
+
+
+@router.post("/policy-router/compliance-check")
+def compliance_check_route(req: InternalComplianceCheckRequest, _: str = Depends(require_internal_auth)):
+    data = policy_svc.evaluate_compliance(
+        text=req.text,
+        project_id=req.project_id or None,
+        conversation_id=req.conversation_id or None,
     )
     return ok(data, status_code=200)
 
