@@ -381,6 +381,7 @@ export const HOSTING_ACTION_OPTIONS = [
   { value: '取消托管', label: '取消托管' },
   { value: 'yefengqiu', label: '野风秋大健康机器人' },
   { value: 'fanfuni', label: '梵芙尼美妆销售机器人' },
+  { value: 'hema', label: '河马大健康客户' },
 ]
 
 /** 运行频率选项。 */

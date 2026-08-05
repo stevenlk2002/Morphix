@@ -44,6 +44,15 @@ const MOCK_BOTS: Record<string, Omit<Bot, 'id'>> = {
     score: 76,
     desc: '为高端美妆消费者提供专业、个性化的护肤与彩妆产品咨询与购买引导。',
   },
+  hema: {
+    name: '河马大健康客户',
+    project: '河马大健康',
+    workflow: '河马大健康主成交流程',
+    status: 'online',
+    tone: '专业亲切',
+    score: 88,
+    desc: '面向河马大健康客户的私域成交助手，按 11 步主成交漏斗推进，合规守门、可转人工。',
+  },
 }
 
 /** 兜底机器人（未知 id 时使用）。 */

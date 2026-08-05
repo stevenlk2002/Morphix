@@ -160,6 +160,7 @@ export default function FlowConfigPanel({ node, onChange }: FlowConfigPanelProps
                   <option value="">请选择托管机器人</option>
                   <option value="yefengqiu">野风秋大健康机器人</option>
                   <option value="fanfuni">梵芙尼美妆销售机器人</option>
+                  <option value="hema">河马大健康客户</option>
                 </select>
               </div>
               <div className="config-field">

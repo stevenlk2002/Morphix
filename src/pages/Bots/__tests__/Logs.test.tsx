@@ -84,7 +84,7 @@ describe('托管消息日志页 - 头部与筛选区对齐原型', () => {
     expect(selects[0].options[0].textContent).toBe('请输入会话名称搜索')
     const robotLabels = Array.from(selects[1].options).map((o) => o.textContent)
     expect(robotLabels).toEqual(
-      expect.arrayContaining(['野风秋大健康机器人', '梵芙尼美妆销售机器人'])
+      expect.arrayContaining(['野风秋大健康机器人', '梵芙尼美妆销售机器人', '河马大健康客户'])
     )
     const statusLabels = Array.from(selects[2].options).map((o) => o.textContent)
     expect(statusLabels).toEqual(expect.arrayContaining(['成功', '失败', '处理中']))

@@ -710,6 +710,12 @@
 .train-upload-bar:hover {
   color: var(--primary);
 }
+.train-upload-bar .tab-tooltip-bubble {
+  width: 280px;
+  left: auto;
+  right: 0;
+  white-space: normal;
+}
 .train-history-toggle {
   width: 28px;
   height: 28px;

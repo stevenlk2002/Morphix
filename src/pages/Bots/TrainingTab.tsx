@@ -367,7 +367,14 @@ export default function TrainingTab({ bot }: { bot: BotRef }) {
 
   const handleTrainUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) toast(`已选择文件：${file.name}`)
+    if (!file) return
+    const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase()
+    if (!['.txt', '.csv', '.xlsx'].includes(ext)) {
+      toast('请选择一个txt、csv或xlsx文件，其中每行视为一个用户问题；单次最多传50行内容')
+      e.target.value = ''
+      return
+    }
+    toast(`已选择文件：${file.name}`)
   }
 
   /** 拖拽调整训练记录子栏宽度。 */
@@ -794,6 +801,9 @@ export default function TrainingTab({ bot }: { bot: BotRef }) {
                     <div className="train-chat-header-actions">
                       <span className="train-upload-bar" onClick={openTrainUpload}>
                         <Upload size={14} /> 批量上传训练问题
+                        <span className="tab-tooltip-bubble">
+                          请选择一个txt、csv或xlsx文件，其中每行视为一个用户问题；单次最多传50行内容
+                        </span>
                       </span>
                       <input
                         ref={uploadRef}

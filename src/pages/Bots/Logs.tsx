@@ -36,7 +36,7 @@ const SESSIONS: string[] = [
 ]
 
 /** 所属机器人可选项（兼作后端 bot_id 作用域切换）。 */
-const ROBOTS: string[] = ['野风秋大健康机器人', '梵芙尼美妆销售机器人']
+const ROBOTS: string[] = ['野风秋大健康机器人', '梵芙尼美妆销售机器人', '河马大健康客户']
 
 /** 表格列定义（用于渲染与列设置）。 */
 const ALL_COL_KEYS = [
@@ -130,7 +130,10 @@ export default function BotLogsPage() {
   const [pageSize, setPageSize] = useState(20)
 
   // 由「所属机器人」下拉派生后端 bot 作用域（空 / 野风秋 → yefengqiu，梵芙尼 → fanfuni）
-  const botId = robotFilter === '梵芙尼美妆销售机器人' ? 'fanfuni' : 'yefengqiu'
+  const botId =
+    robotFilter === '梵芙尼美妆销售机器人' ? 'fanfuni'
+    : robotFilter === '河马大健康客户' ? 'hema'
+    : 'yefengqiu'
 
   // 回复详情弹窗
   const [detail, setDetail] = useState<MessageLogDetailDTO | null>(null)

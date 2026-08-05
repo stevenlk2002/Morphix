@@ -47,6 +47,24 @@
   gap: 8px;
 }
 
+.knowledge-menu-item .kind-count {
+  margin-left: auto;
+  padding: 0 7px;
+  min-width: 22px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #5b6573;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.knowledge-menu-item.active .kind-count {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
 .knowledge-menu-item .menu-more {
   width: 24px;
   height: 24px;

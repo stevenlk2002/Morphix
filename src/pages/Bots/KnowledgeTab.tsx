@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Plus, Search, Edit2, Trash2, MoreHorizontal, FileText } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Plus, Search, Edit2, Trash2, MoreHorizontal } from 'lucide-react'
 import Button from '../../components/common/Button'
 import { toast } from '../../utils/toast'
 import { knowledgeApi, KnowledgeItemDTO } from '../../api/client'
@@ -23,8 +23,19 @@ interface KnowledgeItem {
   updatedAt: string
 }
 
-/** 侧栏知识库分类（common=常见问题 / correction=纠偏知识）。 */
-type KnowledgeKind = 'common' | 'correction'
+/** 知识库分类 key（后端任意 kind 字符串，前端动态渲染）。 */
+type KnowledgeKind = string
+
+/** 已知 kind 的中文展示名；未知 kind 回退为原字符串。 */
+const KIND_LABELS: Record<string, string> = {
+  common: '常见问题',
+  correction: '纠偏知识',
+  'KB-MED': '医学知识库',
+  'KB-QA': '问答知识库',
+}
+function kindLabel(k: string): string {
+  return KIND_LABELS[k] ?? k
+}
 
 /** 弹窗状态。 */
 type ModalState = null | { mode: 'create' } | { mode: 'edit'; item: KnowledgeItem }
@@ -51,36 +62,73 @@ function toItem(dto: KnowledgeItemDTO): KnowledgeItem {
  * 数据全部来自真实后端（knowledgeApi）。
  */
 export default function KnowledgeTab({ bot }: { bot: BotRef }) {
-  const [kind, setKind] = useState<KnowledgeKind>('common')
+  const [kind, setKind] = useState<KnowledgeKind>('')
+  const [kinds, setKinds] = useState<{ key: string; count: number }[]>([])
   const [items, setItems] = useState<KnowledgeItem[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [modal, setModal] = useState<ModalState>(null)
-  const [openMenu, setOpenMenu] = useState<KnowledgeKind | null>(null)
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  /** 加载知识条目（按 kind + 关键词）。 */
-  const loadItems = async (nextKind?: KnowledgeKind, nextSearch?: string) => {
-    const useKind = nextKind ?? kind
-    const useSearch = nextSearch ?? search
-    try {
-      setLoading(true)
-      const dtos = await knowledgeApi.listByBot(bot.id, {
-        kind: useKind,
-        search: useSearch || undefined,
-      })
-      setItems((dtos as KnowledgeItemDTO[]).map(toItem))
-      setSelectedIds([])
-    } catch (e) {
-      toast(`加载知识失败：${(e as Error).message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
+  /** 加载某分类下知识条目（按 kind + 关键词）。 */
+  const loadItems = useCallback(
+    async (nextKind?: string, nextSearch?: string) => {
+      const useKind = nextKind ?? kind
+      const useSearch = nextSearch ?? search
+      try {
+        setLoading(true)
+        const dtos = useKind
+          ? await knowledgeApi.listByBot(bot.id, {
+              kind: useKind,
+              search: useSearch || undefined,
+            })
+          : []
+        setItems((dtos as KnowledgeItemDTO[]).map(toItem))
+        setSelectedIds([])
+      } catch (e) {
+        toast(`加载知识失败：${(e as Error).message}`)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [bot.id, kind, search],
+  )
 
+  /** 进入 bot 时：拉全量知识 → 统计各 kind → 默认选中首个分类并加载其条目。 */
   useEffect(() => {
-    loadItems()
+    let active = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        const all = (await knowledgeApi.listByBot(bot.id, {})) as KnowledgeItemDTO[]
+        const counter = new Map<string, number>()
+        for (const it of all) counter.set(it.kind, (counter.get(it.kind) ?? 0) + 1)
+        const nextKinds = counter.size
+          ? [...counter.entries()].map(([key, count]) => ({ key, count }))
+          : [{ key: 'common', count: 0 }]
+        if (!active) return
+        setKinds(nextKinds)
+        const target = nextKinds.some((k) => k.key === kind) ? kind : nextKinds[0].key
+        setKind(target)
+        if (target) {
+          const dtos = await knowledgeApi.listByBot(bot.id, { kind: target })
+          if (!active) return
+          setItems((dtos as KnowledgeItemDTO[]).map(toItem))
+          setSelectedIds([])
+        } else {
+          setItems([])
+        }
+      } catch (e) {
+        toast(`加载知识失败：${(e as Error).message}`)
+      } finally {
+        if (active) setLoading(false)
+      }
+    })()
+    return () => {
+      active = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bot.id])
 
@@ -105,13 +153,13 @@ export default function KnowledgeTab({ bot }: { bot: BotRef }) {
   /** 编辑知识库（占位提示）。 */
   const editKnowledgeBase = (k: KnowledgeKind) => {
     setOpenMenu(null)
-    toast(`编辑${k === 'common' ? '常见问题' : '纠偏知识'}（演示环境暂未开放）`)
+    toast(`编辑${kindLabel(k)}（演示环境暂未开放）`)
   }
 
   /** 删除知识库（真实硬删整库）。 */
   const deleteKnowledgeBase = (k: KnowledgeKind) => {
     setOpenMenu(null)
-    const label = k === 'common' ? '常见问题' : '纠偏知识'
+    const label = kindLabel(k)
     if (!window.confirm(`确定删除「${label}」整个知识库吗？该操作不可恢复。`)) return
     knowledgeApi
       .deleteByKind(bot.id, k)
@@ -215,19 +263,15 @@ export default function KnowledgeTab({ bot }: { bot: BotRef }) {
       {/* 左侧知识库侧栏 */}
       <aside className="knowledge-sidebar">
         <div className="knowledge-menu" ref={menuRef}>
-          {(
-            [
-              { key: 'common', label: '常见问题', icon: <FileText size={16} /> },
-              { key: 'correction', label: '纠偏知识', icon: <Edit2 size={16} /> },
-            ] as { key: KnowledgeKind; label: string; icon: React.ReactNode }[]
-          ).map((m) => (
+          {kinds.map((m) => (
             <div
               key={m.key}
               className={`knowledge-menu-item ${kind === m.key ? 'active' : ''}`}
               onClick={() => switchKind(m.key)}
             >
               <span className="menu-label">
-                {m.icon} {m.label}
+                {kindLabel(m.key)}
+                <span className="kind-count">{m.count}</span>
               </span>
               <div className="knowledge-menu-more-wrap">
                 <button
@@ -300,7 +344,7 @@ export default function KnowledgeTab({ bot }: { bot: BotRef }) {
               className="btn-knowledge-add"
               onClick={() => setModal({ mode: 'create' })}
             >
-              <Plus size={14} /> {kind === 'common' ? '增加常见问题' : '增加纠偏知识'}
+              <Plus size={14} /> 增加{kindLabel(kind) || '知识'}
             </button>
             <button className="btn-knowledge-source" onClick={() => toast('来源记录（演示环境暂未开放）')}>
               来源记录

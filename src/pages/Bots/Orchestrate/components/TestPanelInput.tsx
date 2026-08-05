@@ -3,7 +3,9 @@ import { Send } from 'lucide-react';
 import { useOrchestrateStore } from '../store/orchestrateStore';
 import { useMockExecution } from '../hooks/useMockExecution';
 import { toast } from '../../../../utils/toast';
+import { workflowApi } from '../../../../api/client';
 import type { OrchestrateNode, OrchestrateEdge } from './FlowCanvas';
+import type { NodeExecutionRecord } from '../types/orchestrate';
 
 interface TestPanelInputProps {
   nodes: OrchestrateNode[];
@@ -15,13 +17,13 @@ interface TestPanelInputProps {
  * 输入框 + 发送按钮 + 快捷预设消息。
  */
 export default function TestPanelInput({ nodes, edges }: TestPanelInputProps) {
-  const { quickMessages, setDebugSession } = useOrchestrateStore();
+  const { quickMessages, setDebugSession, botId } = useOrchestrateStore();
   const { mockExecute } = useMockExecution();
 
   const [message, setMessage] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = message.trim();
     if (!trimmed) {
       toast('请输入测试消息');
@@ -33,9 +35,32 @@ export default function TestPanelInput({ nodes, edges }: TestPanelInputProps) {
       return;
     }
 
+    // 优先走真实后端执行（/api/orchestration/workflows/{botId}/run）
+    try {
+      const res = await workflowApi.run(botId, trimmed);
+      if (res && typeof res.finalReply === 'string') {
+        setDebugSession({
+          sessionId: `debug-${Date.now()}`,
+          startedAt: new Date().toISOString(),
+          status: 'completed',
+          trace: (res.trace as NodeExecutionRecord[]) ?? [],
+          totalDurationMs: 0,
+          userMessage: trimmed,
+          finalReply: res.finalReply,
+          usedRealLLM: res.usedRealLLM,
+          kbHits: res.kbHits,
+        });
+        return;
+      }
+    } catch (e) {
+      // 后端不可用 / 端点缺失：回落本地 mock
+      console.warn('[Orchestrate] 真实执行不可用，回落 mock:', e);
+    }
+
+    // 兜底：本地 mock 执行
     const session = mockExecute(nodes, edges, trimmed);
     setDebugSession(session);
-  }, [message, nodes, edges, mockExecute, setDebugSession]);
+  }, [message, nodes, edges, botId, mockExecute, setDebugSession]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

@@ -109,10 +109,23 @@ export default function TestPanelTrace() {
     );
   }
 
-  const { trace, totalDurationMs, userMessage } = debugSession;
+  const { trace, totalDurationMs, userMessage, finalReply, usedRealLLM, kbHits } = debugSession;
 
   return (
     <div className="test-trace">
+      {/* 最终回复横幅 */}
+      {finalReply ? (
+        <div className={`test-trace__reply ${usedRealLLM ? 'is-real' : 'is-kb'}`}>
+          <div className="test-trace__reply-head">
+            <span className="test-trace__reply-label">🤖 机器人回复</span>
+            <span className="test-trace__reply-badge">
+              {usedRealLLM ? '真实 LLM' : `知识库拼装 · 命中 ${kbHits ?? 0} 条`}
+            </span>
+          </div>
+          <div className="test-trace__reply-body">{finalReply}</div>
+        </div>
+      ) : null}
+
       {/* 摘要信息 */}
       <div className="test-trace__summary">
         <span className="test-trace__summary-msg">

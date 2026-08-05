@@ -278,6 +278,7 @@ const DataPanel: React.FC = () => {
                   <>
                     <option value="">全部</option>
                     <option value="野风秋大健康机器人">野风秋大健康机器人</option>
+                    <option value="河马大健康客户">河马大健康客户</option>
                     <option value="AI客服-1">AI客服-1</option>
                   </>
                 )}
