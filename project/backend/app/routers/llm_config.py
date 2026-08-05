@@ -3,15 +3,21 @@
 端点：
 - GET  /api/llm-config           → 返回 primary + secondary 两条配置
 - PUT  /api/llm-config/{id}      → 更新单条配置（id = 'primary' | 'secondary'）
+- POST /api/llm-config/{id}/test → 用数据库中存储的真实密钥测试连接
 
 使用 SQLite 数据库持久化存储，prepared statement 读写。
 """
 from __future__ import annotations
 
+import logging
 from fastapi import APIRouter, HTTPException
 
+import httpx
+
 from ..database import get_backend
-from ..llm_registry import list_model_registry
+from ..llm_registry import list_model_registry, resolve_llm_credentials
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/llm-config", tags=["llm-config"])
 
@@ -113,3 +119,92 @@ def update_config(config_id: str, body: dict):
         raise HTTPException(status_code=500, detail="更新后读取失败")
 
     return _row_to_dict(row)
+
+
+@router.post("/{config_id}/test")
+def test_connection(config_id: str) -> dict:
+    """用数据库中存储的真实密钥测试 LLM 连接。
+
+    前端在 apiKeyMasked 状态下（GET 返回脱敏占位符后）本地没有真实密钥，
+    无法自行发起测试。本端点从 DB 读取明文 key，发一个轻量 chat completion
+    请求验证连通性。
+
+    Returns:
+        { "ok": bool, "message": str, "latency_ms": float|None }
+    """
+    import time
+
+    if config_id not in ("primary", "secondary"):
+        raise HTTPException(status_code=404, detail=f"未知配置 ID: {config_id}")
+
+    backend = get_backend()
+    row = backend.query_one(
+        "SELECT id, vendor, model_name, api_key, api_base_url FROM llm_model_configs WHERE id = ?",
+        (config_id,),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"配置不存在: {config_id}")
+
+    api_key = row["api_key"]
+    if not api_key or not api_key.strip():
+        return {"ok": False, "message": "未配置 API Key，请先填写密钥", "latency_ms": None}
+
+    # 解析凭证（复用 registry 的厂商→base_url 映射）
+    try:
+        profile = resolve_llm_credentials(config_id)
+    except Exception as e:
+        return {"ok": False, "message": f"凭证解析失败: {e}", "latency_ms": None}
+
+    base_url = (profile.get("base_url") or row["api_base_url"] or "").rstrip("/")
+    model = row["model_name"] or profile.get("model", "")
+
+    if not base_url:
+        return {"ok": False, "message": "未配置 API 地址（base_url）", "latency_ms": None}
+    if not model:
+        return {"ok": False, "message": "未选择模型", "latency_ms": None}
+
+    # 拼接 OpenAI 兼容 /v1/chat/completions
+    url = f"{base_url}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 5,
+    }
+
+    t0 = time.monotonic()
+    try:
+        with httpx.Client(timeout=15) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            latency = round((time.monotonic() - t0) * 1000)
+            if resp.status_code == 200:
+                # 尝试读取 model 字段确认是有效 LLM 响应
+                data = resp.json()
+                reply_model = data.get("model", "")
+                logger.info("LLM test OK: config=%s model=%s latency=%dms", config_id, reply_model, latency)
+                return {
+                    "ok": True,
+                    "message": f"连接成功（模型: {reply_model}，延迟: {latency}ms）",
+                    "latency_ms": latency,
+                }
+            else:
+                err_text = resp.text[:200]
+                logger.warning(
+                    "LLM test FAIL: config=%s status=%d body=%s",
+                    config_id, resp.status_code, err_text,
+                )
+                return {
+                    "ok": False,
+                    "message": f"请求失败 ({resp.status_code}): {err_text}",
+                    "latency_ms": latency,
+                }
+    except httpx.TimeoutException:
+        latency = round((time.monotonic() - t0) * 1000)
+        return {"ok": False, "message": f"连接超时（>{latency}ms），请检查网络或 API 地址", "latency_ms": latency}
+    except Exception as e:
+        latency = round((time.monotonic() - t0) * 1000)
+        logger.error("LLM test ERROR: config=%s %s: %s", config_id, type(e).__name__, e)
+        return {"ok": False, "message": f"连接异常: {type(e).__name__}: {e}", "latency_ms": latency}

@@ -33,6 +33,10 @@ build/
 /retired/
 prototype.zip
 *.bak
+# 带时间戳的备份文件（如 .bak-20260805-082010）
+*.bak-*
+# 控制面运行时数据库（已由 morphix-control/.gitignore 部分忽略，这里整目录兜底）
+/morphix-control/data/
 
 # Large docx/pdf already excluded above (see Large reference files)
 

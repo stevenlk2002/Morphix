@@ -826,6 +826,9 @@ export const llmConfigApi = {
   getAll: () => api.get<LlmConfigMap>('/llm-config'),
   update: (id: string, data: LlmConfigUpdate) =>
     api.put<LlmConfigItem>(`/llm-config/${id}`, data),
+  /** 用数据库中存储的真实密钥测试 LLM 连接（前端 masked 态下本地无 key） */
+  testConnection: (id: string) =>
+    api.post<{ ok: boolean; message: string; latency_ms: number | null }>(`/llm-config/${id}/test`),
   /** 模型注册表列表（脱敏，供编排节点引用选择）；返回 LlmModelRef[] */
   listModels: () => api.get<LlmModelRef[]>('/llm-config/registry'),
 }

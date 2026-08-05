@@ -21,7 +21,7 @@ const VENDOR_MODELS: Record<string, string[]> = {
   Anthropic: ['Claude 3.5 Sonnet', 'Claude 3 Opus', 'Claude 3 Haiku'],
   阿里云: ['通义千问-Max', '通义千问-Plus', '通义千问-Turbo'],
   百度: ['文心一言 4.0', '文心一言 3.5'],
-  Deepseek: ['Deepseek-V4-Pro', 'Deepseek-V4-Flash'],
+  Deepseek: ['deepseek-v4-pro', 'deepseek-v4-flash'],
   千问: ['Qwen-Max', 'Qwen-Plus', 'Qwen-Turbo'],
   混元: ['Hy3', 'Hunyuan-Turbo', 'Hunyuan-Lite'],
   Kimi: ['K3', 'K2.7', 'K2.6'],
@@ -48,6 +48,7 @@ interface ModelCardProps {
   statusLabel: string
   statusVariant: 'success' | 'neutral'
   config: ModelConfig
+  configId: string                    /** 'primary' | 'secondary' — 用于调用后端 test 接口 */
   onChange: (next: ModelConfig) => void
   onSave: () => Promise<void>
   showConnectionOk?: boolean
@@ -61,6 +62,7 @@ function ModelCard({
   statusLabel,
   statusVariant,
   config,
+  configId,
   onChange,
   onSave,
   showConnectionOk = false,
@@ -70,6 +72,7 @@ function ModelCard({
   const [testing, setTesting] = useState(false)
   const [testOk, setTestOk] = useState(false)
   const [testError, setTestError] = useState(false)
+  const [testErrorMsg, setTestErrorMsg] = useState('')
   const [saved, setSaved] = useState(false)
 
   const patch = (next: Partial<ModelConfig>) => {
@@ -99,19 +102,26 @@ function ModelCard({
 
   const toggleKeyVisibility = () => setShowKey((v) => !v)
 
-  const handleTest = () => {
-    if (!config.apiKey.trim()) {
-      setTestError(true)
-      setTestOk(false)
-      return
-    }
+  const handleTest = async () => {
+    // 即使 apiKeyMasked=true（本地无 key），后端 test 接口会用 DB 中的真实密钥测试
     setTestError(false)
-    setTesting(true)
+    setTestErrorMsg('')
     setTestOk(false)
-    window.setTimeout(() => {
+    setTesting(true)
+    try {
+      const res = await llmConfigApi.testConnection(configId)
+      if (res.ok) {
+        setTestOk(true)
+      } else {
+        setTestError(true)
+        setTestErrorMsg(res.message || '连接测试失败')
+      }
+    } catch (e) {
+      setTestError(true)
+      setTestErrorMsg(e instanceof ApiClientError ? e.message : '网络异常，请检查后端服务')
+    } finally {
       setTesting(false)
-      setTestOk(true)
-    }, 900)
+    }
   }
 
   const handleSave = async () => {
@@ -273,7 +283,7 @@ function ModelCard({
       )}
       {testError && (
         <div className="proto-notice proto-notice-error">
-          <AlertCircle size={14} /> 请先填写 API Key 再进行连接测试
+          <AlertCircle size={14} /> {testErrorMsg || '请先填写 API Key 再进行连接测试'}
         </div>
       )}
     </div>
@@ -436,6 +446,7 @@ export default function LlmConfigPage() {
         statusLabel={primary.enabled ? '已启用' : '未配置'}
         statusVariant={primary.enabled ? 'success' : 'neutral'}
         config={primary}
+        configId="primary"
         onChange={setPrimary}
         onSave={handleSavePrimary}
         saving={savingPrimary}
@@ -449,6 +460,7 @@ export default function LlmConfigPage() {
         statusLabel={secondary.enabled ? '已启用' : '未配置'}
         statusVariant={secondary.enabled ? 'success' : 'neutral'}
         config={secondary}
+        configId="secondary"
         onChange={setSecondary}
         onSave={handleSaveSecondary}
         saving={savingSecondary}
