@@ -135,19 +135,22 @@ def _step_nodes(
 
         if node_type in ("agent",) or data.get("agentType"):
             agent_type = data.get("agentType") or "qa"
+            # 凭证与参数分离：节点只持有 model_id 引用，运行时解析真实 Key
+            cfg = data.get("config") or {}
+            model_id = data.get("modelId") or cfg.get("modelId") or data.get("model_profile")
             result = agent_svc.invoke_agent(
                 run_id=run.id,
                 node_execution_id=step.node_execution_id,
                 agent_type=agent_type,
-                model_profile="stub",
-                structured_input={"nodeId": node_id, "message": data},
+                model_profile=model_id or "stub",
+                structured_input={"nodeId": node_id, "message": data, "prompt": cfg.get("prompt")},
             )
             inv = AgentInvocation(
                 id=f"ai_{uuid.uuid4().hex}",
                 run_id=run.id,
                 node_execution_id=step.node_execution_id,
                 agent_type=agent_type,
-                model_name="stub",
+                model_name=model_id or "stub",
                 latency_ms=result["latencyMs"],
                 estimated_cost=result["estimatedCost"],
                 status="succeeded",

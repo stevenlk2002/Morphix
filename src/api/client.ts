@@ -712,8 +712,16 @@ export const customerGroupsApi = {
     api.post<{ deleted: number; groupIds: string[] }>('/customer-groups/batch-delete', { group_ids: groupIds }),
 }
 
-// ---- 工作流编排 API（后端未实现，USE_API=false 时全部 fallback 到 localStorage） ----
+// ---- 工作流编排 API ----
 const USE_API = true
+
+export interface WorkflowRunResult {
+  finalReply: string
+  trace: unknown[]
+  usedRealLLM: boolean
+  kbHits: number
+  error?: string
+}
 
 export const workflowApi = {
   /** GET /api/orchestration/workflows/{botId} → 加载工作流 */
@@ -730,6 +738,11 @@ export const workflowApi = {
   delete: async (botId: string): Promise<unknown> => {
     if (!USE_API) throw new Error('FALLBACK')
     return api.delete(`/orchestration/workflows/${botId}`)
+  },
+  /** POST /api/orchestration/workflows/{botId}/run → 真实执行工作流（编排测试） */
+  run: async (botId: string, message: string): Promise<WorkflowRunResult> => {
+    if (!USE_API) throw new Error('FALLBACK')
+    return api.post<WorkflowRunResult>(`/orchestration/workflows/${botId}/run`, { message })
   },
 }
 
@@ -793,7 +806,8 @@ export const orgApi = {
 export interface LlmConfigUpdate {
   vendor: string
   model: string
-  apiKey: string
+  /** 仅在密钥被实际修改时携带；未改动则省略，后端保留原值（避免回传脱敏占位符） */
+  apiKey?: string
   apiBaseUrl: string
   enabled: boolean
 }
@@ -812,6 +826,16 @@ export const llmConfigApi = {
   getAll: () => api.get<LlmConfigMap>('/llm-config'),
   update: (id: string, data: LlmConfigUpdate) =>
     api.put<LlmConfigItem>(`/llm-config/${id}`, data),
+  /** 模型注册表列表（脱敏，供编排节点引用选择）；返回 LlmModelRef[] */
+  listModels: () => api.get<LlmModelRef[]>('/llm-config/registry'),
+}
+
+/** 模型注册表条目（来自 /api/llm-config/registry，不含 apiKey） */
+export interface LlmModelRef {
+  id: string
+  vendor: string
+  model: string
+  enabled: boolean
 }
 
 // ---- 系统消息（消息中心）API ----

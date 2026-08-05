@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from ..database import get_backend
 from ..repositories import OrchestrationWorkflowRepository
 from ..schemas import OrchestrationWorkflowSave
+from ..services.workflow_runner import run_workflow
 
 router = APIRouter(prefix="/orchestration", tags=["orchestration"])
 
@@ -41,3 +42,16 @@ def delete_workflow(bot_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="workflow not found")
     return {"botId": bot_id, "deleted": True}
+
+
+@router.post("/workflows/{bot_id}/run")
+def run_workflow_endpoint(bot_id: str, body: dict):
+    """真实执行编排工作流（用于前端编排测试）。
+
+    请求体: { "message": "用户输入的消息" }
+    返回: { finalReply, trace, usedRealLLM, kbHits }
+    """
+    message = (body.get("message") if isinstance(body, dict) else None) or ""
+    if not message.strip():
+        raise HTTPException(status_code=400, detail="message 不能为空")
+    return run_workflow(bot_id, message.strip())

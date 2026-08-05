@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ..database import get_backend
+from ..llm_registry import list_model_registry
 
 router = APIRouter(prefix="/llm-config", tags=["llm-config"])
 
@@ -51,6 +52,16 @@ def get_all_configs():
     return result
 
 
+@router.get("/registry")
+def get_registry():
+    """返回模型注册表列表（不含 apiKey），供前端编排节点引用选择。
+
+    与 GET / 的区别：本端点返回数组、不脱敏 apiKey 之外的敏感字段，
+    且结构更便于前端下拉选择器消费（id + vendor + model + enabled）。
+    """
+    return list_model_registry()
+
+
 @router.put("/{config_id}")
 def update_config(config_id: str, body: dict):
     """更新单条 LLM 模型配置。
@@ -63,9 +74,9 @@ def update_config(config_id: str, body: dict):
 
     backend = get_backend()
 
-    # 查找现有记录
+    # 查找现有记录（同时取出原 api_key 用于兜底）
     existing = backend.query_one(
-        "SELECT id FROM llm_model_configs WHERE id = ?", (config_id,)
+        "SELECT id, api_key FROM llm_model_configs WHERE id = ?", (config_id,)
     )
     if existing is None:
         raise HTTPException(status_code=404, detail=f"配置不存在: {config_id}")
@@ -73,9 +84,18 @@ def update_config(config_id: str, body: dict):
     # 从请求体中提取字段
     vendor = str(body.get("vendor", ""))
     model_name = str(body.get("model", ""))
-    api_key = str(body.get("apiKey", ""))
+    incoming_key = body.get("apiKey")  # None 表示前端未传该字段
     api_base_url = str(body.get("apiBaseUrl", ""))
     enabled = 1 if body.get("enabled", False) else 0
+
+    # 防御：GET 接口向客户端返回脱敏占位符 "••••••••"。
+    # 若前端把该占位符原样回传、或未传 apiKey 字段，则保留数据库中原存密钥，
+    # 避免把「显示值」当成「真值」写回、覆盖掉真实 Key（曾因此导致密钥被清空）。
+    # 仅当客户端明确传了一个非占位符的真实字符串时才更新 api_key。
+    if incoming_key is None or incoming_key == "••••••••":
+        api_key = existing["api_key"] or ""
+    else:
+        api_key = str(incoming_key)
 
     backend.execute(
         "UPDATE llm_model_configs SET vendor=?, model_name=?, api_key=?, api_base_url=?, enabled=?, updated_at=datetime('now') "

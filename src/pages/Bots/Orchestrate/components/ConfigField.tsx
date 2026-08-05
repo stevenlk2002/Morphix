@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import type { ConfigFieldDef } from '../types/orchestrate';
+import { llmConfigApi } from '../../../../api/client';
+import type { LlmModelRef } from '../../../../api/client';
 import './ConfigField.css';
 
 interface ConfigFieldProps {
@@ -32,6 +34,53 @@ export default function ConfigField({ field, value, onChange }: ConfigFieldProps
           {field.label}
         </label>
         <p className="config-field__note">{field.placeholder}</p>
+      </div>
+    );
+  }
+
+  // model_select：从 LLM 配置中心拉取模型引用（节点只存 model_id，不存 Key）
+  if (field.fieldType === 'model_select') {
+    const [modelOpts, setModelOpts] = useState<LlmModelRef[]>([]);
+    const [loadingModels, setLoadingModels] = useState(false);
+    useEffect(() => {
+      let alive = true;
+      setLoadingModels(true);
+      llmConfigApi
+        .listModels()
+        .then((list) => {
+          if (alive) setModelOpts(Array.isArray(list) ? list : []);
+        })
+        .catch(() => {
+          if (alive) setModelOpts([]);
+        })
+        .finally(() => {
+          if (alive) setLoadingModels(false);
+        });
+      return () => {
+        alive = false;
+      };
+    }, []);
+
+    return (
+      <div className="config-field">
+        <label className="config-field__label">
+          {field.label}
+          {field.required && <span className="config-field__required">*</span>}
+        </label>
+        <select
+          className="config-field__select"
+          value={String(currentValue)}
+          onChange={(e) => handleChange(e.target.value)}
+        >
+          <option value="">
+            {loadingModels ? '加载中…' : field.placeholder || '请选择模型'}
+          </option>
+          {modelOpts.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.vendor} / {m.model}
+            </option>
+          ))}
+        </select>
       </div>
     );
   }

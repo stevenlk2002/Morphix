@@ -600,6 +600,7 @@ def dashboard_seed() -> dict:
             {"id": "yefengqiu", "name": "野风秋大健康机器人", "project": "Morphix", "status": "online", "workflow": "销售接待主流程", "tone": "亲切专业", "score": 92},
             {"id": "fanfuni", "name": "笑笑尼家效销售机器人", "project": "Morphix", "status": "training", "workflow": "售后问题处理", "tone": "耐心清晰", "score": 81},
             {"id": "bot-3", "name": "WhatsApp 成交助理", "project": "Global Fit", "status": "online", "workflow": "海外询盘跟进", "tone": "国际化", "score": 88},
+            {"id": "hema", "name": "河马大健康客户", "project": "河马大健康", "status": "online", "workflow": "河马大健康主成交流程", "tone": "专业亲切", "score": 88},
         ],
     }
 

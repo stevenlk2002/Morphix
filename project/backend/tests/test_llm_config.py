@@ -153,3 +153,130 @@ def test_update_invalid_vendor():
         },
     )
     assert resp.status_code == 200, resp.text
+
+
+def test_registry_returns_no_api_key():
+    """GET /api/llm-config/registry → 返回数组且不含明文 apiKey。"""
+    _reset_seeds()
+    resp = client.get("/api/llm-config/registry")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert isinstance(data, list)
+    ids = {row["id"] for row in data}
+    assert "primary" in ids and "secondary" in ids
+    # 安全：注册表绝不泄露 api_key
+    assert all("api_key" not in row and "apiKey" not in row for row in data)
+    primary = next(r for r in data if r["id"] == "primary")
+    assert primary["vendor"] == "OpenAI" and primary["model"] == "GPT-4o"
+
+
+def test_resolve_llm_credentials_returns_raw_key():
+    """resolve_llm_credentials('primary') 返回明文 api_key（内部服务）。"""
+    _reset_seeds()
+    from app.llm_registry import resolve_llm_credentials
+
+    creds = resolve_llm_credentials("primary")
+    assert creds is not None
+    assert creds["api_key"] == "sk-orchestrator-7f3a9c2e1b4d"
+    assert creds["api_base_url"] == "https://api.openai.com/v1"
+    assert creds["model_name"] == "GPT-4o"
+    # 未知 id → None
+    assert resolve_llm_credentials("does-not-exist") is None
+
+
+def test_invoke_agent_graceful_fallback_offline():
+    """invoke_agent(model_profile='primary') 离线环境下回落且不抛异常。"""
+    _reset_seeds()
+    from app.contract.services import agents as agent_svc
+
+    result = agent_svc.invoke_agent(
+        run_id="r1",
+        node_execution_id="ne1",
+        agent_type="qa",
+        model_profile="primary",
+        structured_input={"message": "你好"},
+    )
+    assert "structuredOutput" in result
+    assert "reply" in result["structuredOutput"]
+    assert isinstance(result["structuredOutput"]["reply"], str)
+    # 离线回落到 stub（真实调用不可达），结构仍正确
+    assert result["structuredOutput"]["agentType"] == "qa"
+
+
+def test_invoke_agent_stub_profile_short_circuits():
+    """model_profile 以 stub 开头时直接走确定性 stub，不触碰凭证解析。"""
+    from app.contract.services import agents as agent_svc
+
+    result = agent_svc.invoke_agent(
+        run_id="r2",
+        node_execution_id="ne2",
+        agent_type="summarizer",
+        model_profile="stub-summarizer",
+        structured_input={"message": "x"},
+    )
+    assert result["structuredOutput"]["reply"] == "用户咨询了报价，意向明确，待发送方案。"
+
+
+def test_put_masked_placeholder_keeps_existing_key():
+    """回归：PUT 回传脱敏占位符 '••••••••' 时，不得覆盖真实密钥。"""
+    _reset_seeds()
+    resp = client.put(
+        "/api/llm-config/primary",
+        json={"vendor": "OpenAI", "model": "GPT-4o",
+              "apiKey": "••••••••", "apiBaseUrl": "https://api.openai.com/v1", "enabled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    # 数据库里的真实密钥应被原样保留
+    backend = get_backend()
+    row = backend.query_one(
+        "SELECT api_key FROM llm_model_configs WHERE id='primary'"
+    )
+    assert row["api_key"] == "sk-orchestrator-7f3a9c2e1b4d"
+
+
+def test_put_omit_api_key_keeps_existing():
+    """PUT 请求体不含 apiKey 字段时，保留原存密钥。"""
+    _reset_seeds()
+    resp = client.put(
+        "/api/llm-config/primary",
+        json={"vendor": "OpenAI", "model": "GPT-4o",
+              "apiBaseUrl": "https://api.openai.com/v1", "enabled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    backend = get_backend()
+    row = backend.query_one(
+        "SELECT api_key FROM llm_model_configs WHERE id='primary'"
+    )
+    assert row["api_key"] == "sk-orchestrator-7f3a9c2e1b4d"
+
+
+def test_put_new_real_key_updates():
+    """PUT 传真实新密钥时正常更新。"""
+    _reset_seeds()
+    resp = client.put(
+        "/api/llm-config/primary",
+        json={"vendor": "OpenAI", "model": "GPT-4o",
+              "apiKey": "sk-new-real-xyz", "apiBaseUrl": "https://api.openai.com/v1", "enabled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    backend = get_backend()
+    row = backend.query_one(
+        "SELECT api_key FROM llm_model_configs WHERE id='primary'"
+    )
+    assert row["api_key"] == "sk-new-real-xyz"
+
+
+def test_put_explicit_empty_clears_key():
+    """PUT 显式传空串 apiKey 时，允许清除密钥（区别于「省略字段」）。"""
+    _reset_seeds()
+    resp = client.put(
+        "/api/llm-config/primary",
+        json={"vendor": "OpenAI", "model": "GPT-4o",
+              "apiKey": "", "apiBaseUrl": "https://api.openai.com/v1", "enabled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    backend = get_backend()
+    row = backend.query_one(
+        "SELECT api_key FROM llm_model_configs WHERE id='primary'"
+    )
+    assert row["api_key"] == ""

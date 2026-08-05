@@ -35,6 +35,8 @@ interface ModelConfig {
   vendor: string
   model: string
   apiKey: string
+  /** true 表示服务端已有密钥（GET 返回的脱敏占位符），本地未改动；保存时不应把占位符回传。 */
+  apiKeyMasked: boolean
   apiBaseUrl: string
   enabled: boolean
 }
@@ -75,9 +77,24 @@ function ModelCard({
     setSaved(false)
   }
 
+  /**
+   * 当前厂商可选模型列表。
+   * 注意：vendor 可能是空串（后端未配置）或静态映射外的厂商（如 DB 里存了「智谱 / Ollama」），
+   * 此处必须兜底为空数组，否则 `.map` 会抛 TypeError 导致整页白屏。
+   */
+  const models: string[] = VENDOR_MODELS[config.vendor] ?? []
+  const isKnownVendor: boolean = VENDORS.includes(config.vendor)
+  /** 若当前 model 不在候选列表中，补进选项，避免受控 select 值与 UI 显示不一致。 */
+  const modelOptions: string[] =
+    config.model && models.length > 0 && !models.includes(config.model)
+      ? [config.model, ...models]
+      : models
+
   const handleVendorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const vendor = e.target.value
-    patch({ vendor, model: VENDOR_MODELS[vendor][0] })
+    // 未知厂商同样兜底，避免下标访问 undefined。
+    const nextModel = (VENDOR_MODELS[vendor] ?? [])[0] ?? ''
+    patch({ vendor, model: nextModel })
   }
 
   const toggleKeyVisibility = () => setShowKey((v) => !v)
@@ -123,7 +140,18 @@ function ModelCard({
         <label className="form-label">
           模型厂商 <span className="required">*</span>
         </label>
-        <select className="select" value={config.vendor} onChange={handleVendorChange}>
+        <select
+          className="select"
+          value={config.vendor}
+          onChange={handleVendorChange}
+          aria-label="模型厂商"
+        >
+          <option value="" disabled>
+            请选择厂商
+          </option>
+          {!isKnownVendor && config.vendor !== '' && (
+            <option value={config.vendor}>{config.vendor}</option>
+          )}
           {VENDORS.map((v) => (
             <option key={v} value={v}>
               {v}
@@ -136,17 +164,31 @@ function ModelCard({
         <label className="form-label">
           模型 <span className="required">*</span>
         </label>
-        <select
-          className="select"
-          value={config.model}
-          onChange={(e) => patch({ model: e.target.value })}
-        >
-          {VENDOR_MODELS[config.vendor].map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
+        {modelOptions.length === 0 ? (
+          // 厂商为空或不在静态映射中：降级为只读输入框，既不崩溃又能看到已存的 model 值。
+          <input
+            className="input"
+            type="text"
+            aria-label="模型"
+            value={config.model ?? ''}
+            placeholder="请先选择厂商"
+            readOnly
+            disabled
+          />
+        ) : (
+          <select
+            className="select"
+            value={config.model}
+            onChange={(e) => patch({ model: e.target.value })}
+            aria-label="模型"
+          >
+            {modelOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="form-group">
@@ -158,8 +200,14 @@ function ModelCard({
             className="input"
             type={showKey ? 'text' : 'password'}
             value={config.apiKey}
-            placeholder={`请输入 ${config.vendor} API Key`}
-            onChange={(e) => patch({ apiKey: e.target.value })}
+            placeholder={
+              config.apiKeyMasked
+                ? '已配置密钥，留空保持不变'
+                : config.vendor
+                  ? `请输入 ${config.vendor} API Key`
+                  : '请输入 API Key'
+            }
+            onChange={(e) => patch({ apiKey: e.target.value, apiKeyMasked: false })}
           />
           <button
             type="button"
@@ -233,25 +281,34 @@ function ModelCard({
 }
 
 /** 将 API 返回的配置项转为本地 ModelConfig。 */
-function itemToConfig(item: LlmConfigItem): ModelConfig {
+export function itemToConfig(item: LlmConfigItem): ModelConfig {
+  // GET 接口对已有密钥返回脱敏占位符 "••••••••"，不应把它当作真值填入可编辑输入框，
+  // 否则保存时会把占位符回写、覆盖真实密钥。识别到占位符则清空并在保存时省略该字段。
+  const masked = item.apiKey === '••••••••'
   return {
     vendor: item.vendor,
     model: item.model,
-    apiKey: item.apiKey,
+    apiKey: masked ? '' : (item.apiKey ?? ''),
+    apiKeyMasked: masked,
     apiBaseUrl: item.apiBaseUrl,
     enabled: item.enabled,
   }
 }
 
 /** 将本地 ModelConfig 转为 API 更新请求体。 */
-function configToUpdate(config: ModelConfig): LlmConfigUpdate {
-  return {
+export function configToUpdate(config: ModelConfig): LlmConfigUpdate {
+  const update: LlmConfigUpdate = {
     vendor: config.vendor,
     model: config.model,
-    apiKey: config.apiKey,
     apiBaseUrl: config.apiBaseUrl,
     enabled: config.enabled,
   }
+  // 若密钥未被修改（仍是从服务端带下来的脱敏态），则不携带 apiKey 字段，
+  // 由后端保留原存密钥。仅当用户实际输入了新密钥时才上传。
+  if (!config.apiKeyMasked) {
+    update.apiKey = config.apiKey
+  }
+  return update
 }
 
 export default function LlmConfigPage() {
@@ -259,6 +316,7 @@ export default function LlmConfigPage() {
     vendor: '',
     model: '',
     apiKey: '',
+    apiKeyMasked: false,
     apiBaseUrl: '',
     enabled: false,
   })
@@ -266,6 +324,7 @@ export default function LlmConfigPage() {
     vendor: '',
     model: '',
     apiKey: '',
+    apiKeyMasked: false,
     apiBaseUrl: '',
     enabled: false,
   })

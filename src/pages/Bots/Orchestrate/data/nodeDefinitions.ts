@@ -114,7 +114,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     ],
     outputs: [{ name: 'AI回复内容', varName: 'aiReply', dataType: 'any' }],
     config: [
-      { key: 'model', label: '大模型', fieldType: 'select', required: true, options: ['DeepSeek', 'GPT-4', 'Claude', '通义千问', '文心一言', '本地模型'], default: 'DeepSeek' },
+      { key: 'modelId', label: '大模型（配置中心）', fieldType: 'model_select', required: true, placeholder: '从 LLM 配置中心选择已配置的模型' },
       { key: 'prompt', label: '提示词', fieldType: 'textarea', required: true, placeholder: '用 {userChatInput} {chatHistory} {knowledges} 引用输入点变量' },
     ],
   },

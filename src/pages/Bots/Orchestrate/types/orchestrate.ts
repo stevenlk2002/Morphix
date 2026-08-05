@@ -39,7 +39,7 @@ export interface OutputPortDef {
 }
 
 /** Config 字段类型 */
-export type ConfigFieldType = 'text' | 'textarea' | 'select' | 'number' | 'note';
+export type ConfigFieldType = 'text' | 'textarea' | 'select' | 'number' | 'note' | 'model_select';
 
 /** Config 字段定义 */
 export interface ConfigFieldDef {
@@ -237,6 +237,12 @@ export interface DebugSession {
   trace: NodeExecutionRecord[];
   totalDurationMs: number;
   userMessage: string;
+  /** 真实执行返回的最终回复文本（编排测试 /run 端点） */
+  finalReply?: string;
+  /** 是否使用了真实 LLM（否则为基于知识库拼装的回落回答） */
+  usedRealLLM?: boolean;
+  /** 命中知识库条目数 */
+  kbHits?: number;
 }
 
 /** 测试面板状态（内嵌于 OrchestrateStore，不独立持久化） */
