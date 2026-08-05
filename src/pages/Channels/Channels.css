@@ -551,6 +551,154 @@
 .hosting-rule-input .input { max-width: 220px; }
 .hosting-rule-footer { display: flex; justify-content: flex-end; margin-top: 8px; }
 
+/* ── 托管管理页面：新增组件样式 ── */
+
+/* 筛选项宽度 */
+.hosting-filter-nickname { min-width: 200px; }
+.hosting-filter-account { min-width: 220px; }
+.hosting-filter-bot { min-width: 200px; }
+.hosting-filter-type { min-width: 160px; }
+.hosting-filter-date { min-width: 280px; }
+.hosting-filter-tags { min-width: 200px; flex: 1; }
+.hosting-filter-relation { min-width: 140px; }
+
+/* 最后一行按钮靠右 */
+.hosting-filter-row-last { align-items: center !important; }
+
+/* 已选 Chip（账号 / 标签多选） */
+.hosting-selected-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--blue-soft, #e8f0fe);
+  color: var(--blue, #1a73e8);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.hosting-chip-remove {
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.hosting-chip-remove:hover { opacity: 1; }
+
+/* 账号下拉（带头像） */
+.hosting-account-dropdown {
+  max-height: 240px;
+  overflow-y: auto;
+  min-width: 200px;
+}
+
+/* Bot 搜索下拉 */
+.hosting-bot-dropdown {
+  min-width: 200px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px !important;
+}
+.hosting-bot-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: #fff;
+}
+.hosting-bot-search input {
+  border: none;
+  outline: none;
+  font-size: 13px;
+  width: 100%;
+  background: transparent;
+  color: var(--text);
+}
+.hosting-bot-search svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* 标签多选下拉 */
+.hosting-tag-dropdown {
+  min-width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px !important;
+}
+.hosting-tag-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: #fff;
+}
+.hosting-tag-search input {
+  border: none;
+  outline: none;
+  font-size: 13px;
+  width: 100%;
+  background: transparent;
+  color: var(--text);
+}
+.hosting-tag-search svg { color: var(--muted); flex-shrink: 0; }
+.hosting-tag-group { padding: 4px 0; }
+.hosting-tag-group + .hosting-tag-group { border-top: 1px solid var(--line); }
+.hosting-tag-group-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 10px 2px;
+}
+.hosting-tag-option {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px !important;
+  cursor: pointer;
+  font-size: 13px;
+}
+.hosting-tag-option:hover { background: var(--surface-soft); }
+.hosting-tag-option.active { background: var(--blue-soft, #e8f0fe); color: var(--blue); }
+
+/* 日期范围选择器 */
+.hosting-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hosting-date-range input[type="date"] {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 4px);
+  padding: 5px 8px;
+  font-size: 13px;
+  outline: none;
+  color: var(--text);
+  background: var(--surface);
+  min-width: 130px;
+}
+.hosting-date-range input[type="date"]:focus {
+  border-color: var(--blue);
+}
+
+/* 返回按钮链接样式 */
+.btn-back-link {
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+  transition: color 150ms;
+}
+.btn-back-link:hover { color: var(--blue); }
+
 /* switch 开关 */
 .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
 .switch input { opacity: 0; width: 0; height: 0; }
